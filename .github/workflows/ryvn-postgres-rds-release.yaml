@@ -1,0 +1,27 @@
+name: Build & Release postgres-rds
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "aws/postgres-rds/**"
+      - ".github/workflows/ryvn-postgres-rds-release.yaml"
+  pull_request:
+    branches:
+      - "main"
+    paths:
+      - "aws/postgres-rds/**"
+
+jobs:
+  release:
+    uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
+    with:
+      service_name: postgres-rds
+    permissions:
+      contents: write
+      id-token: write
+    secrets:
+      RYVN_CLIENT_ID: ${{ secrets.RYVN_CLIENT_ID }}
+      RYVN_CLIENT_SECRET: ${{ secrets.RYVN_CLIENT_SECRET }}
