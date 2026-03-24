@@ -13,6 +13,12 @@ output "host" {
   value       = aws_db_instance.this.address
 }
 
+output "password" {
+  description = "The master password"
+  value       = aws_db_instance.this.password
+  sensitive   = true
+}
+
 output "port" {
   description = "The database port"
   value       = aws_db_instance.this.port
