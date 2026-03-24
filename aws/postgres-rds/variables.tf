@@ -42,9 +42,9 @@ variable "storage_gb" {
 }
 
 variable "max_storage_gb" {
-  description = "Maximum storage for autoscaling in GiB. Set to 0 to disable."
+  description = "Maximum storage for autoscaling in GiB. Set to 0 to disable. Defaults to 1000 GiB to prevent silent disk-full outages."
   type        = number
-  default     = 100
+  default     = 1000
 }
 
 # High availability
