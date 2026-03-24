@@ -18,7 +18,13 @@ provider "aws" {
   region = var.aws_region
 }
 
+resource "random_id" "suffix" {
+  byte_length = 4
+}
+
 locals {
+  name = "${var.installation_name}-${random_id.suffix.hex}"
+
   # Resolve engine version and parameter group defaults
   default_engine_versions = {
     redis  = "7.1"
@@ -48,7 +54,7 @@ resource "random_password" "auth_token" {
 
 resource "aws_cloudwatch_log_group" "slow_log" {
   count             = var.slow_log_enabled ? 1 : 0
-  name              = "/elasticache/${var.installation_name}/slow-log"
+  name              = "/elasticache/${local.name}/slow-log"
   retention_in_days = var.log_retention_days
 
   tags = var.tags
@@ -56,14 +62,14 @@ resource "aws_cloudwatch_log_group" "slow_log" {
 
 resource "aws_cloudwatch_log_group" "engine_log" {
   count             = var.engine_log_enabled ? 1 : 0
-  name              = "/elasticache/${var.installation_name}/engine-log"
+  name              = "/elasticache/${local.name}/engine-log"
   retention_in_days = var.log_retention_days
 
   tags = var.tags
 }
 
 resource "aws_elasticache_replication_group" "this" {
-  replication_group_id = var.installation_name
+  replication_group_id = local.name
   description          = "${var.engine} cluster for ${var.environment}"
 
   # Engine

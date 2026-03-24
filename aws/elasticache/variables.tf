@@ -6,7 +6,7 @@ variable "aws_region" {
 
 # Naming
 variable "installation_name" {
-  description = "Identifier for the ElastiCache replication group and related resources"
+  description = "Prefix for the ElastiCache replication group name. A stable random suffix is appended automatically."
   type        = string
 }
 

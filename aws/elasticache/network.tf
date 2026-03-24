@@ -8,18 +8,18 @@ locals {
 }
 
 resource "aws_elasticache_subnet_group" "this" {
-  name        = "${var.installation_name}-cache"
-  description = "Subnet group for ${var.installation_name} ${var.engine}"
+  name        = "${local.name}-cache"
+  description = "Subnet group for ${local.name} ${var.engine}"
   subnet_ids  = local.private_subnet_ids
 
   tags = merge(var.tags, {
-    Name = "${var.installation_name}-cache-subnet-group"
+    Name = "${local.name}-cache-subnet-group"
   })
 }
 
 resource "aws_security_group" "cache" {
-  name_prefix = "${var.installation_name}-cache-"
-  description = "Security group for ${var.installation_name} ${var.engine}"
+  name_prefix = "${local.name}-cache-"
+  description = "Security group for ${local.name} ${var.engine}"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -39,7 +39,7 @@ resource "aws_security_group" "cache" {
   }
 
   tags = merge(var.tags, {
-    Name = "${var.installation_name}-cache-sg"
+    Name = "${local.name}-cache-sg"
   })
 
   lifecycle {
