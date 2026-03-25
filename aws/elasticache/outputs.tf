@@ -39,8 +39,13 @@ output "security_group_id" {
 }
 
 output "connection_url" {
-  description = "Connection URL in the format redis(s)://host:port"
-  value       = "${var.transit_encryption_enabled ? "rediss" : "redis"}://${aws_elasticache_replication_group.this.primary_endpoint_address}:${var.port}"
+  description = "Connection URL in the format redis(s)://default:token@host:port (includes credentials when auth is enabled)"
+  value = local.auth_token != null ? (
+    "${var.transit_encryption_enabled ? "rediss" : "redis"}://default:${urlencode(local.auth_token)}@${aws_elasticache_replication_group.this.primary_endpoint_address}:${var.port}"
+    ) : (
+    "${var.transit_encryption_enabled ? "rediss" : "redis"}://${aws_elasticache_replication_group.this.primary_endpoint_address}:${var.port}"
+  )
+  sensitive = local.auth_token != null
 }
 
 output "auth_token" {
