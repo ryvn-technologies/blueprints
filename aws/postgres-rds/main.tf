@@ -48,6 +48,18 @@ resource "aws_db_parameter_group" "this" {
     value = "utf8"
   }
 
+  parameter {
+    name         = "shared_preload_libraries"
+    value        = "pg_cron"
+    apply_method = "pending-reboot"
+  }
+
+  parameter {
+    name         = "cron.database_name"
+    value        = var.database_name
+    apply_method = "pending-reboot"
+  }
+
   tags = local.all_tags
 
   lifecycle {
