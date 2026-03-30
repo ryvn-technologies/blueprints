@@ -34,6 +34,12 @@ output "username" {
   value       = aws_db_instance.this.username
 }
 
+output "connection_string" {
+  description = "Full PostgreSQL connection string"
+  value       = "postgresql://${aws_db_instance.this.username}:${aws_db_instance.this.password}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${aws_db_instance.this.db_name}"
+  sensitive   = true
+}
+
 output "arn" {
   description = "The ARN of the RDS instance"
   value       = aws_db_instance.this.arn
