@@ -3,6 +3,11 @@ output "primary_endpoint" {
   value       = aws_elasticache_replication_group.this.primary_endpoint_address
 }
 
+output "host" {
+  description = "Primary hostname for the cache"
+  value       = aws_elasticache_replication_group.this.primary_endpoint_address
+}
+
 output "reader_endpoint" {
   description = "Reader endpoint address (load-balanced across read replicas). Only useful when num_cache_clusters > 1."
   value       = aws_elasticache_replication_group.this.reader_endpoint_address
@@ -45,7 +50,7 @@ output "connection_url" {
     ) : (
     "${var.transit_encryption_enabled ? "rediss" : "redis"}://${aws_elasticache_replication_group.this.primary_endpoint_address}:${var.port}"
   )
-  sensitive = local.auth_token != null
+  sensitive = true
 }
 
 output "auth_token" {

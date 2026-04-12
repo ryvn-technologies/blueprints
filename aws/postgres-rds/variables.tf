@@ -45,6 +45,11 @@ variable "max_storage_gb" {
   description = "Maximum storage for autoscaling in GiB. Set to 0 to disable. Defaults to 1000 GiB to prevent silent disk-full outages."
   type        = number
   default     = 1000
+
+  validation {
+    condition     = var.max_storage_gb == 0 || var.max_storage_gb >= var.storage_gb
+    error_message = "max_storage_gb must be 0 or greater than or equal to storage_gb."
+  }
 }
 
 # High availability

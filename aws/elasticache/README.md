@@ -16,7 +16,7 @@ Terraform module for provisioning AWS ElastiCache with Redis or Valkey engine.
 
 ```hcl
 module "cache" {
-  source = "./infra/elasticache-redis"
+  source = "./infra/ryvn-cache/aws"
 
   installation_name  = "my-app-cache"
   environment        = "production"
@@ -51,7 +51,7 @@ module "cache" {
 
 ```hcl
 module "cache" {
-  source = "./infra/elasticache-redis"
+  source = "./infra/ryvn-cache/aws"
 
   installation_name  = "my-app-cache"
   environment        = "staging"
@@ -64,7 +64,7 @@ module "cache" {
 
 ```hcl
 module "cache" {
-  source = "./infra/elasticache-redis"
+  source = "./infra/ryvn-cache/aws"
 
   installation_name  = "my-app-cache"
   environment        = "production"

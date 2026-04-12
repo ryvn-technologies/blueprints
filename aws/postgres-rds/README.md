@@ -6,7 +6,7 @@ Provisions a PostgreSQL RDS instance with encryption, automated backups, monitor
 
 ```hcl
 module "postgres" {
-  source = "./infra/postgres-rds"
+  source = "./infra/ryvn-postgres/aws"
 
   name_prefix       = "my-app"
   environment       = "production"

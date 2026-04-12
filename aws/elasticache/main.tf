@@ -44,6 +44,11 @@ locals {
   auth_token = var.transit_encryption_enabled ? (
     var.auth_token != null ? var.auth_token : random_password.auth_token[0].result
   ) : var.auth_token
+
+  all_tags = merge(var.tags, {
+    Terraform   = "true"
+    Environment = var.environment
+  })
 }
 
 resource "random_password" "auth_token" {
@@ -57,7 +62,7 @@ resource "aws_cloudwatch_log_group" "slow_log" {
   name              = "/elasticache/${local.name}/slow-log"
   retention_in_days = var.log_retention_days
 
-  tags = var.tags
+  tags = local.all_tags
 }
 
 resource "aws_cloudwatch_log_group" "engine_log" {
@@ -65,7 +70,7 @@ resource "aws_cloudwatch_log_group" "engine_log" {
   name              = "/elasticache/${local.name}/engine-log"
   retention_in_days = var.log_retention_days
 
-  tags = var.tags
+  tags = local.all_tags
 }
 
 resource "aws_elasticache_replication_group" "this" {
@@ -125,9 +130,7 @@ resource "aws_elasticache_replication_group" "this" {
   # Apply changes immediately in non-maintenance windows
   apply_immediately = true
 
-  tags = merge(var.tags, {
-    "ryvn.app/environment" = var.environment
-  })
+  tags = local.all_tags
 
   lifecycle {
     precondition {

@@ -12,7 +12,7 @@ resource "aws_elasticache_subnet_group" "this" {
   description = "Subnet group for ${local.name} ${var.engine}"
   subnet_ids  = local.private_subnet_ids
 
-  tags = merge(var.tags, {
+  tags = merge(local.all_tags, {
     Name = "${local.name}-cache-subnet-group"
   })
 }
@@ -38,7 +38,7 @@ resource "aws_security_group" "cache" {
     cidr_blocks = [data.aws_vpc.selected.cidr_block]
   }
 
-  tags = merge(var.tags, {
+  tags = merge(local.all_tags, {
     Name = "${local.name}-cache-sg"
   })
 

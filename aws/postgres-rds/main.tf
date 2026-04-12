@@ -28,8 +28,8 @@ locals {
   family        = "postgres${local.major_version}"
 
   all_tags = merge(var.tags, {
-    Terraform               = "true"
-    "ryvn.app/environment"  = var.environment
+    Terraform   = "true"
+    Environment = var.environment
   })
 }
 
@@ -99,12 +99,12 @@ resource "aws_db_instance" "this" {
   deletion_protection = var.deletion_protection
 
   # Backup
-  backup_retention_period = var.backup_retention_days
-  backup_window           = "03:00-04:00"
-  maintenance_window      = "Mon:04:00-Mon:05:00"
-  skip_final_snapshot          = false
-  final_snapshot_identifier    = "${local.name}-final"
-  copy_tags_to_snapshot        = true
+  backup_retention_period   = var.backup_retention_days
+  backup_window             = "03:00-04:00"
+  maintenance_window        = "Mon:04:00-Mon:05:00"
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${local.name}-final"
+  copy_tags_to_snapshot     = true
 
   # Monitoring
   performance_insights_enabled          = var.performance_insights_enabled
