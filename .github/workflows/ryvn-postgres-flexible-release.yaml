@@ -1,0 +1,25 @@
+name: Build & Release postgres-flexible
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "azure/postgres-flexible/**"
+      - ".github/workflows/ryvn-postgres-flexible-release.yaml"
+  pull_request:
+    paths:
+      - "azure/postgres-flexible/**"
+
+jobs:
+  release:
+    uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
+    with:
+      service_name: postgres-flexible
+    permissions:
+      contents: write
+      id-token: write
+    secrets:
+      RYVN_CLIENT_ID: ${{ secrets.RYVN_CLIENT_ID }}
+      RYVN_CLIENT_SECRET: ${{ secrets.RYVN_CLIENT_SECRET }}
