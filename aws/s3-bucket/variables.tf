@@ -34,6 +34,52 @@ variable "public_access" {
   default     = false
 }
 
+variable "cors_rules" {
+  description = "Browser CORS rules for direct cross-origin bucket requests."
+  type = list(object({
+    allowed_origins = list(string)
+    allowed_methods = list(string)
+    allowed_headers = list(string)
+    expose_headers  = list(string)
+    max_age_seconds = number
+  }))
+  default = []
+
+  validation {
+    condition = alltrue([
+      for rule in var.cors_rules :
+      length(rule.allowed_origins) > 0
+    ])
+    error_message = "Each CORS rule must contain at least one allowed origin."
+  }
+
+  validation {
+    condition = alltrue([
+      for rule in var.cors_rules :
+      length(rule.allowed_methods) > 0
+    ])
+    error_message = "Each CORS rule must contain at least one allowed method."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for rule in var.cors_rules : [
+        for method in rule.allowed_methods :
+        contains(["GET", "PUT", "POST", "DELETE", "HEAD"], upper(trimspace(method)))
+      ]
+    ]))
+    error_message = "CORS rule methods must only contain valid S3 CORS methods: GET, PUT, POST, DELETE, HEAD."
+  }
+
+  validation {
+    condition = alltrue([
+      for rule in var.cors_rules :
+      rule.max_age_seconds >= 0
+    ])
+    error_message = "Each CORS rule max_age_seconds value must be 0 or greater."
+  }
+}
+
 # Lifecycle
 variable "expiration_days" {
   description = "Delete current-version objects after this many days. Set to 0 to disable."

@@ -1,6 +1,6 @@
 # S3 Bucket Module
 
-Provisions an S3 bucket with encryption, public-access blocking, optional versioning and lifecycle rules, and a scoped IAM role. Pods get access via EKS Pod Identity -- no static credentials.
+Provisions an S3 bucket with encryption, public-access blocking, optional versioning and lifecycle rules, optional browser CORS configuration, and a scoped IAM role. Pods get access via EKS Pod Identity -- no static credentials.
 
 ## Usage
 
@@ -23,6 +23,7 @@ module "bucket" {
 - **Bucket**: Unique name (prefix + random suffix), tagged with `Terraform` and `Environment`
 - **Encryption**: SSE-S3 (AES256) always on
 - **Public access**: All four public-access-block settings enforced by default (`public_access = false`). The module accepts a `public_access = true` override for direct consumers, but the bucket blueprint does not currently expose it — a cross-cloud `publicAccess` input is tracked in `docs-internal/bucket-blueprint-multicloud-plan.md` §4.
+- **CORS**: Optional browser CORS configuration for presigned URL and other direct bucket access flows, modeled as a list of rules so the module can grow to multiple rules without an interface change
 - **Versioning**: Off by default, opt-in via `versioning`
 - **Lifecycle**: Optional current-version expiration and noncurrent-version expiration
 - **IAM role**: Trust policy limited to `pods.eks.amazonaws.com`. Inline policy grants bucket-level `ListBucket`, `GetBucketLocation`, `ListBucketMultipartUploads` and object-level read/write/delete plus multipart cleanup on this bucket only
@@ -41,10 +42,25 @@ module "bucket" {
 | `aws_region` | AWS region | `"us-east-1"` |
 | `versioning` | Enable object versioning | `false` |
 | `public_access` | Allow public access (default: all four PAB flags enforced). Not exposed by the bucket blueprint. | `false` |
+| `cors_rules` | Browser CORS rules for direct cross-origin bucket requests | `[]` |
 | `expiration_days` | Expire current versions after N days (0 = disabled) | `0` |
 | `noncurrent_version_expiration_days` | Expire noncurrent versions after N days (0 = disabled; requires versioning) | `0` |
 | `deletion_protection` | Single switch. `true` blocks destroy of a non-empty bucket; `false` lets Terraform empty the bucket (all versions) and delete it. | `true` |
 | `tags` | Tags for all resources | `{}` |
+
+Each `cors_rules` entry has this shape:
+
+```hcl
+cors_rules = [
+  {
+    allowed_origins = ["https://app.example.com"]
+    allowed_methods = ["GET", "PUT", "HEAD"]
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3600
+  }
+]
+```
 
 ## Outputs
 
@@ -67,7 +83,6 @@ These cannot be changed after creation: bucket name, bucket region. Once version
 - Expose additional Pod Identity customization via blueprint input if per-service namespace support is ever needed
 - Unified `publicAccess` mode for hosting public static content (cross-cloud; deferred — see `docs-internal/bucket-blueprint-multicloud-plan.md`)
 - SSE-KMS with customer-managed keys
-- CORS configuration
 - Lifecycle transitions (to STANDARD_IA, GLACIER, etc.)
 - Object lock / retention
 - Replication
