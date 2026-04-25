@@ -41,7 +41,7 @@ output "username" {
 
 output "connection_string" {
   description = "Full PostgreSQL connection string"
-  value       = "postgresql://${azurerm_postgresql_flexible_server.this.administrator_login}:${azurerm_postgresql_flexible_server.this.administrator_password}@${azurerm_postgresql_flexible_server.this.fqdn}:5432/${coalesce(var.database_name, "postgres")}"
+  value       = "postgresql://${azurerm_postgresql_flexible_server.this.administrator_login}:${azurerm_postgresql_flexible_server.this.administrator_password}@${azurerm_postgresql_flexible_server.this.fqdn}:5432/${coalesce(var.database_name, "postgres")}?sslmode=require"
   sensitive   = true
 }
 

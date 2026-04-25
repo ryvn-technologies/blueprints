@@ -51,7 +51,7 @@ output "username" {
 
 output "connection_string" {
   description = "Full PostgreSQL connection string"
-  value       = "postgresql://${trimspace(var.database_username)}:${var.database_password}@${var.private_network != null ? google_sql_database_instance.this.private_ip_address : google_sql_database_instance.this.public_ip_address}:5432/${coalesce(var.database_name, "postgres")}"
+  value       = "postgresql://${trimspace(var.database_username)}:${var.database_password}@${var.private_network != null ? google_sql_database_instance.this.private_ip_address : google_sql_database_instance.this.public_ip_address}:5432/${coalesce(var.database_name, "postgres")}?sslmode=require"
   sensitive   = true
 }
 
