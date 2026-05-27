@@ -1,0 +1,114 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: clickhouse
+spec:
+  description: |
+    Deploys a ClickHouse analytics database inside your cluster using the official ClickHouse operator. Good for event logs, time-series data, and anything where you need fast aggregations over millions of rows.
+
+    Installs two services: the ClickHouse operator (in `clickhouse-operator` namespace) and a single-shard ClickHouse cluster with Keeper for coordination (in `clickhouse` namespace). Other installations connect over HTTP on port 8123 or native TCP on port 9000 using the `httpHost` and `nativeHost` outputs. Authentication uses the `default` user with a password stored in a Kubernetes secret (output: `passwordSecretName`).
+
+    Enable "Expose Dashboard" to publish the ClickHouse Play UI at `<installation-name>.<environment-domain>` with auto-provisioned TLS.
+  displayName: ClickHouse
+  inputGroups:
+    - name: access
+      description: Control public access to the ClickHouse UI.
+      displayName: Access
+    - name: auth
+      description: Credentials for the default ClickHouse user.
+      displayName: Authentication
+    - name: storage
+      description: Persistent storage sizing for the ClickHouse data and Keeper volumes.
+      displayName: Storage
+  inputs:
+    - name: exposeDashboard
+      type: boolean
+      default: false
+      description: Publish the ClickHouse Play UI at a public HTTPS URL.
+      displayName: Expose Dashboard
+      group: access
+    - name: defaultUserPassword
+      type: string
+      isSecret: true
+      description: Password for the default ClickHouse user.
+      displayName: Default User Password
+      group: auth
+      generated:
+        type: random-string
+        length: 32
+    - name: storageSizeGi
+      type: number
+      default: 10
+      description: Persistent storage size for ClickHouse data in GiB.
+      displayName: Storage Size (GiB)
+      group: storage
+    - name: keeperStorageSizeGi
+      type: number
+      default: 5
+      description: Persistent storage size for ClickHouse Keeper in GiB.
+      displayName: Keeper Storage Size (GiB)
+      group: storage
+  installations:
+    - service: clickhouse-operator
+      namespace: clickhouse-operator
+      releaseChannel: stable
+      config: |
+        certManager:
+          enable: false
+        webhook:
+          enable: false
+    - service: clickhouse
+      namespace: clickhouse
+      releaseChannel: stable
+      secrets:
+        - name: clickhouse-auth
+          values:
+            - key: password
+              valueFromInput:
+                name: defaultUserPassword
+      config: |
+        defaultUserPassword: {{ k8sSecretValue "clickhouse-auth" "password" }}
+        clickhouse:
+          storage:
+            size: '{{ input "storageSizeGi" }}Gi'
+        keeper:
+          storage:
+            size: '{{ input "keeperStorageSizeGi" }}Gi'
+        {{- if input "exposeDashboard" }}
+        ingress:
+          enabled: true
+          className: external-nginx
+          annotations:
+            cert-manager.io/cluster-issuer: external-issuer
+          host: '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+          tls:
+            - secretName: '{{ .ryvn.installation.name }}-tls'
+              hosts:
+                - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+        {{- else }}
+        ingress:
+          enabled: false
+        {{- end }}
+  outputs:
+    - name: httpHost
+      type: string
+      displayName: HTTP Host
+      description: Internal hostname for HTTP connections on port 8123.
+      from: '{{ .ryvn.installation.name }}-http.{{ (serviceInstallation "clickhouse").namespace }}.svc.cluster.local'
+    - name: nativeHost
+      type: string
+      displayName: Native TCP Host
+      description: Internal hostname for native TCP connections on port 9000. Faster than HTTP for bulk inserts and heavy queries.
+      from: '{{ .ryvn.installation.name }}-clickhouse-headless.{{ (serviceInstallation "clickhouse").namespace }}.svc.cluster.local'
+    - name: passwordSecretName
+      type: string
+      displayName: Password Secret Name
+      description: Name of the Kubernetes Secret containing the default user password (key "password").
+      from: '{{ .ryvn.installation.name }}-default-user'
+    - name: dashboardUrl
+      type: string
+      displayName: Dashboard URL
+      description: Public HTTPS URL for the ClickHouse Play UI.
+      from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}/play'
+      condition: '{{ input "exposeDashboard" }}'
+  isPublic: true

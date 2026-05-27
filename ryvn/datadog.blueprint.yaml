@@ -1,0 +1,139 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: datadog
+spec:
+  description: >
+    Datadog monitoring stack for Kubernetes. Deploys the standalone Datadog
+    Operator and a DatadogAgent custom resource for metrics, logs, APM, and
+    optional network/process monitoring. Only the API key is required — all
+    features have sensible defaults. Uses the Datadog Operator pattern
+    with a DatadogAgent custom resource.
+  displayName: Datadog
+  inputGroups:
+    - name: auth
+      description: Datadog API credentials.
+      displayName: Authentication
+    - name: general
+      description: Core Datadog configuration.
+      displayName: General
+    - name: features
+      description: Toggle Datadog collection features.
+      displayName: Features
+  inputs:
+    # --- auth ---
+    - name: apiKey
+      type: string
+      isSecret: true
+      description: Datadog API key.
+      displayName: API Key
+      group: auth
+    - name: useAppKey
+      type: boolean
+      default: false
+      description: >
+        Provide a Datadog application key. Required when using the external metrics
+        server.
+      displayName: Use App Key
+      group: auth
+    - name: appKey
+      type: string
+      isSecret: true
+      description: Datadog application key.
+      displayName: App Key
+      group: auth
+      condition: '{{ input "useAppKey" }}'
+    # --- general ---
+    - name: site
+      type: string
+      default: us5.datadoghq.com
+      description: >
+        Datadog intake site. Common values: datadoghq.com (US1),
+        us3.datadoghq.com (US3), us5.datadoghq.com (US5),
+        datadoghq.eu (EU1), ap1.datadoghq.com (AP1),
+        ddog-gov.com (US1-FED).
+      displayName: Datadog Site
+      group: general
+    # --- features ---
+    - name: logsEnabled
+      type: boolean
+      default: true
+      description: Collect logs from all containers.
+      displayName: Log Collection
+      group: features
+    - name: apmEnabled
+      type: boolean
+      default: true
+      description: Enable APM trace collection and admission controller.
+      displayName: APM / Tracing
+      group: features
+    - name: npmEnabled
+      type: boolean
+      default: false
+      description: Enable Cloud Network Monitoring (requires eBPF support).
+      displayName: Network Monitoring
+      group: features
+    - name: processEnabled
+      type: boolean
+      default: false
+      description: Enable live process monitoring.
+      displayName: Live Processes
+      group: features
+    - name: securityEnabled
+      type: boolean
+      default: false
+      description: >
+        Enable Cloud Security Posture Management (CSPM) and
+        Cloud Workload Security (CWS).
+      displayName: Security Monitoring
+      group: features
+  installations:
+    - service: datadog-operator
+      namespace: datadog
+      releaseChannel: stable
+      config: |
+        replicaCount: 1
+        site: '{{ input "site" }}'
+        operatorMetricsEnabled: "false"
+    - service: datadog-agent
+      namespace: datadog
+      releaseChannel: stable
+      config: |
+        clusterName: '{{ .ryvn.env.name }}'
+        site: '{{ input "site" }}'
+        apiSecretName: {{ k8sSecretName "datadog-api-key" }}
+        apiSecretKey: api-key
+        {{- if input "useAppKey" }}
+        appSecretName: {{ k8sSecretName "datadog-app-key" }}
+        appSecretKey: app-key
+        {{- end }}
+        features:
+          logCollection:
+            enabled: {{ input "logsEnabled" }}
+            containerCollectAll: {{ input "logsEnabled" }}
+          apm:
+            enabled: {{ input "apmEnabled" }}
+            hostPortConfig:
+              enabled: {{ input "apmEnabled" }}
+          admissionController:
+            enabled: {{ input "apmEnabled" }}
+          npm:
+            enabled: {{ input "npmEnabled" }}
+          usm:
+            enabled: {{ input "npmEnabled" }}
+          liveProcessCollection:
+            enabled: {{ input "processEnabled" }}
+          cspm:
+            enabled: {{ input "securityEnabled" }}
+          cws:
+            enabled: {{ input "securityEnabled" }}
+      secrets:
+        - name: datadog-api-key
+          values:
+            - key: api-key
+              valueFromInput: apiKey
+        - name: datadog-app-key
+          values:
+            - key: app-key
+              valueFromInput: appKey
+  isPublic: true

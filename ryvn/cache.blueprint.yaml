@@ -1,0 +1,104 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: cache
+spec:
+  description: |
+    Provisions a managed Redis instance using each cloud's native service -- ElastiCache on AWS, Memorystore on GCP, Azure Cache for Redis on Azure. The blueprint selects the right Terraform module based on your environment's cloud provider.
+
+    Size controls memory allocation: small gives ~1 GB, medium ~2 GB, large ~4 GB (exact specs vary by provider). High availability adds a replica with automatic failover (multi-AZ on AWS, STANDARD_HA tier on GCP, Standard SKU on Azure).
+
+    Outputs include `host`, `port`, `connectionUrl`, and `authToken`. Other installations in the same environment can reference these to connect.
+  displayName: Cache
+  inputs:
+    - name: cacheName
+      type: string
+      default: redis
+      description: A name for your cache.
+      displayName: Cache Name
+    - name: size
+      type: string
+      default: medium
+      description: "Cache size. Small: ~1 GB, suitable for development. Medium: ~2 GB, good starting point for most workloads. Large: ~4 GB, for higher throughput."
+      displayName: Size
+      options:
+        - label: Small
+          value: small
+        - label: Medium
+          value: medium
+        - label: Large
+          value: large
+    - name: highAvailability
+      type: boolean
+      default: false
+      description: Enable high availability with automatic failover.
+      displayName: High Availability
+  outputs:
+    - name: host
+      type: string
+      from: '{{ (serviceInstallation "cache").outputs.host }}'
+      description: Hostname for connecting to the cache from other services in the cluster.
+      displayName: Host
+    - name: port
+      type: number
+      from: '{{ (serviceInstallation "cache").outputs.port }}'
+      description: Port number for Redis connections (typically 6379).
+      displayName: Port
+    - name: connectionUrl
+      type: string
+      from: '{{ (serviceInstallation "cache").outputs.connection_url }}'
+      description: Full Redis connection URL with credentials included.
+      displayName: Connection URL
+      isSecret: true
+    - name: authToken
+      type: string
+      from: '{{ (serviceInstallation "cache").outputs.auth_token }}'
+      description: Auth token for Redis authentication.
+      displayName: Auth Token
+      isSecret: true
+  installations:
+    - service: elasticache
+      name: cache
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+      config: |
+        aws_region: '{{ .ryvn.env.state.cluster_region }}'
+        vpc_id: {{ .ryvn.env.state.vpc.id }}
+        private_subnet_ids: '{{ .ryvn.env.state.vpc.private_subnet_ids | join "," }}'
+        installation_name: '{{ .ryvn.env.name }}-{{ input "cacheName" }}'
+        environment: '{{ .ryvn.env.name }}'
+        node_type: '{{ if eq (input "size") "large" }}cache.r7g.large{{ else if eq (input "size") "small" }}cache.t3.small{{ else }}cache.t3.medium{{ end }}'
+        {{- if input "highAvailability" }}
+        num_cache_clusters: 2
+        multi_az_enabled: true
+        automatic_failover_enabled: true
+        {{- end }}
+      releaseChannel: stable
+    - service: memorystore-redis
+      name: cache
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        region: '{{ .ryvn.env.state.cluster_region }}'
+        installation_name: '{{ .ryvn.env.name }}-{{ input "cacheName" }}'
+        environment: '{{ .ryvn.env.name }}'
+        tier: '{{ if input "highAvailability" }}STANDARD_HA{{ else }}BASIC{{ end }}'
+        memory_size_gb: {{ if eq (input "size") "large" }}4{{ else if eq (input "size") "small" }}1{{ else }}2{{ end }}
+        authorized_network: '{{ .ryvn.env.state.vpc.self_link }}'
+      releaseChannel: stable
+    - service: redis-cache
+      name: cache
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        location: '{{ .ryvn.env.state.resource_group.location }}'
+        resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
+        installation_name: '{{ .ryvn.env.name }}-{{ input "cacheName" }}'
+        environment: '{{ .ryvn.env.name }}'
+        sku_name: '{{ if input "highAvailability" }}Standard{{ else }}Basic{{ end }}'
+        capacity: {{ if eq (input "size") "large" }}2{{ else if eq (input "size") "small" }}0{{ else }}1{{ end }}
+        private_endpoint_subnet_id: '{{ .ryvn.env.state.vnet.private_endpoint_subnet.id }}'
+        private_dns_zone_id: '{{ .ryvn.env.state.vnet.redis_private_dns_zone.id }}'
+      releaseChannel: stable
+  isPublic: true

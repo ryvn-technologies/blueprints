@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: tailscale-operator
+spec:
+  description: Deploys the Tailscale operator with OAuth credentials.
+  displayName: Tailscale Operator
+  inputs:
+    - name: clientId
+      type: string
+      isSecret: true
+      displayName: Client ID
+      description: Tailscale OAuth client ID.
+    - name: clientSecret
+      type: string
+      isSecret: true
+      displayName: Client Secret
+      description: Tailscale OAuth client secret.
+  installations:
+    - service: tailscale-operator
+      namespace: tailscale-operator
+      releaseChannel: stable
+      secrets:
+        - name: operator-oauth
+          values:
+            - key: client_id
+              valueFromInput: clientId
+            - key: client_secret
+              valueFromInput: clientSecret
+      config: |
+        installCRDs: true
+        oauthSecretVolume:
+          secret:
+            secretName: '{{ k8sSecretName "operator-oauth" }}'
+            items:
+              - key: client_id
+                path: client_id
+              - key: client_secret
+                path: client_secret
+  outputs:
+    - name: namespace
+      type: string
+      displayName: Namespace
+      description: Kubernetes namespace where the operator is deployed.
+      from: tailscale-operator
+  isPublic: true

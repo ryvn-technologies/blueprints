@@ -1,0 +1,131 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: redis
+spec:
+  description: >
+    Standalone or replicated Redis cache backed by the CloudPirates Helm chart.
+    Connect from other services using the host output on the port output.
+  displayName: Redis
+  inputGroups:
+    - name: auth
+      displayName: Authentication
+      description: Credentials for the Redis instance.
+    - name: sizing
+      displayName: Sizing
+      description: Replica count and architecture mode.
+    - name: storage
+      displayName: Storage
+      description: Persistent volume configuration for Redis data.
+  inputs:
+    - name: password
+      type: string
+      isSecret: true
+      description: Password for the default Redis user.
+      displayName: Password
+      group: auth
+      generated:
+        type: random-string
+        length: 32
+    - name: replicas
+      type: number
+      default: 1
+      description: >
+        Number of Redis replicas. 1 runs in standalone mode;
+        values greater than 1 enable replication with read replicas.
+      displayName: Replicas
+      group: sizing
+    - name: size
+      type: string
+      default: small
+      description: "Resource sizing profile for each Redis replica. Small: 250m CPU, 512Mi memory (light cache). Medium: 500m CPU, 1Gi memory (typical production). Large: 1 CPU, 2Gi memory (higher throughput)."
+      displayName: Size
+      group: sizing
+      options:
+        - label: "Small (250m CPU, 512Mi memory)"
+          value: small
+        - label: "Medium (500m CPU, 1Gi memory)"
+          value: medium
+        - label: "Large (1 CPU, 2Gi memory)"
+          value: large
+    - name: persistenceEnabled
+      type: boolean
+      default: true
+      description: Enable persistent storage for Redis data.
+      displayName: Enable Persistence
+      group: storage
+    - name: storageSizeGi
+      type: number
+      default: 8
+      description: Persistent storage size per Redis replica in GiB.
+      displayName: Storage Size (GiB)
+      group: storage
+      condition: '{{ input "persistenceEnabled" }}'
+  installations:
+    - service: redis
+      namespace: redis
+      releaseChannel: stable
+      secrets:
+        - name: redis-auth
+          values:
+            - key: redis-password
+              valueFromInput:
+                name: password
+      config: |
+        {{- if eq (printf "%.0f" (input "replicas")) "1" }}
+        architecture: standalone
+        {{- else }}
+        architecture: replication
+        {{- end }}
+        replicaCount: {{ input "replicas" }}
+        auth:
+          enabled: true
+          password: '{{ k8sSecretValue "redis-auth" "redis-password" }}'
+        persistence:
+          enabled: {{ input "persistenceEnabled" }}
+        {{- if input "persistenceEnabled" }}
+          size: '{{ input "storageSizeGi" }}Gi'
+        {{- end }}
+        {{- if eq (input "size") "small" }}
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 250m
+            memory: 512Mi
+        {{- else if eq (input "size") "medium" }}
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        {{- else if eq (input "size") "large" }}
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        {{- end }}
+  outputs:
+    - name: host
+      type: string
+      displayName: Host
+      description: Internal hostname for Redis connections.
+      from: '{{ (serviceInstallation "redis").name }}{{ if ne (printf "%.0f" (input "replicas")) "1" }}-master{{ end }}.{{ (serviceInstallation "redis").namespace }}.svc.cluster.local'
+    - name: port
+      type: string
+      displayName: Port
+      description: Redis connection port.
+      from: "6379"
+    - name: password
+      type: string
+      isSecret: true
+      displayName: Password
+      description: Password for the default Redis user.
+      from: '{{ k8sSecretValue "redis-auth" "redis-password" }}'
+  isPublic: true

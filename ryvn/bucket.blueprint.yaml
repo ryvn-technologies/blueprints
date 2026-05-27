@@ -1,0 +1,153 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: bucket
+spec:
+  description: |
+    Provisions an S3 object storage bucket on AWS with sensible defaults: server-side encryption always on, all public access blocked, and a dedicated IAM role scoped to just this bucket. Pods get access via EKS Pod Identity -- no static access keys to manage or rotate. Pick a name, decide on versioning and lifecycle rules, and the blueprint handles the rest.
+
+    Outputs include `bucketName`, `bucketId`, and `connectionUrl`. List the services that should get bucket access under Target Services and the blueprint wires up EKS Pod Identity associations for each one; otherwise just the role is created and you can associate it yourself.
+  displayName: Bucket
+  inputGroups:
+    - name: naming
+      description: Bucket identity
+      displayName: Naming
+    - name: security
+      description: Versioning and other security controls
+      displayName: Security
+    - name: lifecycle
+      description: Automatic object expiration
+      displayName: Lifecycle
+    - name: access
+      description: Which services should get access to this bucket
+      displayName: Access
+    - name: cors
+      description: Browser cross-origin access for direct bucket requests
+      displayName: CORS
+    - name: protection
+      description: Guardrails for destructive actions
+      displayName: Protection
+  inputs:
+    - name: bucketName
+      type: string
+      default: ""
+      description: Desired name for the bucket. A short random suffix is appended automatically to guarantee global uniqueness. Leave blank to derive it from the installation name.
+      displayName: Bucket Name
+      group: naming
+    - name: versioning
+      type: boolean
+      default: true
+      description: Keep previous versions of objects. Useful for recovery from accidental overwrites or deletes. Once enabled, versioning can be suspended but not fully removed.
+      displayName: Versioning
+      group: security
+    - name: expirationDays
+      type: number
+      default: 0
+      description: Automatically delete objects after this many days. Set to 0 to keep objects indefinitely.
+      displayName: Object Expiration (Days)
+      group: lifecycle
+    - name: noncurrentVersionExpirationDays
+      type: number
+      default: 0
+      description: Delete noncurrent versions after this many days. Only applies when versioning is enabled. Set to 0 to keep old versions indefinitely.
+      displayName: Noncurrent Version Expiration (Days)
+      group: lifecycle
+    - name: targetServiceInstallations
+      type: array
+      default: []
+      description: Installation names of services that should get read/write access to this bucket.
+      displayName: Target Service Installations
+      group: access
+    - name: enableCors
+      type: boolean
+      default: false
+      description: Allow browsers to make direct cross-origin requests to this bucket.
+      displayName: Enable CORS
+      group: cors
+    - name: corsAllowedOrigins
+      type: array
+      default: []
+      description: Browser origins allowed to access this bucket directly.
+      displayName: Allowed Origins
+      group: cors
+      condition: '{{ eq (input "enableCors") true }}'
+    - name: corsAllowedMethods
+      type: array
+      default: []
+      description: HTTP methods browsers may use for direct cross-origin requests to this bucket.
+      displayName: Allowed Methods
+      group: cors
+      condition: '{{ eq (input "enableCors") true }}'
+    - name: corsAllowedHeaders
+      type: array
+      default:
+        - "*"
+      description: Request headers browsers may send for cross-origin requests.
+      displayName: Allowed Headers
+      group: cors
+      condition: '{{ eq (input "enableCors") true }}'
+    - name: corsExposeHeaders
+      type: array
+      default: []
+      description: Response headers browsers may expose to JavaScript.
+      displayName: Expose Headers
+      group: cors
+      condition: '{{ eq (input "enableCors") true }}'
+    - name: corsMaxAgeSeconds
+      type: number
+      default: 3600
+      description: How long browsers should cache successful CORS preflight responses.
+      displayName: Max Age (Seconds)
+      group: cors
+      condition: '{{ eq (input "enableCors") true }}'
+    - name: deletionProtection
+      type: boolean
+      default: true
+      description: Protects the bucket from accidental destruction. When enabled, the bucket cannot be destroyed while it contains objects. Disable to let Terraform empty and delete the bucket when tearing down an environment.
+      displayName: Deletion Protection
+      group: protection
+  outputs:
+    - name: bucketName
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.bucket_name }}'
+      description: Full name of the bucket, including the random suffix.
+      displayName: Bucket Name
+    - name: bucketId
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.bucket_id }}'
+      description: Cloud-native identifier for the bucket (an ARN on AWS, a resource ID on GCP or Azure).
+      displayName: Bucket ID
+    - name: connectionUrl
+      type: string
+      from: 'https://{{ (serviceInstallation "bucket").outputs.bucket_domain_name }}'
+      description: HTTP connection URL for the bucket (e.g. https://my-bucket.s3.us-east-1.amazonaws.com).
+      displayName: Connection URL
+  installations:
+    - service: s3-bucket
+      name: bucket
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+      config: |
+        aws_region: '{{ .ryvn.env.state.cluster_region }}'
+        cluster_name: '{{ .ryvn.env.state.cluster_name }}'
+        name_prefix: '{{ .ryvn.installation.name }}'
+        bucket_name: '{{ input "bucketName" }}'
+        environment: '{{ .ryvn.env.name }}'
+        versioning: {{ input "versioning" }}
+        expiration_days: {{ input "expirationDays" }}
+        noncurrent_version_expiration_days: {{ input "noncurrentVersionExpirationDays" }}
+        deletion_protection: {{ input "deletionProtection" }}
+        pod_identity_namespace: '{{ .ryvn.env.defaultNamespace }}'
+        pod_identity_service_accounts: {{ input "targetServiceInstallations" | toJson }}
+        {{ if eq (input "enableCors") true }}
+        cors_rules:
+          - allowed_origins: {{ input "corsAllowedOrigins" | toJson }}
+            allowed_methods: {{ input "corsAllowedMethods" | toJson }}
+            allowed_headers: {{ input "corsAllowedHeaders" | toJson }}
+            expose_headers: {{ input "corsExposeHeaders" | toJson }}
+            max_age_seconds: {{ input "corsMaxAgeSeconds" }}
+        {{ else }}
+        cors_rules: []
+        {{ end }}
+      releaseChannel: stable
+  isPublic: true

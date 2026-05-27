@@ -1,0 +1,140 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: inngest
+spec:
+  description: |
+    Deploys a self-hosted Inngest server for background jobs, scheduled tasks, and event-driven workflows. You write functions in your application code using the Inngest SDK (TypeScript, Python, or Go), send events to Inngest, and it handles execution, retries, scheduling, and concurrency control.
+
+    Installs a single Helm release in the `inngest` namespace with bundled Postgres and Redis as sub-charts -- no other blueprints or external databases needed. The event key and signing key authenticate your application's SDK with the Inngest server.
+
+    Useful as a cron replacement, for webhook delivery, multi-step workflows, or any async work where you want retries and observability. Enable "Expose Dashboard" to publish the Inngest UI at `<installation-name>.<environment-domain>` with auto-provisioned TLS.
+  displayName: Inngest
+  inputGroups:
+    - name: access
+      description: Control whether the Inngest UI is exposed publicly.
+      displayName: Access
+    - name: secrets
+      description: Event key, signing key, and database password. The Postgres password is auto-generated if left blank.
+      displayName: Secrets
+    - name: storage
+      description: Disk sizes for the bundled Postgres and Redis instances.
+      displayName: Storage
+  inputs:
+    - name: exposeDashboard
+      type: boolean
+      default: false
+      description: Publish the Inngest UI at a public HTTPS URL.
+      displayName: Expose Dashboard
+      group: access
+    - name: eventKey
+      type: string
+      isSecret: true
+      description: Event key that your application uses when sending events to Inngest. Include this in your Inngest client configuration.
+      displayName: Event Key
+      group: secrets
+    - name: signingKey
+      type: string
+      isSecret: true
+      description: Signing key that Inngest uses to sign webhook requests to your functions. Your SDK uses this to verify requests are authentic.
+      displayName: Signing Key
+      group: secrets
+    - name: postgresPassword
+      type: string
+      isSecret: true
+      description: Password for the bundled Postgres instance.
+      displayName: Postgres Password
+      group: secrets
+      generated:
+        type: random-string
+        length: 32
+    - name: postgresStorageSizeGi
+      type: number
+      default: 8
+      description: Persistent storage size for Postgres in GiB.
+      displayName: Postgres Storage Size (GiB)
+      group: storage
+    - name: redisStorageSizeGi
+      type: number
+      default: 4
+      description: Persistent storage size for Redis in GiB.
+      displayName: Redis Storage Size (GiB)
+      group: storage
+  installations:
+    - service: inngest
+      namespace: inngest
+      releaseChannel: stable
+      config: |
+        namespace:
+          create: false
+          name: inngest
+        {{- if input "exposeDashboard" }}
+        ingress:
+          enabled: true
+          className: external-nginx
+          annotations:
+            cert-manager.io/cluster-issuer: external-issuer
+          hosts:
+            - host: '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: '{{ .ryvn.installation.name }}-tls'
+              hosts:
+                - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+        {{- else }}
+        ingress:
+          enabled: false
+        {{- end }}
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        inngest:
+          eventKey: {{ k8sSecretValue "inngest-secrets" "eventKey" }}
+          signingKey: {{ k8sSecretValue "inngest-secrets" "signingKey" }}
+          json: true
+          logLevel: info
+          noUI: false
+        postgresql:
+          enabled: true
+          auth:
+            database: inngest
+            username: inngest
+            password: {{ k8sSecretValue "inngest-secrets" "postgresPassword" }}
+          persistence:
+            enabled: true
+            size: '{{ input "postgresStorageSizeGi" }}Gi'
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+        redis:
+          enabled: true
+          persistence:
+            enabled: true
+            size: '{{ input "redisStorageSizeGi" }}Gi'
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+      secrets:
+        - name: inngest-secrets
+          values:
+            - key: eventKey
+              valueFromInput: eventKey
+            - key: signingKey
+              valueFromInput: signingKey
+            - key: postgresPassword
+              valueFromInput: postgresPassword
+  isPublic: true

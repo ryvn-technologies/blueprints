@@ -1,0 +1,219 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: postgres
+spec:
+  description: |
+    Provisions a managed Postgres instance using each cloud's native service -- RDS on AWS, Cloud SQL on GCP, Flexible Server on Azure. The blueprint picks the right Terraform module based on your environment's cloud provider, so your other installations reference the same outputs regardless of where they run.
+
+    Instances get encryption at rest and automated backups. You choose the Postgres version (14--17), instance size (small maps to db.t3.medium on AWS, medium to db.r7g.large, large to db.r7g.xlarge -- with equivalent tiers on GCP and Azure), and backup retention. High availability adds a standby replica with automatic failover.
+
+    Outputs include `host`, `port`, `connectionString`, and credentials. Other installations in the same environment can reference these outputs to connect without manual configuration.
+  displayName: Postgres
+  inputGroups:
+    - name: engine
+      description: Postgres version
+      displayName: Engine
+    - name: capacity
+      description: Configure instance size and storage
+      displayName: Capacity
+    - name: credentials
+      description: Database name and credentials
+      displayName: Credentials
+    - name: backup
+      description: Backup and recovery settings
+      displayName: Backup
+  inputs:
+    - name: version
+      type: string
+      default: "16"
+      description: Postgres major version.
+      displayName: Version
+      group: engine
+      options:
+        - label: "17"
+          value: "17"
+        - label: "16"
+          value: "16"
+        - label: "15"
+          value: "15"
+        - label: "14"
+          value: "14"
+    - name: size
+      type: string
+      default: small
+      description: Instance size. Small is suitable for development and low-traffic workloads, medium for most production workloads, and large for higher-throughput or memory-intensive workloads.
+      displayName: Instance Size
+      group: capacity
+      options:
+        - label: Small
+          value: small
+        - label: Medium
+          value: medium
+        - label: Large
+          value: large
+    - name: storageGB
+      type: number
+      default: 20
+      description: Initial storage in GB. Storage scales up automatically as needed but cannot be decreased. Azure values below 32 GiB are set to 32.
+      displayName: Storage (GB)
+      group: capacity
+    - name: highAvailability
+      type: boolean
+      default: false
+      description: Deploy a standby replica with automatic failover. Recommended for production workloads.
+      displayName: High Availability
+      group: capacity
+    - name: databaseName
+      type: string
+      default: postgres
+      description: Name of the database to create.
+      displayName: Database Name
+      group: credentials
+    - name: username
+      type: string
+      default: postgres
+      description: Username for the database.
+      displayName: Username
+      group: credentials
+    - name: password
+      type: string
+      description: Master password for the database. Minimum 8 characters.
+      displayName: Password
+      isSecret: true
+      generated:
+        type: random-string
+        length: 24
+      group: credentials
+    - name: backupRetentionDays
+      type: number
+      default: 7
+      description: Number of days to retain automated backups. Set to 0 to disable automated backups on AWS and GCP. Azure requires 7-35 days and will reject 0.
+      displayName: Backup Retention (Days)
+      group: backup
+    - name: deletionProtection
+      type: boolean
+      default: true
+      description: Protects the database from accidental destruction. Disable before tearing down an environment.
+      displayName: Deletion Protection
+      group: backup
+  outputs:
+    - name: host
+      type: string
+      from: '{{ (serviceInstallation "postgres").outputs.host }}'
+      description: Hostname for connecting to the database from other services.
+      displayName: Host
+    - name: port
+      type: number
+      from: '{{ (serviceInstallation "postgres").outputs.port }}'
+      description: Port number for database connections (typically 5432).
+      displayName: Port
+    - name: endpoint
+      type: string
+      from: '{{ (serviceInstallation "postgres").outputs.endpoint }}'
+      description: Connection endpoint in host:port format.
+      displayName: Endpoint
+    - name: databaseName
+      type: string
+      from: '{{ (serviceInstallation "postgres").outputs.database_name }}'
+      description: Name of the created database.
+      displayName: Database Name
+    - name: username
+      type: string
+      from: '{{ (serviceInstallation "postgres").outputs.username }}'
+      description: Username for database authentication.
+      displayName: Username
+    - name: password
+      type: string
+      from: '{{ (serviceInstallation "postgres").outputs.password }}'
+      description: Master password for database authentication.
+      displayName: Password
+      isSecret: true
+    - name: connectionString
+      type: string
+      from: '{{ (serviceInstallation "postgres").outputs.connection_string }}'
+      description: Full connection string in postgresql://user:pass@host:port/db?sslmode=require format. SSL is required for connections.
+      displayName: Connection String
+      isSecret: true
+  installations:
+    - service: postgres-rds
+      name: postgres
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+      config: |
+        aws_region: '{{ .ryvn.env.state.cluster_region }}'
+        vpc_id: {{ .ryvn.env.state.vpc.id }}
+        subnet_ids: '{{ .ryvn.env.state.vpc.private_subnet_ids | join "," }}'
+        name_prefix: '{{ .ryvn.installation.name }}'
+        environment: '{{ .ryvn.env.name }}'
+        engine_version: '{{ input "version" }}'
+        instance_class: '{{ if eq (input "size") "large" }}db.r7g.xlarge{{ else if eq (input "size") "medium" }}db.r7g.large{{ else }}db.t3.medium{{ end }}'
+        storage_gb: {{ input "storageGB" }}
+        max_storage_gb: 1000
+        high_availability: {{ input "highAvailability" }}
+        database_name: '{{ input "databaseName" }}'
+        database_username: '{{ input "username" }}'
+        database_password: '{{ k8sSecretValue "database-password" "database_password" }}'
+        backup_retention_days: {{ input "backupRetentionDays" }}
+        deletion_protection: {{ input "deletionProtection" }}
+      secrets:
+        - name: database-password
+          values:
+            - key: database_password
+              valueFromInput: password
+      releaseChannel: stable
+    - service: postgres-cloudsql
+      name: postgres
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        region: '{{ .ryvn.env.state.cluster_region }}'
+        name_prefix: '{{ .ryvn.installation.name }}'
+        environment: '{{ .ryvn.env.name }}'
+        postgres_version: '{{ input "version" }}'
+        tier: '{{ if eq (input "size") "large" }}db-custom-8-30720{{ else if eq (input "size") "medium" }}db-custom-4-15360{{ else }}db-custom-2-7680{{ end }}'
+        storage_gb: {{ input "storageGB" }}
+        max_storage_gb: 1000
+        high_availability: {{ input "highAvailability" }}
+        database_name: '{{ input "databaseName" }}'
+        database_username: '{{ input "username" }}'
+        database_password: '{{ k8sSecretValue "database-password" "database_password" }}'
+        private_network: '{{ .ryvn.env.state.vpc.self_link }}'
+        backup_retention_days: {{ input "backupRetentionDays" }}
+        deletion_protection: {{ input "deletionProtection" }}
+      secrets:
+        - name: database-password
+          values:
+            - key: database_password
+              valueFromInput: password
+      releaseChannel: stable
+    - service: postgres-flexible
+      name: postgres
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        location: '{{ .ryvn.env.state.resource_group.location }}'
+        resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
+        delegated_subnet_id: '{{ .ryvn.env.state.vnet.postgres_subnet.id }}'
+        private_dns_zone_id: '{{ .ryvn.env.state.vnet.postgres_private_dns_zone.id }}'
+        name_prefix: '{{ .ryvn.installation.name }}'
+        environment: '{{ .ryvn.env.name }}'
+        postgres_version: '{{ input "version" }}'
+        sku_name: '{{ if eq (input "size") "large" }}GP_Standard_D8s_v3{{ else if eq (input "size") "medium" }}GP_Standard_D4s_v3{{ else }}GP_Standard_D2s_v3{{ end }}'
+        storage_gb: {{ if lt (input "storageGB") 32.0 }}32{{ else }}{{ input "storageGB" }}{{ end }}
+        auto_grow_enabled: true
+        high_availability: {{ input "highAvailability" }}
+        database_name: '{{ input "databaseName" }}'
+        database_username: '{{ input "username" }}'
+        database_password: '{{ k8sSecretValue "database-password" "database_password" }}'
+        backup_retention_days: {{ input "backupRetentionDays" }}
+        deletion_protection: {{ input "deletionProtection" }}
+      secrets:
+        - name: database-password
+          values:
+            - key: database_password
+              valueFromInput: password
+      releaseChannel: stable
+  isPublic: true
+

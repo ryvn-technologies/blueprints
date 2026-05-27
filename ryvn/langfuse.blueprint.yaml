@@ -1,0 +1,289 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: langfuse
+spec:
+  description: |
+    Deploys a self-hosted Langfuse instance for tracing LLM calls, tracking token costs, and evaluating model output. If you're building with LLMs and want to see what your models are doing in production, this is the observability layer.
+
+    Installs a single Helm release in the `langfuse` namespace with Postgres, ClickHouse, Redis (Valkey), and MinIO bundled as sub-charts -- no other blueprints needed. Your application's LLM SDK connects to the `webUrl` output to send traces. The `webHost` and `webPort` outputs let other installations reference Langfuse's internal API.
+
+    Enable "Expose Dashboard" to publish the Langfuse UI at `<installation-name>.<environment-domain>` with auto-provisioned TLS. Disable signup to restrict access to existing users only.
+  displayName: Langfuse
+  inputGroups:
+    - name: access
+      displayName: Access
+      description: Control whether the Langfuse dashboard is exposed publicly.
+    - name: configuration
+      displayName: Configuration
+      description: Toggle self-registration, telemetry, and other Langfuse behaviors.
+    - name: secrets
+      displayName: Secrets
+      description: Encryption keys and database passwords. All auto-generated if left blank.
+    - name: storage
+      displayName: Storage
+      description: Disk sizes for the bundled Postgres and ClickHouse instances.
+  inputs:
+    - name: exposeDashboard
+      type: boolean
+      default: false
+      description: Publish the Langfuse dashboard and API at a public HTTPS URL.
+      displayName: Expose Dashboard
+      group: access
+    - name: disableSignup
+      type: boolean
+      default: false
+      description: Disable self-registration. When enabled, only existing users can log in.
+      displayName: Disable Signup
+      group: configuration
+    - name: telemetryEnabled
+      type: boolean
+      default: true
+      description: Send anonymous usage statistics to the Langfuse team.
+      displayName: Enable Telemetry
+      group: configuration
+    - name: salt
+      type: string
+      isSecret: true
+      description: Salt used to hash API keys.
+      displayName: Salt
+      group: secrets
+      generated:
+        type: random-string
+        length: 44
+    - name: encryptionKey
+      type: string
+      isSecret: true
+      description: 256-bit encryption key for sensitive data.
+      displayName: Encryption Key
+      group: secrets
+      generated:
+        type: random-string
+        length: 64
+    - name: nextauthSecret
+      type: string
+      isSecret: true
+      description: Secret used to encrypt JWTs and hash email verification tokens.
+      displayName: NextAuth Secret
+      group: secrets
+      generated:
+        type: random-string
+        length: 44
+    - name: postgresPassword
+      type: string
+      isSecret: true
+      description: Password for the bundled Postgres instance.
+      displayName: Postgres Password
+      group: secrets
+      generated:
+        type: random-string
+        length: 32
+    - name: clickhousePassword
+      type: string
+      isSecret: true
+      description: Password for the bundled ClickHouse instance.
+      displayName: ClickHouse Password
+      group: secrets
+      generated:
+        type: random-string
+        length: 32
+    - name: redisPassword
+      type: string
+      isSecret: true
+      description: Password for the bundled Redis (Valkey) instance.
+      displayName: Redis Password
+      group: secrets
+      generated:
+        type: random-string
+        length: 32
+    - name: s3AccessKey
+      type: string
+      default: minio
+      description: Access key for the bundled MinIO instance.
+      displayName: S3 Access Key
+      group: secrets
+    - name: s3SecretKey
+      type: string
+      isSecret: true
+      description: Secret key for the bundled MinIO instance.
+      displayName: S3 Secret Key
+      group: secrets
+      generated:
+        type: random-string
+        length: 32
+    - name: postgresStorageSizeGi
+      type: number
+      default: 8
+      description: Persistent storage size for Postgres in GiB.
+      displayName: Postgres Storage (GiB)
+      group: storage
+    - name: clickhouseStorageSizeGi
+      type: number
+      default: 10
+      description: Persistent storage size for ClickHouse in GiB.
+      displayName: ClickHouse Storage (GiB)
+      group: storage
+  outputs:
+    - name: webHost
+      type: string
+      displayName: Web Host
+      description: Internal hostname for the Langfuse web service.
+      from: '{{ .ryvn.installation.name }}-web.{{ (serviceInstallation "langfuse").namespace }}.svc.cluster.local'
+    - name: webPort
+      type: string
+      displayName: Web Port
+      description: Port number for the Langfuse web service.
+      from: '3000'
+    - name: webUrl
+      type: string
+      displayName: Web URL
+      description: Internal base URL for the Langfuse API and dashboard.
+      from: 'http://{{ .ryvn.installation.name }}-web.{{ (serviceInstallation "langfuse").namespace }}.svc.cluster.local:3000'
+    - name: dashboardUrl
+      type: string
+      displayName: Dashboard URL
+      description: Public HTTPS URL for the Langfuse dashboard.
+      from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+      condition: '{{ input "exposeDashboard" }}'
+  installations:
+    - service: langfuse
+      namespace: langfuse
+      releaseChannel: stable
+      secrets:
+        - name: langfuse-secrets
+          values:
+            - key: salt
+              valueFromInput: salt
+            - key: encryption-key
+              valueFromInput: encryptionKey
+            - key: nextauth-secret
+              valueFromInput: nextauthSecret
+            - key: postgres-password
+              valueFromInput: postgresPassword
+            - key: clickhouse-password
+              valueFromInput: clickhousePassword
+            - key: redis-password
+              valueFromInput: redisPassword
+            - key: s3-access-key
+              valueFromInput: s3AccessKey
+            - key: s3-secret-key
+              valueFromInput: s3SecretKey
+      config: |
+        langfuse:
+          salt:
+            value: '{{ k8sSecretValue "langfuse-secrets" "salt" }}'
+          encryptionKey:
+            value: '{{ k8sSecretValue "langfuse-secrets" "encryption-key" }}'
+          nextauth:
+            url: '{{ if input "exposeDashboard" }}https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}{{ else }}http://{{ .ryvn.installation.name }}-web.{{ (serviceInstallation "langfuse").namespace }}.svc.cluster.local:3000{{ end }}'
+            secret:
+              value: '{{ k8sSecretValue "langfuse-secrets" "nextauth-secret" }}'
+          features:
+            telemetryEnabled: {{ input "telemetryEnabled" }}
+            signUpDisabled: {{ input "disableSignup" }}
+          web:
+            replicas: 1
+            service:
+              type: ClusterIP
+              port: 3000
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+          worker:
+            replicas: 1
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+          {{- if input "exposeDashboard" }}
+          ingress:
+            enabled: true
+            className: external-nginx
+            annotations:
+              cert-manager.io/cluster-issuer: external-issuer
+            hosts:
+              - host: '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+                paths:
+                  - path: /
+                    pathType: Prefix
+            tls:
+              enabled: true
+              secretName: '{{ .ryvn.installation.name }}-tls'
+              hosts:
+                - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+          {{- else }}
+          ingress:
+            enabled: false
+          {{- end }}
+        postgresql:
+          deploy: true
+          auth:
+            username: postgres
+            password: '{{ k8sSecretValue "langfuse-secrets" "postgres-password" }}'
+            postgres-password: '{{ k8sSecretValue "langfuse-secrets" "postgres-password" }}'
+            database: postgres_langfuse
+          primary:
+            persistence:
+              enabled: true
+              size: '{{ input "postgresStorageSizeGi" }}Gi'
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+        clickhouse:
+          deploy: true
+          replicaCount: 1
+          clusterEnabled: false
+          auth:
+            username: default
+            password: '{{ k8sSecretValue "langfuse-secrets" "clickhouse-password" }}'
+          persistence:
+            enabled: true
+            size: '{{ input "clickhouseStorageSizeGi" }}Gi'
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+        redis:
+          deploy: true
+          auth:
+            password: '{{ k8sSecretValue "langfuse-secrets" "redis-password" }}'
+          master:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 250m
+                memory: 256Mi
+        s3:
+          deploy: true
+          defaultBuckets: langfuse
+          accessKeyId:
+            value: '{{ k8sSecretValue "langfuse-secrets" "s3-access-key" }}'
+          secretAccessKey:
+            value: '{{ k8sSecretValue "langfuse-secrets" "s3-secret-key" }}'
+          auth:
+            rootUser: '{{ k8sSecretValue "langfuse-secrets" "s3-access-key" }}'
+            rootPassword: '{{ k8sSecretValue "langfuse-secrets" "s3-secret-key" }}'
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+  isPublic: true

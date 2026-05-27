@@ -1,0 +1,381 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: rabbitmq
+spec:
+  description: Production-oriented RabbitMQ cluster backed by the official RabbitMQ operators.
+  displayName: RabbitMQ
+  inputGroups:
+    - name: access
+      displayName: Access
+      description: Control whether the RabbitMQ management UI is exposed publicly.
+    - name: auth
+      displayName: Authentication
+      description: Credentials for the cluster admin and the initial RabbitMQ user.
+    - name: sizing
+      displayName: Sizing
+      description: Resource profile for each RabbitMQ node in the cluster.
+    - name: storage
+      displayName: Storage
+      description: Persistent volume configuration for RabbitMQ data.
+    - name: topology
+      displayName: Topology
+      description: Declarative queues, exchanges, bindings, policies, and vhosts to create in the cluster.
+    - name: observability
+      displayName: Observability
+      description: Control metrics scraping integration for the RabbitMQ service.
+    - name: advanced
+      displayName: Advanced
+      description: Lower-level cluster and topology overrides.
+  inputs:
+    - name: exposeManagementUI
+      type: boolean
+      default: false
+      description: Publish the RabbitMQ management UI at a public HTTPS URL.
+      displayName: Expose Management UI
+      group: access
+    - name: adminUsername
+      type: string
+      default: admin
+      description: Username for the cluster admin account.
+      displayName: Admin Username
+      group: auth
+    - name: adminPassword
+      type: string
+      isSecret: true
+      description: Password for the cluster admin account.
+      displayName: Admin Password
+      group: auth
+      generated:
+        type: random-string
+        length: 32
+    - name: createAppUser
+      type: boolean
+      default: true
+      description: Create an initial RabbitMQ user with configure, write, and read permissions across all chart-managed vhosts.
+      displayName: Create Initial User
+      group: auth
+    - name: appUsername
+      type: string
+      default: app
+      description: Username for the initial RabbitMQ user.
+      displayName: Initial Username
+      group: auth
+      condition: '{{ input "createAppUser" }}'
+    - name: appPassword
+      type: string
+      isSecret: true
+      description: Password for the initial RabbitMQ user.
+      displayName: Initial Password
+      group: auth
+      condition: '{{ input "createAppUser" }}'
+      generated:
+        type: random-string
+        length: 32
+    - name: appVhost
+      type: string
+      default: /
+      description: Primary virtual host for the initial RabbitMQ user.
+      displayName: Initial User Vhost
+      group: auth
+      condition: '{{ input "createAppUser" }}'
+    - name: size
+      type: string
+      default: standard
+      description: Resource sizing profile for each RabbitMQ replica.
+      displayName: Size
+      group: sizing
+      options:
+        - label: "Micro (100m CPU, 512Mi memory)"
+          value: micro
+        - label: "Small (500m CPU, 1Gi memory)"
+          value: small
+        - label: "Standard (1 CPU, 2Gi memory)"
+          value: standard
+        - label: "Large (2 CPU, 4Gi memory)"
+          value: large
+    - name: replicas
+      type: string
+      default: "3"
+      description: Number of RabbitMQ replicas. Use 1 for development or constrained test clusters; 3 is the recommended minimum for production.
+      displayName: Replicas
+      group: sizing
+      options:
+        - label: "1 replica"
+          value: "1"
+        - label: "3 replicas (recommended for prod)"
+          value: "3"
+    - name: storageSizeGi
+      type: number
+      default: 30
+      description: Persistent storage size per RabbitMQ replica in GiB.
+      displayName: Storage Size (GiB)
+      group: storage
+    - name: storageClassName
+      type: string
+      default: ""
+      description: Optional storage class override for RabbitMQ PVCs.
+      displayName: Storage Class
+      group: storage
+    - name: enableMetrics
+      type: boolean
+      default: false
+      description: Annotate the RabbitMQ service for Ryvn collector scraping of Prometheus metrics.
+      displayName: Enable Metrics
+      group: observability
+    - name: topologyAllowedNamespaces
+      type: array
+      default: []
+      description: Additional namespaces allowed to manage topology resources against this cluster.
+      displayName: Allowed Topology Namespaces
+      group: advanced
+    - name: vhostDefinitions
+      type: string
+      default: ""
+      multiline: true
+      displayName: Vhosts
+      group: topology
+      description: |
+        YAML list of vhost definitions. Example:
+        ```yaml
+        - name: orders
+          defaultQueueType: quorum
+        ```
+    - name: queueDefinitions
+      type: string
+      default: ""
+      multiline: true
+      displayName: Queues
+      group: topology
+      description: |
+        YAML list of queue definitions. Example:
+        ```yaml
+        - name: order.events
+          vhost: /
+          type: quorum
+          durable: true
+        ```
+    - name: exchangeDefinitions
+      type: string
+      default: ""
+      multiline: true
+      displayName: Exchanges
+      group: topology
+      description: |
+        YAML list of exchange definitions. Example:
+        ```yaml
+        - name: events
+          type: topic
+          durable: true
+        ```
+    - name: bindingDefinitions
+      type: string
+      default: ""
+      multiline: true
+      displayName: Bindings
+      group: topology
+      description: |
+        YAML list of binding definitions. Example:
+        ```yaml
+        - source: events
+          destination: order.events
+          destinationType: queue
+          routingKey: "order.#"
+        ```
+    - name: policyDefinitions
+      type: string
+      default: ""
+      multiline: true
+      displayName: Policies
+      group: topology
+      description: |
+        YAML list of policy definitions. Example:
+        ```yaml
+        - name: ha-queues
+          pattern: ".*"
+          applyTo: queues
+          definition:
+            ha-mode: all
+        ```
+  installations:
+    - service: rabbitmq-cluster-operator
+      namespace: rabbitmq-system
+      releaseChannel: stable
+      config: |
+        {}
+    - service: rabbitmq-topology-operator
+      namespace: rabbitmq-system
+      releaseChannel: stable
+      config: |
+        {}
+    - service: rabbitmq
+      namespace: rabbitmq
+      releaseChannel: stable
+      secrets:
+        - name: rabbitmq-admin
+          values:
+            - key: username
+              valueFromInput:
+                name: adminUsername
+            - key: password
+              valueFromInput:
+                name: adminPassword
+        - name: rabbitmq-app-user
+          values:
+            - key: username
+              valueFromInput:
+                name: appUsername
+            - key: password
+              valueFromInput:
+                name: appPassword
+      config: |
+        cluster:
+          replicas: {{ input "replicas" }}
+          persistence:
+            storage: '{{ input "storageSizeGi" }}Gi'
+            storageClassName: '{{ input "storageClassName" }}'
+          topologyAllowedNamespaces:
+        {{- if gt (len (input "topologyAllowedNamespaces")) 0 }}
+        {{ input "topologyAllowedNamespaces" | toYaml | nindent 12 }}
+        {{- else }}
+            []
+        {{- end }}
+        {{- if eq (input "size") "micro" }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+        {{- else if eq (input "size") "small" }}
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+        {{- else if eq (input "size") "standard" }}
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 2Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+        {{- else if eq (input "size") "large" }}
+          resources:
+            requests:
+              cpu: 2000m
+              memory: 4Gi
+            limits:
+              cpu: 4000m
+              memory: 4Gi
+        {{- end }}
+        auth:
+          admin:
+            username: '{{ k8sSecretValue "rabbitmq-admin" "username" }}'
+            password: '{{ k8sSecretValue "rabbitmq-admin" "password" }}'
+          appUser:
+            enabled: {{ input "createAppUser" }}
+            existingSecretName: '{{ k8sSecretName "rabbitmq-app-user" }}'
+            username: '{{ input "appUsername" }}'
+            vhost: '{{ input "appVhost" }}'
+        metrics:
+          enabled: {{ input "enableMetrics" }}
+        topologyOperator:
+          eventRBAC:
+            enabled: true
+            namespace: rabbitmq-system
+            serviceAccountName: messaging-topology-operator
+        managementIngress:
+          enabled: {{ input "exposeManagementUI" }}
+          className: external-nginx
+          annotations:
+            cert-manager.io/cluster-issuer: external-issuer
+          host: '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+          tls:
+            - secretName: '{{ .ryvn.installation.name }}-tls'
+              hosts:
+                - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+        topology:
+          reconcileHook:
+            enabled: true
+          cleanupHook:
+            enabled: true
+        {{- if input "vhostDefinitions" | trim }}
+          vhosts: |
+        {{ input "vhostDefinitions" | nindent 12 }}
+        {{- else }}
+          vhosts: ""
+        {{- end }}
+        {{- if input "queueDefinitions" | trim }}
+          queues: |
+        {{ input "queueDefinitions" | nindent 12 }}
+        {{- else }}
+          queues: ""
+        {{- end }}
+        {{- if input "exchangeDefinitions" | trim }}
+          exchanges: |
+        {{ input "exchangeDefinitions" | nindent 12 }}
+        {{- else }}
+          exchanges: ""
+        {{- end }}
+        {{- if input "bindingDefinitions" | trim }}
+          bindings: |
+        {{ input "bindingDefinitions" | nindent 12 }}
+        {{- else }}
+          bindings: ""
+        {{- end }}
+        {{- if input "policyDefinitions" | trim }}
+          policies: |
+        {{ input "policyDefinitions" | nindent 12 }}
+        {{- else }}
+          policies: ""
+        {{- end }}
+  outputs:
+    - name: adminUsername
+      type: string
+      displayName: Admin Username
+      description: Username for the RabbitMQ admin account.
+      from: '{{ input "adminUsername" }}'
+    - name: adminCredentialsSecretName
+      type: string
+      displayName: Admin Credentials Secret
+      description: Kubernetes Secret containing the admin username and password.
+      from: '{{ k8sSecretName "rabbitmq-admin" }}'
+    - name: appUsername
+      type: string
+      displayName: Initial Username
+      description: Username for the initial RabbitMQ user.
+      from: '{{ input "appUsername" }}'
+      condition: '{{ input "createAppUser" }}'
+    - name: appCredentialsSecretName
+      type: string
+      displayName: Initial User Credentials Secret
+      description: Kubernetes Secret containing the initial RabbitMQ user credentials.
+      from: '{{ k8sSecretName "rabbitmq-app-user" }}'
+      condition: '{{ input "createAppUser" }}'
+    - name: appVhost
+      type: string
+      displayName: Initial User Vhost
+      description: Primary virtual host for the initial RabbitMQ user.
+      from: '{{ input "appVhost" }}'
+      condition: '{{ input "createAppUser" }}'
+    - name: host
+      type: string
+      displayName: Host
+      description: Internal hostname for AMQP connections.
+      from: '{{ (serviceInstallation "rabbitmq").name }}.{{ (serviceInstallation "rabbitmq").namespace }}.svc.cluster.local'
+    - name: amqpPort
+      type: string
+      displayName: AMQP Port
+      description: AMQP protocol port.
+      from: "5672"
+    - name: managementPort
+      type: string
+      displayName: Management Port
+      description: RabbitMQ management UI port.
+      from: "15672"
+  isPublic: true

@@ -1,0 +1,208 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: rustfs
+spec:
+  description: |
+    Deploys RustFS, an S3-compatible object storage server, inside your cluster. RustFS speaks the standard S3 API, so any SDK or tool that works with AWS S3 works here. Other installations connect via the `endpoint` output (port 9000) using the `accessKey` and `secretKeySecret` outputs.
+
+    Runs in standalone mode in the `rustfs` namespace via the official RustFS Helm chart. Good for storing uploads, artifacts, backups, or anything you'd use S3 for but want to keep inside your own infrastructure. Data and log storage sizes are configured separately.
+
+    Enable "Expose Console" to publish the RustFS web UI at `<installation-name>.<environment-domain>` with auto-provisioned TLS for browsing buckets and objects.
+  displayName: RustFS
+  inputGroups:
+    - name: access
+      displayName: Access
+      description: Control how the RustFS console is accessed.
+    - name: auth
+      displayName: Authentication
+      description: S3 API credentials for the RustFS instance.
+    - name: storage
+      displayName: Storage
+      description: Persistent storage sizing.
+    - name: sizing
+      displayName: Sizing
+      description: Resource allocation profile.
+  inputs:
+    - name: exposeConsole
+      type: boolean
+      default: false
+      description: Publish the RustFS console UI at a public HTTPS URL.
+      displayName: Expose Console
+      group: access
+    - name: accessKey
+      type: string
+      default: rustfsadmin
+      description: S3 access key for RustFS authentication.
+      displayName: Access Key
+      group: auth
+    - name: secretKey
+      type: string
+      isSecret: true
+      description: S3 secret key for RustFS authentication. Auto-generated if not provided.
+      displayName: Secret Key
+      group: auth
+      generated:
+        type: random-string
+        length: 32
+    - name: dataStorageSizeGi
+      type: number
+      default: 10
+      description: Persistent data storage size in GiB.
+      displayName: Data Storage Size (GiB)
+      group: storage
+    - name: logStorageSizeGi
+      type: number
+      default: 1
+      description: Persistent log storage size in GiB.
+      displayName: Log Storage Size (GiB)
+      group: storage
+    - name: size
+      type: string
+      default: standard
+      description: CPU and memory allocation for the RustFS pod. Standard is fine for most workloads. Use Large for high-throughput object storage.
+      displayName: Size
+      group: sizing
+      options:
+        - label: "Small (250m CPU, 256Mi memory)"
+          value: small
+        - label: "Standard (500m CPU, 1Gi memory)"
+          value: standard
+        - label: "Large (1 CPU, 2Gi memory)"
+          value: large
+  installations:
+    - service: rustfs
+      namespace: rustfs
+      releaseChannel: stable
+      secrets:
+        - name: rustfs-auth
+          values:
+            - key: RUSTFS_ACCESS_KEY
+              valueFromInput: accessKey
+            - key: RUSTFS_SECRET_KEY
+              valueFromInput: secretKey
+      config: |
+        replicaCount: 1
+        mode:
+          standalone:
+            enabled: true
+          distributed:
+            enabled: false
+        secret:
+          rustfs:
+            access_key: {{ k8sSecretValue "rustfs-auth" "RUSTFS_ACCESS_KEY" }}
+            secret_key: {{ k8sSecretValue "rustfs-auth" "RUSTFS_SECRET_KEY" }}
+        service:
+          type: ClusterIP
+          endpoint:
+            port: 9000
+          console:
+            port: 9001
+        {{- if input "exposeConsole" }}
+        ingress:
+          enabled: true
+          className: external-nginx
+          customAnnotations:
+            cert-manager.io/cluster-issuer: external-issuer
+            nginx.ingress.kubernetes.io/proxy-body-size: "0"
+          hosts:
+            - host: '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            enabled: true
+            certManager:
+              enabled: true
+        {{- else }}
+        ingress:
+          enabled: false
+        {{- end }}
+        storageclass:
+          name: ""
+          dataStorageSize: '{{ input "dataStorageSizeGi" }}Gi'
+          logStorageSize: '{{ input "logStorageSizeGi" }}Gi'
+        {{- if eq (input "size") "small" }}
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        {{- else if eq (input "size") "standard" }}
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        {{- else if eq (input "size") "large" }}
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        {{- end }}
+        extraManifests:
+          - apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: rustfs-connectivity-test
+              namespace: rustfs
+              annotations:
+                helm.sh/hook: post-install,post-upgrade
+                helm.sh/hook-delete-policy: before-hook-creation
+            spec:
+              backoffLimit: 1
+              ttlSecondsAfterFinished: 600
+              template:
+                spec:
+                  restartPolicy: Never
+                  containers:
+                    - name: test
+                      image: busybox:stable
+                      command:
+                        - sh
+                        - -c
+                        - |
+                          echo "=== RustFS Connectivity Test ==="
+                          echo ""
+                          echo "Test 1: Health endpoint"
+                          wget -qO- http://{{ .ryvn.installation.name }}-svc:9000/health && echo " PASS" || { echo " FAIL"; exit 1; }
+                          echo ""
+                          echo "Test 2: Ready endpoint"
+                          wget -qO- http://{{ .ryvn.installation.name }}-svc:9000/health/ready && echo " PASS" || { echo " FAIL"; exit 1; }
+                          echo ""
+                          echo "=== ALL CONNECTIVITY TESTS PASSED ==="
+  outputs:
+    - name: endpoint
+      type: string
+      displayName: S3 API Endpoint
+      description: Cluster-internal S3 API endpoint URL.
+      from: 'http://{{ .ryvn.installation.name }}-svc.{{ (serviceInstallation "rustfs").namespace }}.svc.cluster.local:9000'
+    - name: consoleEndpoint
+      type: string
+      displayName: Console Endpoint
+      description: Cluster-internal console URL for RustFS.
+      from: 'http://{{ .ryvn.installation.name }}-svc.{{ (serviceInstallation "rustfs").namespace }}.svc.cluster.local:9001'
+    - name: consoleUrl
+      type: string
+      displayName: Console Public URL
+      description: Public HTTPS URL for the RustFS console (only available when Expose Console is enabled).
+      from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+      condition: '{{ input "exposeConsole" }}'
+    - name: accessKey
+      type: string
+      displayName: Access Key
+      description: The S3 access key for connecting to this RustFS instance.
+      from: '{{ input "accessKey" }}'
+    - name: secretKeySecret
+      type: string
+      displayName: Secret Key K8s Secret
+      description: Name of the Kubernetes Secret containing the S3 secret key (key RUSTFS_SECRET_KEY).
+      from: 'rustfs-auth'
+  isPublic: true

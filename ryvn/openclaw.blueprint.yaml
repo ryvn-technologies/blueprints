@@ -1,0 +1,206 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: openclaw
+spec:
+  description: |
+    OpenClaw is an open agent platform that runs on your machine and works from the chat apps you already use.
+  displayName: OpenClaw
+  inputGroups:
+    - name: access
+      displayName: Access
+      description: Control public access to the OpenClaw gateway.
+    - name: secrets
+      displayName: Secrets
+      description: API keys and gateway credentials.
+    - name: sizing
+      displayName: Sizing
+      description: Resource sizing profile for the OpenClaw pod.
+    - name: storage
+      displayName: Storage
+      description: Persistent storage sizing.
+  inputs:
+    - name: exposeEndpoint
+      type: boolean
+      default: false
+      description: Publish the OpenClaw gateway at a public HTTPS URL.
+      displayName: Expose Endpoint
+      group: access
+    - name: disableDeviceAuth
+      type: boolean
+      default: false
+      description: Disable Control UI device pairing. Unsafe on public URLs unless gateway token auth is enabled.
+      displayName: Disable Device Auth
+      group: access
+    - name: provider
+      type: string
+      description: Select which model provider credentials to configure.
+      displayName: Provider
+      group: secrets
+      options:
+        - label: Anthropic
+          value: anthropic
+        - label: OpenAI
+          value: openai
+        - label: OpenRouter
+          value: openrouter
+        - label: Gemini
+          value: gemini
+    - name: gatewayToken
+      type: string
+      isSecret: true
+      description: Token for authenticating with the OpenClaw gateway. Auto-generated if not provided.
+      displayName: Gateway Token
+      group: secrets
+      generated:
+        type: random-string
+        length: 32
+    - name: anthropicApiKey
+      type: string
+      isSecret: true
+      description: Anthropic API key for Claude models.
+      displayName: Anthropic API Key
+      group: secrets
+      condition: '{{ eq (input "provider") "anthropic" }}'
+    - name: openaiApiKey
+      type: string
+      isSecret: true
+      description: OpenAI API key for GPT models.
+      displayName: OpenAI API Key
+      group: secrets
+      condition: '{{ eq (input "provider") "openai" }}'
+    - name: openrouterApiKey
+      type: string
+      isSecret: true
+      description: OpenRouter API key for routed models.
+      displayName: OpenRouter API Key
+      group: secrets
+      condition: '{{ eq (input "provider") "openrouter" }}'
+    - name: geminiApiKey
+      type: string
+      isSecret: true
+      description: Gemini API key for Google models.
+      displayName: Gemini API Key
+      group: secrets
+      condition: '{{ eq (input "provider") "gemini" }}'
+    - name: size
+      type: string
+      default: standard
+      description: Resource sizing profile.
+      displayName: Size
+      group: sizing
+      options:
+        - label: "Small (250m CPU, 512Mi memory)"
+          value: small
+        - label: "Standard (500m CPU, 1Gi memory)"
+          value: standard
+        - label: "Large (1 CPU, 2Gi memory)"
+          value: large
+    - name: storageSizeGi
+      type: number
+      default: 10
+      description: Persistent storage size in GiB.
+      displayName: Storage Size (GiB)
+      group: storage
+  installations:
+    - service: openclaw
+      namespace: openclaw
+      releaseChannel: stable
+      secrets:
+        - name: openclaw-env
+          values:
+            - key: OPENCLAW_GATEWAY_TOKEN
+              valueFromInput:
+                name: gatewayToken
+            - key: ANTHROPIC_API_KEY
+              valueFromInput:
+                name: anthropicApiKey
+            - key: OPENAI_API_KEY
+              valueFromInput:
+                name: openaiApiKey
+            - key: OPENROUTER_API_KEY
+              valueFromInput:
+                name: openrouterApiKey
+            - key: GEMINI_API_KEY
+              valueFromInput:
+                name: geminiApiKey
+      config: |
+        secretName: '{{ k8sSecretName "openclaw-env" }}'
+        config:
+          openclawJson: |
+            {
+              "gateway": {
+                "bind": "lan"{{- if or (input "exposeEndpoint") (input "disableDeviceAuth") }},
+                "controlUi": {
+                  {{- if input "exposeEndpoint" }}
+                  "allowedOrigins": [
+                    "https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}"
+                  ]{{- if input "disableDeviceAuth" }},{{- end }}
+                  {{- end }}
+                  {{- if input "disableDeviceAuth" }}
+                  "dangerouslyDisableDeviceAuth": true
+                  {{- end }}
+                }{{- end }}
+              }
+            }
+        persistence:
+          enabled: true
+          size: '{{ input "storageSizeGi" }}Gi'
+        {{- if eq (input "size") "small" }}
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        {{- else if eq (input "size") "standard" }}
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1500m
+            memory: 3Gi
+        {{- else if eq (input "size") "large" }}
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        {{- end }}
+        {{- if input "exposeEndpoint" }}
+        ingress:
+          enabled: true
+          className: external-nginx
+          annotations:
+            cert-manager.io/cluster-issuer: external-issuer
+          hosts:
+            - host: '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: '{{ .ryvn.installation.name }}-tls'
+              hosts:
+                - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+        {{- else }}
+        ingress:
+          enabled: false
+        {{- end }}
+  outputs:
+    - name: dashboardUrl
+      type: string
+      displayName: Dashboard URL
+      description: Public HTTPS URL for the OpenClaw dashboard.
+      from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+      condition: '{{ input "exposeEndpoint" }}'
+    - name: gatewayToken
+      type: string
+      isSecret: true
+      displayName: Gateway Token
+      description: Token required to connect the OpenClaw dashboard to the gateway.
+      from: '{{ input "gatewayToken" }}'
+  isPublic: true

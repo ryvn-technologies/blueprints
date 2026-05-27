@@ -1,0 +1,118 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: supabase-studio
+spec:
+  description: |
+    Deploys Supabase Studio, a visual UI for managing Postgres databases -- browse tables, edit rows, run SQL queries, and manage schemas from your browser.
+
+    Runs as a single container in the `supabase-studio` namespace (deployed directly, not via Helm). Connect it to your Supabase project using the anon and service_role JWTs from your project settings. The dashboard is exposed at `<installation-name>.<environment-domain>` with auto-provisioned TLS by default.
+  displayName: Supabase Studio
+  inputGroups:
+    - name: access
+      displayName: Access
+      description: Control whether the Studio dashboard is exposed publicly.
+    - name: supabase
+      displayName: Supabase
+      description: JWT keys for the Supabase project that Studio will manage. Get these from your Supabase project settings.
+  inputs:
+    - name: exposeDashboard
+      type: boolean
+      default: true
+      description: Publish the Supabase Studio UI at a public HTTPS URL.
+      displayName: Expose Dashboard
+      group: access
+    - name: orgName
+      type: string
+      default: "Default Organization"
+      description: Organization name displayed in Studio.
+      displayName: Organization Name
+      group: access
+    - name: projectName
+      type: string
+      default: "Default Project"
+      description: Project name displayed in Studio.
+      displayName: Project Name
+      group: access
+    - name: supabaseAnonKey
+      type: string
+      description: Public anon JWT from your Supabase project. Found in Project Settings > API.
+      displayName: Supabase Anon Key
+      group: supabase
+    - name: supabaseServiceKey
+      type: string
+      isSecret: true
+      description: service_role JWT from your Supabase project. Has full access -- keep this secret. Found in Project Settings > API.
+      displayName: Supabase Service Key
+      group: supabase
+  installations:
+    - service: supabase-studio
+      namespace: supabase-studio
+      releaseChannel: stable
+      config: |
+        replicaCount: 1
+        service:
+          port: 3000
+        {{- if input "exposeDashboard" }}
+        ingress:
+          enabled: true
+          className: external-nginx
+          annotations:
+            cert-manager.io/cluster-issuer: external-issuer
+          hosts:
+            - host: '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: '{{ .ryvn.installation.name }}-tls'
+              hosts:
+                - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+        {{- else }}
+        ingress:
+          enabled: false
+        {{- end }}
+        env:
+          - name: DEFAULT_ORGANIZATION_NAME
+            value: '{{ input "orgName" }}'
+          - name: DEFAULT_PROJECT_NAME
+            value: '{{ input "projectName" }}'
+          - name: NEXT_PUBLIC_SITE_URL
+            value: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+          - name: NEXT_ANALYTICS_BACKEND_PROVIDER
+            value: ""
+          - name: SUPABASE_URL
+            value: 'http://{{ .ryvn.installation.name }}:3000'
+          - name: SUPABASE_PUBLIC_URL
+            value: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+          - name: SUPABASE_ANON_KEY
+            value: '{{ input "supabaseAnonKey" }}'
+          - name: SUPABASE_SERVICE_KEY
+            value: '{{ k8sSecretValue "supabase-credentials" "SUPABASE_SERVICE_KEY" }}'
+        livenessEnabled: true
+        livenessProbe:
+          httpGet:
+            path: /api/platform/profile
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessEnabled: true
+        readinessProbe:
+          httpGet:
+            path: /api/platform/profile
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      secrets:
+        - name: supabase-credentials
+          values:
+            - key: SUPABASE_SERVICE_KEY
+              valueFromInput: supabaseServiceKey
+  isPublic: true

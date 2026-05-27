@@ -1,0 +1,207 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: metabase
+spec:
+  description: |
+    Deploys a self-hosted Metabase instance for building dashboards and running SQL queries. Once installed, you connect Metabase to your data sources (Postgres, MySQL, or any JDBC-compatible database) through its admin UI.
+
+    Installs a single Helm release in the `metabase` namespace. For Metabase's own application data (saved questions, dashboards, user accounts), you choose between an embedded H2 database (no setup, fine for trying things out) or an external Postgres backend (supports replicas and proper backups).
+
+    Enable "Expose Dashboard" to publish the Metabase UI at `<installation-name>.<environment-domain>` with auto-provisioned TLS.
+  displayName: Metabase
+  inputGroups:
+    - name: access
+      displayName: Access
+      description: Control public access to the Metabase dashboard.
+    - name: auth
+      displayName: Authentication
+      description: Credentials and encryption for the Metabase instance.
+    - name: database
+      displayName: Database
+      description: Where Metabase stores its own data (saved questions, dashboards, user accounts). Not the databases you query.
+    - name: sizing
+      displayName: Sizing
+      description: Resource sizing profile for the Metabase application.
+    - name: storage
+      displayName: Storage
+      description: Persistent storage sizing for the H2 database.
+      condition: '{{ eq (input "databaseType") "h2" }}'
+  inputs:
+    - name: exposeDashboard
+      type: boolean
+      default: false
+      description: Publish the Metabase UI at a public HTTPS URL.
+      displayName: Expose Dashboard
+      group: access
+    - name: encryptionKey
+      type: string
+      isSecret: true
+      description: Metabase encryption key for data at rest. Auto-generated if not provided.
+      displayName: Encryption Key
+      group: auth
+      generated:
+        type: random-string
+        length: 32
+    - name: databaseType
+      type: string
+      default: h2
+      description: H2 is an embedded database that works out of the box with no setup. Postgres is better for production since it supports multiple replicas and proper backups.
+      displayName: Database Type
+      group: database
+      options:
+        - label: H2 (embedded, simple)
+          value: h2
+        - label: Postgres (production)
+          value: postgres
+    - name: databaseHost
+      type: string
+      description: Postgres host address.
+      displayName: Database Host
+      group: database
+      condition: '{{ eq (input "databaseType") "postgres" }}'
+    - name: databasePort
+      type: number
+      default: 5432
+      description: Postgres port.
+      displayName: Database Port
+      group: database
+      condition: '{{ eq (input "databaseType") "postgres" }}'
+    - name: databaseName
+      type: string
+      default: metabase
+      description: Postgres database name.
+      displayName: Database Name
+      group: database
+      condition: '{{ eq (input "databaseType") "postgres" }}'
+    - name: databaseUsername
+      type: string
+      default: metabase
+      description: Postgres username.
+      displayName: Database Username
+      group: database
+      condition: '{{ eq (input "databaseType") "postgres" }}'
+    - name: databasePassword
+      type: string
+      isSecret: true
+      description: Postgres password. Auto-generated if not provided.
+      displayName: Database Password
+      group: database
+      condition: '{{ eq (input "databaseType") "postgres" }}'
+      generated:
+        type: random-string
+        length: 32
+    - name: storageSizeGi
+      type: number
+      default: 10
+      description: Persistent storage size in GiB for the H2 database.
+      displayName: Storage Size (GiB)
+      group: storage
+    - name: size
+      type: string
+      default: standard
+      description: How much CPU and memory to allocate. Small works for a few users, Standard for most teams, Large for heavy concurrent usage.
+      displayName: Size
+      group: sizing
+      options:
+        - label: "Small (500m CPU, 1Gi memory)"
+          value: small
+        - label: "Standard (1 CPU, 2Gi memory)"
+          value: standard
+        - label: "Large (2 CPU, 4Gi memory)"
+          value: large
+  installations:
+    - service: metabase
+      namespace: metabase
+      releaseChannel: stable
+      secrets:
+        - name: metabase-env
+          values:
+            - key: MB_ENCRYPTION_SECRET_KEY
+              valueFromInput: encryptionKey
+            - key: MB_DB_PASS
+              valueFromInput: databasePassword
+      config: |
+        replicaCount: 1
+        database:
+          type: '{{ input "databaseType" }}'
+          {{- if eq (input "databaseType") "h2" }}
+          persistence:
+            enabled: true
+            size: '{{ input "storageSizeGi" }}Gi'
+            disableWarning: true
+          {{- end }}
+          {{- if eq (input "databaseType") "postgres" }}
+          host: '{{ input "databaseHost" }}'
+          port: {{ input "databasePort" }}
+          dbname: '{{ input "databaseName" }}'
+          username: '{{ input "databaseUsername" }}'
+          password: {{ k8sSecretValue "metabase-env" "MB_DB_PASS" }}
+          encryptionKey: {{ k8sSecretValue "metabase-env" "MB_ENCRYPTION_SECRET_KEY" }}
+          {{- end }}
+        {{- if eq (input "databaseType") "h2" }}
+        extraEnv:
+          - name: MB_ENCRYPTION_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ k8sSecretName "metabase-env" }}
+                key: MB_ENCRYPTION_SECRET_KEY
+        {{- end }}
+        service:
+          type: ClusterIP
+        {{- if eq (input "size") "small" }}
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1500m
+            memory: 2Gi
+        {{- else if eq (input "size") "standard" }}
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        {{- else if eq (input "size") "large" }}
+        resources:
+          requests:
+            cpu: 2000m
+            memory: 4Gi
+          limits:
+            cpu: 4000m
+            memory: 8Gi
+        {{- end }}
+        {{- if input "exposeDashboard" }}
+        ingress:
+          enabled: true
+          className: external-nginx
+          annotations:
+            cert-manager.io/cluster-issuer: external-issuer
+          hosts:
+            - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+          path: /
+          pathType: Prefix
+          tls:
+            - secretName: '{{ .ryvn.installation.name }}-tls'
+              hosts:
+                - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+        {{- else }}
+        ingress:
+          enabled: false
+        {{- end }}
+  outputs:
+    - name: dashboardUrl
+      type: string
+      displayName: Dashboard URL
+      description: Public HTTPS URL for the Metabase dashboard.
+      from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+      condition: '{{ input "exposeDashboard" }}'
+    - name: internalUrl
+      type: string
+      displayName: Internal URL
+      description: Cluster-internal URL for the Metabase service.
+      from: 'http://{{ .ryvn.installation.name }}-metabase.{{ (serviceInstallation "metabase").namespace }}.svc.cluster.local'
+  isPublic: true

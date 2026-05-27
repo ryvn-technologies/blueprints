@@ -1,0 +1,140 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: litellm
+spec:
+  description: |
+    Deploys a LiteLLM proxy that gives your services a single OpenAI-compatible API for calling multiple model providers. Other installations reference the `endpoint` output and authenticate with the master key to send requests.
+
+    Installs a single stateless Helm release in the `litellm` namespace -- no database needed. Comes preconfigured with two model routes: `anthropic-default` and `openai-default`. Bring your own API keys for each provider. You can swap the underlying model for either route (e.g. switch from `claude-sonnet-4-20250514` to `claude-opus-4-20250514`) without changing any consuming service.
+
+    Enable "Expose Dashboard" to publish the proxy at `<installation-name>.<environment-domain>` with auto-provisioned TLS.
+  displayName: LiteLLM
+  inputGroups:
+    - name: access
+      description: Control how users reach the LiteLLM proxy.
+      displayName: Access
+    - name: models
+      description: Which models to route to. Each model gets an alias your services use (e.g. "anthropic-default"), mapped to a provider/model string.
+      displayName: Models
+    - name: secrets
+      description: API keys and proxy credentials. Master key is auto-generated if not provided.
+      displayName: Secrets
+  inputs:
+    - name: exposeDashboard
+      type: boolean
+      default: false
+      description: Publish the LiteLLM proxy at a public HTTPS URL.
+      displayName: Expose Dashboard
+      group: access
+    - name: anthropicModel
+      type: string
+      default: anthropic/claude-sonnet-4-20250514
+      description: "Model string for the Anthropic route (format: anthropic/model-name). Your services call this as model name 'anthropic-default'."
+      displayName: Anthropic Model
+      group: models
+    - name: openaiModel
+      type: string
+      default: openai/gpt-4o
+      description: "Model string for the OpenAI route (format: openai/model-name). Your services call this as model name 'openai-default'."
+      displayName: OpenAI Model
+      group: models
+    - name: anthropicApiKey
+      type: string
+      isSecret: true
+      description: Anthropic API key for the anthropic-default model route.
+      displayName: Anthropic API Key
+      group: secrets
+    - name: openaiApiKey
+      type: string
+      isSecret: true
+      description: OpenAI API key for the openai-default model route.
+      displayName: OpenAI API Key
+      group: secrets
+    - name: masterKey
+      type: string
+      isSecret: true
+      description: "Bearer token your services include when calling the proxy. Auto-generated if left blank."
+      displayName: Master Key
+      group: secrets
+      generated:
+        type: random-string
+        length: 32
+  outputs:
+    - name: endpoint
+      type: string
+      displayName: Proxy Endpoint
+      description: Cluster-internal URL for the LiteLLM proxy. Other installations reference this as their LLM API endpoint.
+      from: 'http://{{ .ryvn.installation.name }}.{{ (serviceInstallation "litellm").namespace }}.svc.cluster.local:4000'
+    - name: dashboardUrl
+      type: string
+      displayName: Dashboard URL
+      description: Public HTTPS URL for the LiteLLM proxy.
+      from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+      condition: '{{ input "exposeDashboard" }}'
+  installations:
+    - service: litellm
+      namespace: litellm
+      releaseChannel: stable
+      config: |
+        replicaCount: 1
+        service:
+          type: ClusterIP
+          port: 4000
+        {{- if input "exposeDashboard" }}
+        ingress:
+          enabled: true
+          className: external-nginx
+          annotations:
+            cert-manager.io/cluster-issuer: external-issuer
+          hosts:
+            - host: '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: '{{ .ryvn.installation.name }}-tls'
+              hosts:
+                - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+        {{- else }}
+        ingress:
+          enabled: false
+        {{- end }}
+        image:
+          repository: ghcr.io/berriai/litellm
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        masterkey: {{ k8sSecretValue "litellm-master-key" "MASTER_KEY" }}
+        db:
+          deployStandalone: false
+        migrationJob:
+          enabled: false
+        proxy_config:
+          model_list:
+            - model_name: anthropic-default
+              litellm_params:
+                model: '{{ input "anthropicModel" }}'
+                api_key: {{ k8sSecretValue "litellm-api-keys" "ANTHROPIC_API_KEY" }}
+            - model_name: openai-default
+              litellm_params:
+                model: '{{ input "openaiModel" }}'
+                api_key: {{ k8sSecretValue "litellm-api-keys" "OPENAI_API_KEY" }}
+          general_settings:
+            master_key: os.environ/PROXY_MASTER_KEY
+      secrets:
+        - name: litellm-api-keys
+          values:
+            - key: ANTHROPIC_API_KEY
+              valueFromInput: anthropicApiKey
+            - key: OPENAI_API_KEY
+              valueFromInput: openaiApiKey
+        - name: litellm-master-key
+          values:
+            - key: MASTER_KEY
+              valueFromInput: masterKey
+  isPublic: true
