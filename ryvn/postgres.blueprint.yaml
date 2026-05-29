@@ -216,4 +216,3 @@ spec:
               valueFromInput: password
       releaseChannel: stable
   isPublic: true
-
