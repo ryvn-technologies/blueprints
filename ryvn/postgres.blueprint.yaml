@@ -23,6 +23,9 @@ spec:
     - name: backup
       description: Backup and recovery settings
       displayName: Backup
+    - name: networking
+      description: Tailnet access
+      displayName: Networking
   inputs:
     - name: version
       type: string
@@ -97,6 +100,12 @@ spec:
       description: Protects the database from accidental destruction. Disable before tearing down an environment.
       displayName: Deletion Protection
       group: backup
+    - name: exposeToTailnet
+      type: boolean
+      default: false
+      description: Expose the Postgres host to your Tailnet using Tailscale. Requires the Tailscale operator to already be installed in the environment.
+      displayName: Expose to Tailnet
+      group: networking
   outputs:
     - name: host
       type: string
@@ -160,7 +169,8 @@ spec:
         - name: database-password
           values:
             - key: database_password
-              valueFromInput: password
+              valueFromInput:
+                name: password
       releaseChannel: stable
     - service: postgres-cloudsql
       name: postgres
@@ -186,7 +196,8 @@ spec:
         - name: database-password
           values:
             - key: database_password
-              valueFromInput: password
+              valueFromInput:
+                name: password
       releaseChannel: stable
     - service: postgres-flexible
       name: postgres
@@ -213,6 +224,22 @@ spec:
         - name: database-password
           values:
             - key: database_password
-              valueFromInput: password
+              valueFromInput:
+                name: password
+      releaseChannel: stable
+    - service: tailscale-resources
+      name: postgres-tailnet
+      namespace: tailscale-operator
+      config: |
+        externalServices:
+          {{- if input "exposeToTailnet" }}
+          - name: postgres
+            externalName: '{{ (serviceInstallation "postgres").outputs.host }}'
+            labels:
+              ryvn.app/blueprint: postgres
+              ryvn.app/exposed-service: postgres
+          {{- else }}
+          []
+          {{- end }}
       releaseChannel: stable
   isPublic: true
