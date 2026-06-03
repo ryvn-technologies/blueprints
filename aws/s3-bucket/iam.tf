@@ -53,9 +53,18 @@ resource "aws_iam_role_policy" "bucket_access" {
   })
 }
 
+locals {
+  pod_identity_service_accounts = toset(flatten([
+    for service_account in var.pod_identity_service_accounts : [
+      trimspace(service_account),
+      "${trimspace(service_account)}-pre-deploy",
+    ] if trimspace(service_account) != ""
+  ]))
+}
+
 resource "aws_eks_pod_identity_association" "this" {
   for_each = {
-    for service_account in var.pod_identity_service_accounts :
+    for service_account in local.pod_identity_service_accounts :
     "${var.pod_identity_namespace}/${service_account}" => service_account
   }
 
