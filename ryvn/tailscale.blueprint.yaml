@@ -3,7 +3,10 @@ kind: Blueprint
 metadata:
   name: tailscale-operator
 spec:
-  description: Deploys the Tailscale operator with OAuth credentials.
+  description: |
+    Deploys the Tailscale Kubernetes operator with OAuth credentials. The operator registers services in your Tailnet, enabling secure private access to databases, caches, and other cluster resources from any device on your Tailnet.
+
+    Prerequisites: configure ACLs and create an OAuth client in the Tailscale admin console. See the [Tailscale Kubernetes Operator quickstart](https://tailscale.com/docs/kubernetes-operator/quickstart) for full setup instructions.
   displayName: Tailscale Operator
   inputs:
     - name: clientId
