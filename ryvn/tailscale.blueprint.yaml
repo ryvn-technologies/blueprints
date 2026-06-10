@@ -46,4 +46,4 @@ spec:
       displayName: Namespace
       description: Kubernetes namespace where the operator is deployed.
       from: tailscale-operator
-  isPublic: true
+  distribution: marketplace-unmanaged

@@ -137,4 +137,4 @@ spec:
           values:
             - key: MASTER_KEY
               valueFromInput: masterKey
-  isPublic: true
+  distribution: marketplace-unmanaged

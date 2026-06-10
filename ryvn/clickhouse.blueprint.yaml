@@ -111,4 +111,4 @@ spec:
       description: Public HTTPS URL for the ClickHouse Play UI.
       from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}/play'
       condition: '{{ input "exposeDashboard" }}'
-  isPublic: true
+  distribution: marketplace-unmanaged

@@ -137,4 +137,4 @@ spec:
               valueFromInput: signingKey
             - key: postgresPassword
               valueFromInput: postgresPassword
-  isPublic: true
+  distribution: marketplace-unmanaged

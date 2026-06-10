@@ -136,4 +136,4 @@ spec:
           values:
             - key: app-key
               valueFromInput: appKey
-  isPublic: true
+  distribution: marketplace-unmanaged

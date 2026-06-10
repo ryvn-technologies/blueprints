@@ -203,4 +203,4 @@ spec:
       displayName: Gateway Token
       description: Token required to connect the OpenClaw dashboard to the gateway.
       from: '{{ input "gatewayToken" }}'
-  isPublic: true
+  distribution: marketplace-unmanaged

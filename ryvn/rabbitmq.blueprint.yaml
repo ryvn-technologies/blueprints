@@ -378,4 +378,4 @@ spec:
       displayName: Management Port
       description: RabbitMQ management UI port.
       from: "15672"
-  isPublic: true
+  distribution: marketplace-unmanaged

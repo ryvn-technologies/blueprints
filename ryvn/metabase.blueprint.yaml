@@ -204,4 +204,4 @@ spec:
       displayName: Internal URL
       description: Cluster-internal URL for the Metabase service.
       from: 'http://{{ .ryvn.installation.name }}-metabase.{{ (serviceInstallation "metabase").namespace }}.svc.cluster.local'
-  isPublic: true
+  distribution: marketplace-unmanaged

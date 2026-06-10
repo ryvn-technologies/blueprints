@@ -128,4 +128,4 @@ spec:
       displayName: Password
       description: Password for the default Redis user.
       from: '{{ k8sSecretValue "redis-auth" "redis-password" }}'
-  isPublic: true
+  distribution: marketplace-unmanaged

@@ -205,4 +205,4 @@ spec:
       displayName: Secret Key K8s Secret
       description: Name of the Kubernetes Secret containing the S3 secret key (key RUSTFS_SECRET_KEY).
       from: 'rustfs-auth'
-  isPublic: true
+  distribution: marketplace-unmanaged

@@ -242,4 +242,4 @@ spec:
           []
           {{- end }}
       releaseChannel: stable
-  isPublic: true
+  distribution: marketplace-managed

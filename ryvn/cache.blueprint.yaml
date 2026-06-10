@@ -101,4 +101,4 @@ spec:
         private_endpoint_subnet_id: '{{ .ryvn.env.state.vnet.private_endpoint_subnet.id }}'
         private_dns_zone_id: '{{ .ryvn.env.state.vnet.redis_private_dns_zone.id }}'
       releaseChannel: stable
-  isPublic: true
+  distribution: marketplace-managed

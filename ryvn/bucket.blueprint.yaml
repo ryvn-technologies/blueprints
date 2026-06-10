@@ -150,4 +150,4 @@ spec:
         cors_rules: []
         {{ end }}
       releaseChannel: stable
-  isPublic: true
+  distribution: marketplace-managed
