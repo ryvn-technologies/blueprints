@@ -143,7 +143,7 @@ spec:
       type: string
       displayName: Dashboard URL
       description: Public HTTPS URL for the Langfuse dashboard.
-      from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+      from: 'https://{{ .ryvn.installation.name }}.{{ EnvironmentPublicDomain }}'
       condition: '{{ input "exposeDashboard" }}'
   installations:
     - service: langfuse

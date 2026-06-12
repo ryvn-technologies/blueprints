@@ -55,8 +55,8 @@ spec:
       config: |
         certManager:
           enable: false
-        webhook:
-          enable: false
+        crd:
+          keep: false
     - service: clickhouse
       namespace: clickhouse
       releaseChannel: stable
@@ -109,6 +109,6 @@ spec:
       type: string
       displayName: Dashboard URL
       description: Public HTTPS URL for the ClickHouse Play UI.
-      from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}/play'
+      from: 'https://{{ .ryvn.installation.name }}.{{ EnvironmentPublicDomain }}/play'
       condition: '{{ input "exposeDashboard" }}'
   distribution: marketplace-unmanaged

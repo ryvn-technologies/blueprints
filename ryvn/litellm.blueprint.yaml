@@ -70,7 +70,7 @@ spec:
       type: string
       displayName: Dashboard URL
       description: Public HTTPS URL for the LiteLLM proxy.
-      from: 'https://{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
+      from: 'https://{{ .ryvn.installation.name }}.{{ EnvironmentPublicDomain }}'
       condition: '{{ input "exposeDashboard" }}'
   installations:
     - service: litellm
