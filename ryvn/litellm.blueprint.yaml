@@ -6,7 +6,7 @@ spec:
   description: |
     Deploys a LiteLLM proxy that gives your services a single OpenAI-compatible API for calling multiple model providers. Other installations reference the `endpoint` output and authenticate with the master key to send requests.
 
-    Installs a single stateless Helm release in the `litellm` namespace -- no database needed. Comes preconfigured with two model routes: `anthropic-default` and `openai-default`. Bring your own API keys for each provider. You can swap the underlying model for either route (e.g. switch from `claude-sonnet-4-20250514` to `claude-opus-4-20250514`) without changing any consuming service.
+    Installs a single stateless Helm release in the `litellm` namespace -- no database needed. Comes preconfigured with two model routes: `anthropic-default` and `openai-default`. Bring your own API keys for each provider. You can swap the underlying model for either route (e.g. switch from `claude-sonnet-4-6` to `claude-opus-4-6`) without changing any consuming service.
 
     Enable "Expose Dashboard" to publish the proxy at `<installation-name>.<environment-domain>` with auto-provisioned TLS.
   displayName: LiteLLM
@@ -29,7 +29,7 @@ spec:
       group: access
     - name: anthropicModel
       type: string
-      default: anthropic/claude-sonnet-4-20250514
+      default: anthropic/claude-sonnet-4-6
       description: "Model string for the Anthropic route (format: anthropic/model-name). Your services call this as model name 'anthropic-default'."
       displayName: Anthropic Model
       group: models
