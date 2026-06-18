@@ -54,7 +54,7 @@ spec:
       releaseChannel: stable
       config: |
         certManager:
-          enable: false
+          enable: true
         crd:
           keep: false
     - service: clickhouse
