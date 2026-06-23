@@ -23,6 +23,9 @@ spec:
     - name: backup
       description: Backup and recovery settings
       displayName: Backup
+    - name: users
+      description: Optional read-only and read-write application users
+      displayName: Application Users
     - name: networking
       description: Tailnet access
       displayName: Networking
@@ -100,6 +103,52 @@ spec:
       description: Protects the database from accidental destruction. Disable before tearing down an environment.
       displayName: Deletion Protection
       group: backup
+    - name: enableReadOnlyUser
+      type: boolean
+      default: false
+      description: Provision an additional Postgres role with SELECT on all tables in the public schema, including future tables created by the master user. Useful for analytics and BI tools.
+      displayName: Enable Read-Only User
+      group: users
+    - name: readOnlyUsername
+      type: string
+      default: app_ro
+      description: Username for the read-only role. Lowercase letters, digits, and underscores only.
+      displayName: Read-Only Username
+      group: users
+      condition: '{{ input "enableReadOnlyUser" }}'
+    - name: readOnlyPassword
+      type: string
+      description: Password for the read-only user. Minimum 8 characters.
+      displayName: Read-Only Password
+      isSecret: true
+      generated:
+        type: random-string
+        length: 24
+      group: users
+      condition: '{{ input "enableReadOnlyUser" }}'
+    - name: enableReadWriteUser
+      type: boolean
+      default: false
+      description: Provision an additional Postgres role with SELECT/INSERT/UPDATE/DELETE on all tables in the public schema, plus matching default privileges so future tables are covered. Useful for application services that should not run with master credentials.
+      displayName: Enable Read-Write User
+      group: users
+    - name: readWriteUsername
+      type: string
+      default: app_rw
+      description: Username for the read-write role. Lowercase letters, digits, and underscores only.
+      displayName: Read-Write Username
+      group: users
+      condition: '{{ input "enableReadWriteUser" }}'
+    - name: readWritePassword
+      type: string
+      description: Password for the read-write user. Minimum 8 characters.
+      displayName: Read-Write Password
+      isSecret: true
+      generated:
+        type: random-string
+        length: 24
+      group: users
+      condition: '{{ input "enableReadWriteUser" }}'
     - name: exposeToTailnet
       type: boolean
       default: false
@@ -144,6 +193,46 @@ spec:
       description: Full connection string in postgresql://user:pass@host:port/db?sslmode=require format. SSL is required for connections.
       displayName: Connection String
       isSecret: true
+    - name: readOnlyUsername
+      type: string
+      from: '{{ input "readOnlyUsername" }}'
+      description: Username of the read-only role.
+      displayName: Read-Only Username
+      condition: '{{ input "enableReadOnlyUser" }}'
+    - name: readOnlyPassword
+      type: string
+      from: '{{ input "readOnlyPassword" }}'
+      description: Password for the read-only role.
+      displayName: Read-Only Password
+      isSecret: true
+      condition: '{{ input "enableReadOnlyUser" }}'
+    - name: readOnlyConnectionString
+      type: string
+      from: 'postgresql://{{ input "readOnlyUsername" }}:{{ input "readOnlyPassword" }}@{{ (serviceInstallation "postgres").outputs.host }}:{{ (serviceInstallation "postgres").outputs.port }}/{{ input "databaseName" }}?sslmode=require'
+      description: Connection string for the read-only role.
+      displayName: Read-Only Connection String
+      isSecret: true
+      condition: '{{ input "enableReadOnlyUser" }}'
+    - name: readWriteUsername
+      type: string
+      from: '{{ input "readWriteUsername" }}'
+      description: Username of the read-write role.
+      displayName: Read-Write Username
+      condition: '{{ input "enableReadWriteUser" }}'
+    - name: readWritePassword
+      type: string
+      from: '{{ input "readWritePassword" }}'
+      description: Password for the read-write role.
+      displayName: Read-Write Password
+      isSecret: true
+      condition: '{{ input "enableReadWriteUser" }}'
+    - name: readWriteConnectionString
+      type: string
+      from: 'postgresql://{{ input "readWriteUsername" }}:{{ input "readWritePassword" }}@{{ (serviceInstallation "postgres").outputs.host }}:{{ (serviceInstallation "postgres").outputs.port }}/{{ input "databaseName" }}?sslmode=require'
+      description: Connection string for the read-write role.
+      displayName: Read-Write Connection String
+      isSecret: true
+      condition: '{{ input "enableReadWriteUser" }}'
   installations:
     - service: postgres-rds
       name: postgres
@@ -226,6 +315,62 @@ spec:
             - key: database_password
               valueFromInput:
                 name: password
+      releaseChannel: stable
+    - service: postgres-user-provisioner
+      name: postgres-users
+      env:
+        - key: MASTER_HOST
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: host
+        - key: MASTER_PORT
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: port
+        - key: MASTER_DATABASE
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: database_name
+        - key: MASTER_USER
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: username
+        - key: MASTER_PASSWORD
+          isSecret: true
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: password
+        - key: SCHEMA
+          value: public
+        - key: READONLY_ENABLED
+          value: '{{ input "enableReadOnlyUser" }}'
+        - key: READONLY_USERNAME
+          value: '{{ if input "enableReadOnlyUser" }}{{ input "readOnlyUsername" }}{{ end }}'
+        - key: READONLY_PASSWORD
+          isSecret: true
+          valueFromInput:
+            name: readOnlyPassword
+        - key: READWRITE_ENABLED
+          value: '{{ input "enableReadWriteUser" }}'
+        - key: READWRITE_USERNAME
+          value: '{{ if input "enableReadWriteUser" }}{{ input "readWriteUsername" }}{{ end }}'
+        - key: READWRITE_PASSWORD
+          isSecret: true
+          valueFromInput:
+            name: readWritePassword
+      config: |
+        concurrencyPolicy: Forbid
+        backoffLimit: 0
+        successfulJobsHistoryLimit: 3
+        failedJobsHistoryLimit: 3
+        ttlSecondsAfterFinished: 86400
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
       releaseChannel: stable
     - service: tailscale-resources
       name: postgres-tailnet
