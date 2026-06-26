@@ -1,0 +1,195 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: cloudflare-edge
+spec:
+  description: |
+    Provisions Cloudflare edge controls in front of one or more Ryvn gateway hostnames. Cloudflare terminates public TLS, proxies DNS records to the configured origin, enforces strict origin TLS, enables per-hostname Authenticated Origin Pulls, and can apply zone-scoped WAF controls.
+
+    Use this when a customer-owned Cloudflare zone should front a Ryvn environment gateway. The Cloudflare API token must be scoped to the single zone used by the installation and stored as secret material.
+  displayName: Cloudflare Edge
+  inputGroups:
+    - name: cloudflare
+      description: Cloudflare zone and credentials.
+      displayName: Cloudflare
+    - name: routing
+      description: Public hostnames and origin routing.
+      displayName: Routing
+    - name: originTls
+      description: Authenticated origin TLS settings.
+      displayName: Origin TLS
+    - name: waf
+      description: Optional managed WAF controls.
+      displayName: WAF
+  inputs:
+    - name: cloudflareApiToken
+      type: string
+      isSecret: true
+      description: Zone-scoped Cloudflare API token. Grant only the zone permissions needed by the enabled features.
+      displayName: Cloudflare API Token
+      group: cloudflare
+    - name: zoneId
+      type: string
+      description: Cloudflare zone ID that owns the public hostnames.
+      displayName: Zone ID
+      group: cloudflare
+    - name: rulesetNamePrefix
+      type: string
+      default: ryvn
+      description: Prefix for Cloudflare ruleset names created by this installation.
+      displayName: Ruleset Name Prefix
+      group: cloudflare
+    - name: hostnames
+      type: array
+      default: []
+      description: Exact public hostnames Cloudflare should proxy, such as api.example.com. Wildcards are not supported.
+      displayName: Hostnames
+      group: routing
+    - name: originHostname
+      type: string
+      description: Public DNS name of the Ryvn gateway origin that Cloudflare forwards proxied traffic to.
+      displayName: Origin Hostname
+      group: routing
+    - name: originPort
+      type: number
+      default: 443
+      description: TCP port Cloudflare uses when connecting to the origin.
+      displayName: Origin Port
+      group: routing
+    - name: originSni
+      type: string
+      default: ""
+      description: SNI value Cloudflare uses for the origin. Leave blank to use each request hostname.
+      displayName: Origin SNI
+      group: originTls
+    - name: authenticatedOriginPullsCertificateId
+      type: string
+      description: Existing Cloudflare Authenticated Origin Pulls client certificate ID presented to the origin.
+      displayName: AOP Certificate ID
+      group: originTls
+    - name: enableWaf
+      type: boolean
+      default: false
+      description: Enable zone-scoped WAF rulesets for the configured hostnames.
+      displayName: Enable WAF
+      group: waf
+    - name: enableCloudflareManagedRules
+      type: boolean
+      default: false
+      description: Execute the Cloudflare Managed Ruleset.
+      displayName: Cloudflare Managed Rules
+      group: waf
+      condition: '{{ input "enableWaf" }}'
+    - name: enableOwaspRules
+      type: boolean
+      default: false
+      description: Execute the Cloudflare OWASP Core Ruleset.
+      displayName: OWASP Core Rules
+      group: waf
+      condition: '{{ input "enableWaf" }}'
+    - name: owaspAction
+      type: string
+      default: log
+      description: Action for the OWASP anomaly-score rule.
+      displayName: OWASP Action
+      group: waf
+      condition: '{{ input "enableOwaspRules" }}'
+      options:
+        - label: Log
+          value: log
+        - label: Block
+          value: block
+        - label: Managed Challenge
+          value: managed_challenge
+        - label: Challenge
+          value: challenge
+        - label: JavaScript Challenge
+          value: js_challenge
+    - name: owaspParanoiaLevel
+      type: number
+      default: 1
+      description: OWASP paranoia level. Higher levels enable stricter rule categories.
+      displayName: OWASP Paranoia Level
+      group: waf
+      condition: '{{ input "enableOwaspRules" }}'
+      options:
+        - label: "1"
+          value: 1
+        - label: "2"
+          value: 2
+        - label: "3"
+          value: 3
+        - label: "4"
+          value: 4
+    - name: owaspScoreThreshold
+      type: number
+      default: 60
+      description: OWASP anomaly score threshold that triggers the configured action.
+      displayName: OWASP Score Threshold
+      group: waf
+      condition: '{{ input "enableOwaspRules" }}'
+    - name: enableCloudflareFreeRules
+      type: boolean
+      default: false
+      description: Execute the Cloudflare Free Managed Ruleset where configurable for the zone plan.
+      displayName: Cloudflare Free Rules
+      group: waf
+      condition: '{{ input "enableWaf" }}'
+    - name: enableSensitiveDataDetection
+      type: boolean
+      default: false
+      description: Execute Cloudflare Sensitive Data Detection in the response WAF phase. Requires an Enterprise plan.
+      displayName: Sensitive Data Detection
+      group: waf
+      condition: '{{ input "enableWaf" }}'
+    - name: ipAllowlist
+      type: array
+      default: []
+      description: Optional source IP addresses or CIDR ranges to allow. When set, sources outside the list are blocked.
+      displayName: IP Allowlist
+      group: waf
+      condition: '{{ input "enableWaf" }}'
+    - name: ipBlocklist
+      type: array
+      default: []
+      description: Optional source IP addresses or CIDR ranges to block.
+      displayName: IP Blocklist
+      group: waf
+      condition: '{{ input "enableWaf" }}'
+  installations:
+    - service: cloudflare-edge
+      name: cloudflare-edge
+      provisionsInfrastructure: true
+      config: |
+        cloudflare_api_token: '{{ k8sSecretValue "cloudflare-api-token" "api_token" }}'
+        zone_id: '{{ input "zoneId" }}'
+        ruleset_name_prefix: '{{ input "rulesetNamePrefix" }}'
+        hostnames: {{ input "hostnames" | toJson }}
+        origin_hostname: '{{ input "originHostname" }}'
+        origin_port: {{ input "originPort" }}
+        origin_sni: '{{ input "originSni" }}'
+        authenticated_origin_pulls_certificate_id: '{{ input "authenticatedOriginPullsCertificateId" }}'
+        waf:
+          enabled: {{ input "enableWaf" }}
+          ip_allowlist: {{ input "ipAllowlist" | toJson }}
+          ip_blocklist: {{ input "ipBlocklist" | toJson }}
+          managed_rules:
+            cloudflare_managed:
+              enabled: {{ input "enableCloudflareManagedRules" }}
+            owasp:
+              enabled: {{ input "enableOwaspRules" }}
+              action: '{{ input "owaspAction" }}'
+              paranoia_level: {{ input "owaspParanoiaLevel" }}
+              score_threshold: {{ input "owaspScoreThreshold" }}
+            cloudflare_free:
+              enabled: {{ input "enableCloudflareFreeRules" }}
+            sensitive_data_detection:
+              enabled: {{ input "enableSensitiveDataDetection" }}
+      secrets:
+        - name: cloudflare-api-token
+          values:
+            - key: api_token
+              valueFromInput:
+                name: cloudflareApiToken
+      releaseChannel: stable
+  distribution: marketplace-managed

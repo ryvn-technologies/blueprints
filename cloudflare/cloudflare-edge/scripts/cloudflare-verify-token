@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  CLOUDFLARE_API_TOKEN=... scripts/cloudflare-verify-token --zone-id ZONE_ID
+
+Verify that a pasted Cloudflare API token is active and scoped to the exact zone
+this Terraform service will manage.
+
+Options:
+  --zone-id ZONE_ID        Cloudflare zone ID to smoke test.
+  --token-env ENV_VAR      Environment variable containing the token.
+                           Defaults to CLOUDFLARE_API_TOKEN.
+  -h, --help              Show this help.
+
+The token is read from an environment variable so it is not exposed in shell
+history or process arguments.
+EOF
+}
+
+zone_id=""
+token_env="CLOUDFLARE_API_TOKEN"
+api_base="https://api.cloudflare.com/client/v4"
+
+while (($# > 0)); do
+  case "$1" in
+    --zone-id)
+      if (($# < 2)); then
+        echo "error: --zone-id requires a value" >&2
+        exit 2
+      fi
+      zone_id="$2"
+      shift 2
+      ;;
+    --token-env)
+      if (($# < 2)); then
+        echo "error: --token-env requires a value" >&2
+        exit 2
+      fi
+      token_env="$2"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$zone_id" || "$zone_id" =~ [[:space:]] ]]; then
+  echo "error: --zone-id must be non-empty and contain no whitespace" >&2
+  exit 2
+fi
+
+if [[ -z "$token_env" || ! "$token_env" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+  echo "error: --token-env must be a valid environment variable name" >&2
+  exit 2
+fi
+
+api_token="${!token_env:-}"
+
+if [[ -z "$api_token" ]]; then
+  echo "error: $token_env is not set" >&2
+  exit 2
+fi
+
+check_cloudflare_success() {
+  local label="$1"
+  local url="$2"
+  local response
+
+  response="$(curl --fail --silent --show-error \
+    --header "Authorization: Bearer $api_token" \
+    --header "Content-Type: application/json" \
+    "$url")"
+
+  if command -v jq >/dev/null 2>&1; then
+    if ! printf '%s' "$response" | jq -e '.success == true' >/dev/null; then
+      echo "error: Cloudflare $label did not return success=true" >&2
+      printf '%s\n' "$response" >&2
+      exit 1
+    fi
+  elif ! printf '%s' "$response" | grep -q '"success"[[:space:]]*:[[:space:]]*true'; then
+    echo "error: Cloudflare $label did not return success=true" >&2
+    printf '%s\n' "$response" >&2
+    exit 1
+  fi
+
+  echo "ok: $label"
+}
+
+check_cloudflare_success "token verification" "$api_base/user/tokens/verify"
+check_cloudflare_success "zone read smoke test" "$api_base/zones/$zone_id"
+check_cloudflare_success "DNS record list smoke test" "$api_base/zones/$zone_id/dns_records?per_page=1"

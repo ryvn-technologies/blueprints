@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/cloudflare-token-url --account-id ACCOUNT_ID --zone-id ZONE_ID [--name TOKEN_NAME] [--open] [--copy]
+
+Print a Cloudflare dashboard URL that pre-fills the API token permissions needed
+by this Terraform service and scopes the token to one Cloudflare zone.
+
+Options:
+  --zone-id ZONE_ID        Cloudflare zone ID to scope in Zone Resources.
+  --account-id ACCOUNT_ID  Cloudflare account ID that owns the zone.
+  --user-token             Accepted for compatibility; user-token URLs are the
+                           only supported mode because they carry zoneId.
+  --name TOKEN_NAME        Token name. Defaults to "Ryvn Cloudflare Edge".
+  --open                  Open the URL with macOS "open" after printing it.
+  --copy                  Copy the URL with "pbcopy" after printing it.
+  -h, --help              Show this help.
+
+After opening the URL, review the summary and confirm Zone Resources shows only
+the single customer zone, create the token, and store the token secret in Ryvn
+secret material. Cloudflare only shows the token secret once.
+EOF
+}
+
+urlencode() {
+  local input="$1"
+  local output=""
+  local char
+  local i
+
+  LC_ALL=C
+  for ((i = 0; i < ${#input}; i++)); do
+    char="${input:i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-])
+        output+="$char"
+        ;;
+      *)
+        printf -v char '%%%02X' "'$char"
+        output+="$char"
+        ;;
+    esac
+  done
+
+  printf '%s' "$output"
+}
+
+zone_id=""
+account_id=""
+token_name="Ryvn Cloudflare Edge"
+open_url=false
+copy_url=false
+
+while (($# > 0)); do
+  case "$1" in
+    --user-token)
+      shift
+      ;;
+    --zone-id)
+      if (($# < 2)); then
+        echo "error: --zone-id requires a value" >&2
+        exit 2
+      fi
+      zone_id="$2"
+      shift 2
+      ;;
+    --account-id)
+      if (($# < 2)); then
+        echo "error: --account-id requires a value" >&2
+        exit 2
+      fi
+      account_id="$2"
+      shift 2
+      ;;
+    --name)
+      if (($# < 2)); then
+        echo "error: --name requires a value" >&2
+        exit 2
+      fi
+      token_name="$2"
+      shift 2
+      ;;
+    --open)
+      open_url=true
+      shift
+      ;;
+    --copy)
+      copy_url=true
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$token_name" ]]; then
+  echo "error: --name must be non-empty" >&2
+  exit 2
+fi
+
+if [[ -z "$account_id" || "$account_id" =~ [[:space:]] ]]; then
+  echo "error: --account-id is required and must contain no whitespace" >&2
+  exit 2
+fi
+
+if [[ -z "$zone_id" || "$zone_id" =~ [[:space:]] ]]; then
+  echo "error: --zone-id is required and must contain no whitespace" >&2
+  exit 2
+fi
+
+permissions='[{"key":"zone","type":"read"},{"key":"dns","type":"edit"},{"key":"zone_settings","type":"edit"},{"key":"ssl_and_certificates","type":"edit"},{"key":"origin","type":"edit"},{"key":"zone_waf","type":"edit"}]'
+
+url="https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=$(urlencode "$permissions")&accountId=$(urlencode "$account_id")&zoneId=$(urlencode "$zone_id")&name=$(urlencode "$token_name")"
+
+printf '%s\n' "$url"
+
+if [[ "$copy_url" == true ]]; then
+  if ! command -v pbcopy >/dev/null 2>&1; then
+    echo "error: --copy requires pbcopy" >&2
+    exit 1
+  fi
+  printf '%s' "$url" | pbcopy
+fi
+
+if [[ "$open_url" == true ]]; then
+  if ! command -v open >/dev/null 2>&1; then
+    echo "error: --open requires macOS open" >&2
+    exit 1
+  fi
+  open "$url" >/dev/null
+fi
