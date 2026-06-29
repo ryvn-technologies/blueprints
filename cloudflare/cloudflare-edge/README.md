@@ -25,27 +25,14 @@ Upload or create the client certificate in Cloudflare and copy its ID. The modul
 
 ### Cloudflare API token
 
-Scope the token to the single Cloudflare zone this module manages — zone-level permissions only.
+The module authenticates to Cloudflare with a Custom API Token scoped to this one zone. No account-level access is required.
 
-Use the helper to open Cloudflare's token creation form with the correct permissions and zone scope pre-filled:
+Create it in the Cloudflare dashboard under [My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens), then **Create Token** → **Create Custom Token**:
 
-```bash
-scripts/cloudflare-token-url \
-  --account-id <cloudflare-account-id> \
-  --zone-id <cloudflare-zone-id> \
-  --open
-```
-
-Use `--copy` instead of `--open` to put the URL on your clipboard. Review and confirm the token in Cloudflare, then store the secret in Ryvn and verify it works:
-
-```bash
-export CLOUDFLARE_API_TOKEN="<token>"
-scripts/cloudflare-verify-token --zone-id <cloudflare-zone-id>
-```
-
-Before saving the token, check that every permission is under **Zone** (not Account) and that **Zone Resources** is set to this specific zone.
-
-Required zone permissions:
+1. Add the permissions in the table below. Each is under **Zone**, not Account.
+2. Set **Zone Resources** to **Include → Specific zone** and pick the single zone for this installation.
+3. Create the token and copy it. Cloudflare shows the secret only once.
+4. Store it in Ryvn as the **Cloudflare API Token** input.
 
 | Permission | Required for |
 |------------|-------------|
@@ -55,6 +42,22 @@ Required zone permissions:
 | `Zone WAF Write` | WAF rulesets (only when `waf.enabled = true`) |
 | `Zone Read` | Zone reads used by the Cloudflare provider |
 | `Origin Write` | Origin routing ruleset (only when `origin_port != 443` or `origin_sni` is set) |
+
+If you have this repo checked out, the helper script opens the same token form with every permission and the zone scope already filled in:
+
+```bash
+scripts/cloudflare-token-url \
+  --account-id <cloudflare-account-id> \
+  --zone-id <cloudflare-zone-id> \
+  --open
+```
+
+Use `--copy` instead of `--open` to put the URL on your clipboard. To confirm a token works:
+
+```bash
+export CLOUDFLARE_API_TOKEN="<token>"
+scripts/cloudflare-verify-token --zone-id <cloudflare-zone-id>
+```
 
 ## Minimal configuration
 

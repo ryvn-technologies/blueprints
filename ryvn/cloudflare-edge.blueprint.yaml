@@ -21,7 +21,7 @@ spec:
       type: string
       isSecret: true
       displayName: Cloudflare API Token
-      description: Cloudflare API token, scoped to this zone.
+      description: "Cloudflare API token scoped to this zone. [How to create this token](https://github.com/ryvn-technologies/blueprints/blob/main/cloudflare/cloudflare-edge/README.md#cloudflare-api-token)."
       group: cloudflare
     - name: zoneId
       type: string
