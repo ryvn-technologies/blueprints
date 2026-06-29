@@ -11,7 +11,7 @@ variable "cloudflare_api_token" {
 }
 
 variable "zone_id" {
-  description = "ID of the Cloudflare zone that owns these hostnames: the 32-character hexadecimal ID shown on the zone's overview page in the Cloudflare dashboard. Every DNS record, ruleset, and zone setting this module manages is created in this zone."
+  description = "ID of the Cloudflare zone that owns these hostnames: the 32-character hexadecimal ID shown on the zone's overview page in the Cloudflare dashboard. Every DNS record and ruleset this module manages is created in this zone."
   type        = string
   nullable    = false
 
@@ -103,6 +103,9 @@ variable "hostnames" {
   default     = []
   nullable    = false
 
+  # TODO: Support wildcard hostnames through an explicit zone-level AOP mode.
+  # See the README "Wildcard hostnames" note for the Cloudflare docs and setup
+  # constraints.
   validation {
     condition = alltrue([
       for hostname in var.hostnames :

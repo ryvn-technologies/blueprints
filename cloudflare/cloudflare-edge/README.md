@@ -50,7 +50,7 @@ Required zone permissions:
 | Permission | Required for |
 |------------|-------------|
 | `DNS Write` | Proxied DNS records |
-| `Zone Settings Write` | Strict SSL zone setting |
+| `Config Rules Edit` | Hostname-scoped strict origin TLS configuration rule |
 | `SSL and Certificates Write` | Per-hostname Authenticated Origin Pulls |
 | `Zone WAF Write` | WAF rulesets (only when `waf.enabled = true`) |
 | `Zone Read` | Zone reads used by the Cloudflare provider |
@@ -103,7 +103,7 @@ waf:
 
 ## Partial/CNAME setup (Route53 or external DNS)
 
-If Cloudflare is not your authoritative DNS (common when Route53 is), the setup is the same — this module still creates the Cloudflare-side proxied record, enables AOP and strict SSL, and applies WAF. The only difference is you also need to create a CNAME in Route53 pointing your hostname to Cloudflare's CNAME target.
+If Cloudflare is not your authoritative DNS (common when Route53 is), the setup is the same — this module still creates the Cloudflare-side proxied record, enables AOP and hostname-scoped strict SSL, and applies WAF. The only difference is you also need to create a CNAME in Route53 pointing your hostname to Cloudflare's CNAME target.
 
 Run `terraform output required_dns_records` after apply to get the exact CNAME value for each hostname. Lower the TTL on the Route53 record ahead of time so you can roll back quickly if needed.
 
@@ -129,6 +129,12 @@ Pre-stage the Cloudflare configuration first, verify AOP and WAF in log mode, th
 | `origin_sni` | `""` | SNI Cloudflare uses toward your origin. Leave blank to use the request hostname. |
 | `ruleset_name_prefix` | `"ryvn"` | Prefix for Cloudflare ruleset names — useful to namespace per environment. |
 | `waf` | `{}` | WAF configuration. Disabled by default. |
+
+## Wildcard hostnames
+
+This module currently accepts exact hostnames only because it uses per-hostname AOP. We tested per-hostname AOP with a wildcard hostname, but Cloudflare did not present the client certificate to the origin. Future wildcard support should use an explicit zone-level AOP mode: Cloudflare supports proxied wildcard DNS records, and zone-level AOP authenticates all proxied traffic in the zone with an uploaded client certificate. That mode also needs wildcard-aware WAF/origin rules, for example `http.host wildcard "*.example.com"`, plus edge and origin TLS coverage for the wildcard names.
+
+References: [wildcard DNS records](https://developers.cloudflare.com/dns/manage-dns-records/reference/wildcard-dns-records/), [zone-level AOP](https://developers.cloudflare.com/ssl/origin-configuration/authenticated-origin-pull/set-up/zone-level/), [per-hostname AOP](https://developers.cloudflare.com/ssl/origin-configuration/authenticated-origin-pull/set-up/per-hostname/), [wildcard rule operators](https://developers.cloudflare.com/ruleset-engine/rules-language/operators/#wildcard-matching).
 
 ## WAF
 
@@ -234,9 +240,9 @@ Advanced rules are appended after typed rules in their phase. Their expressions 
 
 ## Zone-level effects
 
-Two settings apply to the whole zone, not per-hostname:
+Cloudflare rulesets are zone resources even when every rule expression is hostname-scoped:
 
-- **Strict SSL** (`ssl = strict`) is set zone-wide when at least one hostname is configured. This tells Cloudflare to always validate the origin's TLS certificate.
+- **Strict SSL** is enforced through a Configuration Rule in the `http_config_settings` phase, scoped to the configured hostnames. The module does not change the zone-wide SSL mode.
 - **One entry-point ruleset per phase per zone** — run at most one cloudflare-edge installation per Cloudflare zone.
 
 ## Local validation

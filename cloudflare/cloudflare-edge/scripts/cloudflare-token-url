@@ -118,7 +118,7 @@ if [[ -z "$zone_id" || "$zone_id" =~ [[:space:]] ]]; then
   exit 2
 fi
 
-permissions='[{"key":"zone","type":"read"},{"key":"dns","type":"edit"},{"key":"zone_settings","type":"edit"},{"key":"ssl_and_certificates","type":"edit"},{"key":"origin","type":"edit"},{"key":"zone_waf","type":"edit"}]'
+permissions='[{"key":"zone","type":"read"},{"key":"dns","type":"edit"},{"key":"config_settings","type":"edit"},{"key":"ssl_and_certificates","type":"edit"},{"key":"origin","type":"edit"},{"key":"zone_waf","type":"edit"}]'
 
 url="https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=$(urlencode "$permissions")&accountId=$(urlencode "$account_id")&zoneId=$(urlencode "$zone_id")&name=$(urlencode "$token_name")"
 

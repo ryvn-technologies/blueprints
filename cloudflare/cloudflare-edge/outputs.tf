@@ -43,6 +43,9 @@ output "ruleset_ids" {
     length(cloudflare_ruleset.origin) > 0 ? {
       origin = cloudflare_ruleset.origin[0].id
     } : {},
+    length(cloudflare_ruleset.origin_tls) > 0 ? {
+      origin_tls = cloudflare_ruleset.origin_tls[0].id
+    } : {},
     length(cloudflare_ruleset.managed_waf) > 0 ? {
       managed_waf = cloudflare_ruleset.managed_waf[0].id
     } : {},
