@@ -242,7 +242,7 @@ spec:
         aws_region: '{{ .ryvn.env.state.cluster_region }}'
         vpc_id: {{ .ryvn.env.state.vpc.id }}
         subnet_ids: '{{ .ryvn.env.state.vpc.private_subnet_ids | join "," }}'
-        name_prefix: '{{ .ryvn.installation.name }}'
+        name_prefix: 'postgres'
         environment: '{{ .ryvn.env.name }}'
         engine_version: '{{ input "version" }}'
         instance_class: '{{ if eq (input "size") "large" }}db.r7g.xlarge{{ else if eq (input "size") "medium" }}db.r7g.large{{ else }}db.t3.medium{{ end }}'
@@ -268,7 +268,7 @@ spec:
       config: |
         project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
         region: '{{ .ryvn.env.state.cluster_region }}'
-        name_prefix: '{{ .ryvn.installation.name }}'
+        name_prefix: 'postgres'
         environment: '{{ .ryvn.env.name }}'
         postgres_version: '{{ input "version" }}'
         tier: '{{ if eq (input "size") "large" }}db-custom-8-30720{{ else if eq (input "size") "medium" }}db-custom-4-15360{{ else }}db-custom-2-7680{{ end }}'
@@ -297,7 +297,7 @@ spec:
         resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
         delegated_subnet_id: '{{ .ryvn.env.state.vnet.postgres_subnet.id }}'
         private_dns_zone_id: '{{ .ryvn.env.state.vnet.postgres_private_dns_zone.id }}'
-        name_prefix: '{{ .ryvn.installation.name }}'
+        name_prefix: 'postgres'
         environment: '{{ .ryvn.env.name }}'
         postgres_version: '{{ input "version" }}'
         sku_name: '{{ if eq (input "size") "large" }}GP_Standard_D8s_v3{{ else if eq (input "size") "medium" }}GP_Standard_D4s_v3{{ else }}GP_Standard_D2s_v3{{ end }}'
