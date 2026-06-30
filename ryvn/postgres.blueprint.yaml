@@ -152,7 +152,7 @@ spec:
     - name: exposeToTailnet
       type: boolean
       default: false
-      description: Expose the Postgres host to your Tailnet using Tailscale. Requires the Tailscale operator to already be installed in the environment.
+      description: Expose the Postgres host to your Tailnet using Tailscale. The database becomes reachable on the tailnet under a hostname derived from the installation and environment name. Requires the Tailscale operator to already be installed in the environment.
       displayName: Expose to Tailnet
       group: networking
   outputs:
@@ -235,7 +235,8 @@ spec:
       condition: '{{ input "enableReadWriteUser" }}'
   installations:
     - service: postgres-rds
-      name: postgres
+      name: '{{ ParentInstallationName }}'
+      alias: postgres
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "aws" }}'
       config: |
@@ -262,7 +263,8 @@ spec:
                 name: password
       releaseChannel: stable
     - service: postgres-cloudsql
-      name: postgres
+      name: '{{ ParentInstallationName }}'
+      alias: postgres
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "gcp" }}'
       config: |
@@ -289,7 +291,8 @@ spec:
                 name: password
       releaseChannel: stable
     - service: postgres-flexible
-      name: postgres
+      name: '{{ ParentInstallationName }}'
+      alias: postgres
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "azure" }}'
       config: |
@@ -316,73 +319,78 @@ spec:
               valueFromInput:
                 name: password
       releaseChannel: stable
-    - service: postgres-user-provisioner
-      name: postgres-users
-      env:
-        - key: MASTER_HOST
-          valueFromOutput:
-            serviceInstallation: postgres
-            name: host
-        - key: MASTER_PORT
-          valueFromOutput:
-            serviceInstallation: postgres
-            name: port
-        - key: MASTER_DATABASE
-          valueFromOutput:
-            serviceInstallation: postgres
-            name: database_name
-        - key: MASTER_USER
-          valueFromOutput:
-            serviceInstallation: postgres
-            name: username
-        - key: MASTER_PASSWORD
-          isSecret: true
-          valueFromOutput:
-            serviceInstallation: postgres
-            name: password
-        - key: SCHEMA
-          value: public
-        - key: READONLY_ENABLED
-          value: '{{ input "enableReadOnlyUser" }}'
-        - key: READONLY_USERNAME
-          value: '{{ if input "enableReadOnlyUser" }}{{ input "readOnlyUsername" }}{{ end }}'
-        - key: READONLY_PASSWORD
-          isSecret: true
-          valueFromInput:
-            name: readOnlyPassword
-        - key: READWRITE_ENABLED
-          value: '{{ input "enableReadWriteUser" }}'
-        - key: READWRITE_USERNAME
-          value: '{{ if input "enableReadWriteUser" }}{{ input "readWriteUsername" }}{{ end }}'
-        - key: READWRITE_PASSWORD
-          isSecret: true
-          valueFromInput:
-            name: readWritePassword
-      config: |
-        concurrencyPolicy: Forbid
-        backoffLimit: 0
-        successfulJobsHistoryLimit: 3
-        failedJobsHistoryLimit: 3
-        ttlSecondsAfterFinished: 86400
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 300m
-            memory: 256Mi
-      releaseChannel: stable
+    # postgres-user-provisioner is temporarily disabled. It is not yet on the
+    # stable channel, so leaving it out now means one less install to rename
+    # during the multi-install migration. Re-add when ready.
+    # - service: postgres-user-provisioner
+    #   name: '{{ ParentInstallationName }}-users'
+    #   env:
+    #     - key: MASTER_HOST
+    #       valueFromOutput:
+    #         serviceInstallation: postgres
+    #         name: host
+    #     - key: MASTER_PORT
+    #       valueFromOutput:
+    #         serviceInstallation: postgres
+    #         name: port
+    #     - key: MASTER_DATABASE
+    #       valueFromOutput:
+    #         serviceInstallation: postgres
+    #         name: database_name
+    #     - key: MASTER_USER
+    #       valueFromOutput:
+    #         serviceInstallation: postgres
+    #         name: username
+    #     - key: MASTER_PASSWORD
+    #       isSecret: true
+    #       valueFromOutput:
+    #         serviceInstallation: postgres
+    #         name: password
+    #     - key: SCHEMA
+    #       value: public
+    #     - key: READONLY_ENABLED
+    #       value: '{{ input "enableReadOnlyUser" }}'
+    #     - key: READONLY_USERNAME
+    #       value: '{{ if input "enableReadOnlyUser" }}{{ input "readOnlyUsername" }}{{ end }}'
+    #     - key: READONLY_PASSWORD
+    #       isSecret: true
+    #       valueFromInput:
+    #         name: readOnlyPassword
+    #     - key: READWRITE_ENABLED
+    #       value: '{{ input "enableReadWriteUser" }}'
+    #     - key: READWRITE_USERNAME
+    #       value: '{{ if input "enableReadWriteUser" }}{{ input "readWriteUsername" }}{{ end }}'
+    #     - key: READWRITE_PASSWORD
+    #       isSecret: true
+    #       valueFromInput:
+    #         name: readWritePassword
+    #   config: |
+    #     concurrencyPolicy: Forbid
+    #     backoffLimit: 0
+    #     successfulJobsHistoryLimit: 3
+    #     failedJobsHistoryLimit: 3
+    #     ttlSecondsAfterFinished: 86400
+    #     resources:
+    #       requests:
+    #         cpu: 100m
+    #         memory: 128Mi
+    #       limits:
+    #         cpu: 300m
+    #         memory: 256Mi
+    #   releaseChannel: stable
     - service: tailscale-resources
-      name: postgres-tailnet
+      name: '{{ ParentInstallationName }}-ts'
       namespace: tailscale-operator
       config: |
         externalServices:
           {{- if input "exposeToTailnet" }}
-          - name: postgres
+          - name: '{{ ParentInstallationName }}'
             externalName: '{{ (serviceInstallation "postgres").outputs.host }}'
+            annotations:
+              tailscale.com/hostname: '{{ ParentInstallationName }}-{{ EnvironmentName }}'
             labels:
               ryvn.app/blueprint: postgres
-              ryvn.app/exposed-service: postgres
+              ryvn.app/exposed-service: '{{ ParentInstallationName }}'
           {{- else }}
           []
           {{- end }}
