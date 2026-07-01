@@ -342,6 +342,9 @@ spec:
       releaseChannel: stable
     - service: postgres-user-provisioner
       name: '{{ ParentInstallationName }}-users'
+      lifecycle:
+        postUpdate:
+          - run: '{{ ParentInstallationName }}-users'
       env:
         - key: MASTER_HOST
           valueFromOutput:
