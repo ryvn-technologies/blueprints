@@ -239,6 +239,13 @@ spec:
       alias: postgres
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "aws" }}'
+      lifecycle:
+        postInstall:
+          - run: '{{ ParentInstallationName }}-users'
+        postUpgrade:
+          - run: '{{ ParentInstallationName }}-users'
+        postUpdate:
+          - run: '{{ ParentInstallationName }}-users'
       config: |
         aws_region: '{{ .ryvn.env.state.cluster_region }}'
         vpc_id: {{ .ryvn.env.state.vpc.id }}
@@ -267,6 +274,13 @@ spec:
       alias: postgres
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      lifecycle:
+        postInstall:
+          - run: '{{ ParentInstallationName }}-users'
+        postUpgrade:
+          - run: '{{ ParentInstallationName }}-users'
+        postUpdate:
+          - run: '{{ ParentInstallationName }}-users'
       config: |
         project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
         region: '{{ .ryvn.env.state.cluster_region }}'
@@ -295,6 +309,13 @@ spec:
       alias: postgres
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "azure" }}'
+      lifecycle:
+        postInstall:
+          - run: '{{ ParentInstallationName }}-users'
+        postUpgrade:
+          - run: '{{ ParentInstallationName }}-users'
+        postUpdate:
+          - run: '{{ ParentInstallationName }}-users'
       config: |
         location: '{{ .ryvn.env.state.resource_group.location }}'
         resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
@@ -319,65 +340,62 @@ spec:
               valueFromInput:
                 name: password
       releaseChannel: stable
-    # postgres-user-provisioner is temporarily disabled. It is not yet on the
-    # stable channel, so leaving it out now means one less install to rename
-    # during the multi-install migration. Re-add when ready.
-    # - service: postgres-user-provisioner
-    #   name: '{{ ParentInstallationName }}-users'
-    #   env:
-    #     - key: MASTER_HOST
-    #       valueFromOutput:
-    #         serviceInstallation: postgres
-    #         name: host
-    #     - key: MASTER_PORT
-    #       valueFromOutput:
-    #         serviceInstallation: postgres
-    #         name: port
-    #     - key: MASTER_DATABASE
-    #       valueFromOutput:
-    #         serviceInstallation: postgres
-    #         name: database_name
-    #     - key: MASTER_USER
-    #       valueFromOutput:
-    #         serviceInstallation: postgres
-    #         name: username
-    #     - key: MASTER_PASSWORD
-    #       isSecret: true
-    #       valueFromOutput:
-    #         serviceInstallation: postgres
-    #         name: password
-    #     - key: SCHEMA
-    #       value: public
-    #     - key: READONLY_ENABLED
-    #       value: '{{ input "enableReadOnlyUser" }}'
-    #     - key: READONLY_USERNAME
-    #       value: '{{ if input "enableReadOnlyUser" }}{{ input "readOnlyUsername" }}{{ end }}'
-    #     - key: READONLY_PASSWORD
-    #       isSecret: true
-    #       valueFromInput:
-    #         name: readOnlyPassword
-    #     - key: READWRITE_ENABLED
-    #       value: '{{ input "enableReadWriteUser" }}'
-    #     - key: READWRITE_USERNAME
-    #       value: '{{ if input "enableReadWriteUser" }}{{ input "readWriteUsername" }}{{ end }}'
-    #     - key: READWRITE_PASSWORD
-    #       isSecret: true
-    #       valueFromInput:
-    #         name: readWritePassword
-    #   config: |
-    #     concurrencyPolicy: Forbid
-    #     backoffLimit: 0
-    #     successfulJobsHistoryLimit: 3
-    #     failedJobsHistoryLimit: 3
-    #     ttlSecondsAfterFinished: 86400
-    #     resources:
-    #       requests:
-    #         cpu: 100m
-    #         memory: 128Mi
-    #       limits:
-    #         cpu: 300m
-    #         memory: 256Mi
-    #   releaseChannel: stable
+    - service: postgres-user-provisioner
+      name: '{{ ParentInstallationName }}-users'
+      env:
+        - key: MASTER_HOST
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: host
+        - key: MASTER_PORT
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: port
+        - key: MASTER_DATABASE
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: database_name
+        - key: MASTER_USER
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: username
+        - key: MASTER_PASSWORD
+          isSecret: true
+          valueFromOutput:
+            serviceInstallation: postgres
+            name: password
+        - key: SCHEMA
+          value: public
+        - key: READONLY_ENABLED
+          value: '{{ input "enableReadOnlyUser" }}'
+        - key: READONLY_USERNAME
+          value: '{{ if input "enableReadOnlyUser" }}{{ input "readOnlyUsername" }}{{ end }}'
+        - key: READONLY_PASSWORD
+          isSecret: true
+          valueFromInput:
+            name: readOnlyPassword
+        - key: READWRITE_ENABLED
+          value: '{{ input "enableReadWriteUser" }}'
+        - key: READWRITE_USERNAME
+          value: '{{ if input "enableReadWriteUser" }}{{ input "readWriteUsername" }}{{ end }}'
+        - key: READWRITE_PASSWORD
+          isSecret: true
+          valueFromInput:
+            name: readWritePassword
+      config: |
+        concurrencyPolicy: Forbid
+        backoffLimit: 0
+        successfulJobsHistoryLimit: 3
+        failedJobsHistoryLimit: 3
+        ttlSecondsAfterFinished: 86400
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+      releaseChannel: stable
     - service: tailscale-resources
       name: '{{ ParentInstallationName }}-ts'
       namespace: tailscale-operator
