@@ -244,8 +244,6 @@ spec:
           - run: '{{ ParentInstallationName }}-users'
         postUpgrade:
           - run: '{{ ParentInstallationName }}-users'
-        postUpdate:
-          - run: '{{ ParentInstallationName }}-users'
       config: |
         aws_region: '{{ .ryvn.env.state.cluster_region }}'
         vpc_id: {{ .ryvn.env.state.vpc.id }}
@@ -279,8 +277,6 @@ spec:
           - run: '{{ ParentInstallationName }}-users'
         postUpgrade:
           - run: '{{ ParentInstallationName }}-users'
-        postUpdate:
-          - run: '{{ ParentInstallationName }}-users'
       config: |
         project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
         region: '{{ .ryvn.env.state.cluster_region }}'
@@ -313,8 +309,6 @@ spec:
         postInstall:
           - run: '{{ ParentInstallationName }}-users'
         postUpgrade:
-          - run: '{{ ParentInstallationName }}-users'
-        postUpdate:
           - run: '{{ ParentInstallationName }}-users'
       config: |
         location: '{{ .ryvn.env.state.resource_group.location }}'
