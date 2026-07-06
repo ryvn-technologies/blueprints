@@ -31,7 +31,7 @@ spec:
     - name: bucketName
       type: string
       default: ""
-      description: Desired name for the bucket. A short random suffix is appended automatically to guarantee global uniqueness. Leave blank to derive it from the installation name.
+      description: Desired name for the bucket. A short random suffix is appended automatically to guarantee global uniqueness. Leave blank to use the default prefix "bucket".
       displayName: Bucket Name
       group: naming
     - name: versioning
@@ -124,13 +124,14 @@ spec:
       displayName: Connection URL
   installations:
     - service: s3-bucket
-      name: bucket
+      name: '{{ ParentInstallationName }}'
+      alias: bucket
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "aws" }}'
       config: |
         aws_region: '{{ .ryvn.env.state.cluster_region }}'
         cluster_name: '{{ .ryvn.env.state.cluster_name }}'
-        name_prefix: '{{ .ryvn.installation.name }}'
+        name_prefix: 'bucket'
         bucket_name: '{{ input "bucketName" }}'
         environment: '{{ .ryvn.env.name }}'
         versioning: {{ input "versioning" }}
