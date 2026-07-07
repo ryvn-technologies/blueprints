@@ -58,14 +58,15 @@ spec:
       isSecret: true
   installations:
     - service: elasticache
-      name: cache
+      name: '{{ ParentInstallationName }}'
+      alias: cache
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "aws" }}'
       config: |
         aws_region: '{{ .ryvn.env.state.cluster_region }}'
         vpc_id: {{ .ryvn.env.state.vpc.id }}
         private_subnet_ids: '{{ .ryvn.env.state.vpc.private_subnet_ids | join "," }}'
-        installation_name: '{{ .ryvn.env.name }}-{{ input "cacheName" }}'
+        installation_name: 'cache'
         environment: '{{ .ryvn.env.name }}'
         node_type: '{{ if eq (input "size") "large" }}cache.r7g.large{{ else if eq (input "size") "small" }}cache.t3.small{{ else }}cache.t3.medium{{ end }}'
         {{- if input "highAvailability" }}
@@ -75,26 +76,28 @@ spec:
         {{- end }}
       releaseChannel: stable
     - service: memorystore-redis
-      name: cache
+      name: '{{ ParentInstallationName }}'
+      alias: cache
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "gcp" }}'
       config: |
         project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
         region: '{{ .ryvn.env.state.cluster_region }}'
-        installation_name: '{{ .ryvn.env.name }}-{{ input "cacheName" }}'
+        installation_name: 'cache'
         environment: '{{ .ryvn.env.name }}'
         tier: '{{ if input "highAvailability" }}STANDARD_HA{{ else }}BASIC{{ end }}'
         memory_size_gb: {{ if eq (input "size") "large" }}4{{ else if eq (input "size") "small" }}1{{ else }}2{{ end }}
         authorized_network: '{{ .ryvn.env.state.vpc.self_link }}'
       releaseChannel: stable
     - service: redis-cache
-      name: cache
+      name: '{{ ParentInstallationName }}'
+      alias: cache
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "azure" }}'
       config: |
         location: '{{ .ryvn.env.state.resource_group.location }}'
         resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
-        installation_name: '{{ .ryvn.env.name }}-{{ input "cacheName" }}'
+        installation_name: 'cache'
         environment: '{{ .ryvn.env.name }}'
         sku_name: '{{ if input "highAvailability" }}Standard{{ else }}Basic{{ end }}'
         capacity: {{ if eq (input "size") "large" }}2{{ else if eq (input "size") "small" }}0{{ else }}1{{ end }}
