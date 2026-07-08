@@ -1,0 +1,309 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: cloudfront-edge
+spec:
+  description: |
+    Deploys an AWS CloudFront distribution in front of your environment's public domain (AWS only). CloudFront serves your public hostnames over HTTPS with a managed TLS certificate and forwards requests privately to the Ryvn-managed origin through a CloudFront VPC origin. Optionally add AWS WAF and require client certificates (mTLS) from callers.
+  displayName: CloudFront Edge
+  inputGroups:
+    - name: origin
+      description: Configure how CloudFront reaches the Ryvn-managed origin.
+      displayName: Origin
+    - name: viewerMtls
+      description: Require client certificates from callers.
+      displayName: Viewer mTLS
+    - name: waf
+      description: Filter incoming traffic with AWS WAF.
+      displayName: WAF
+    - name: advanced
+      description: Low-level origin and deployment overrides.
+      displayName: Advanced
+  inputs:
+    - name: hostnames
+      type: array
+      default: []
+      description: Public hostnames to serve through CloudFront.
+      displayName: Host Names
+    - name: preserveViewerHostHeader
+      type: boolean
+      default: true
+      description: Forward the original Host header to the Ryvn-managed origin so routing can use the configured public hostname.
+      displayName: Preserve Viewer Host Header
+      group: origin
+    - name: enableViewerMtls
+      type: boolean
+      default: false
+      description: Validate client certificates from callers connecting to CloudFront.
+      displayName: Enable Viewer mTLS
+      group: viewerMtls
+    - name: viewerMtlsMode
+      type: string
+      default: required
+      description: Required rejects callers without a valid certificate. Optional requests one but still allows callers without it.
+      displayName: Mode
+      group: viewerMtls
+      condition: '{{ input "enableViewerMtls" }}'
+      options:
+        - label: Required
+          value: required
+        - label: Optional
+          value: optional
+    - name: viewerMtlsTrustedCaBundle
+      type: map
+      isSecret: true
+      description: Public CA certificate bundle used to validate client certificates. Provide a PEM bundle under the ca.crt key; do not include private keys.
+      displayName: Trusted CA Bundle
+      group: viewerMtls
+      condition: '{{ input "enableViewerMtls" }}'
+      defaultFrom:
+        variableGroup: trusted-client-ca
+    - name: viewerMtlsAdvertiseTrustStoreCaNames
+      type: boolean
+      default: false
+      description: Advertise the accepted CA names during the TLS handshake so callers can present a matching certificate.
+      displayName: Advertise CA Names
+      group: viewerMtls
+      condition: '{{ input "enableViewerMtls" }}'
+    - name: viewerMtlsIgnoreCertificateExpiry
+      type: boolean
+      default: false
+      description: Accept expired client certificates, while still checking they were issued by a trusted CA.
+      displayName: Ignore Certificate Expiry
+      group: viewerMtls
+      condition: '{{ input "enableViewerMtls" }}'
+    - name: ipAllowList
+      type: array
+      default: []
+      description: CIDR blocks allowed to reach CloudFront. Leave empty to allow all sources.
+      displayName: IP Allow List
+      group: waf
+      condition: '{{ eq (input "webAclArn") "" }}'
+    - name: wafCommonRuleSetAction
+      type: string
+      default: count
+      description: Looks for common web app attacks such as XSS, path traversal, oversized requests, and other OWASP-style issues.
+      displayName: Common Rule Set
+      group: waf
+      condition: '{{ eq (input "webAclArn") "" }}'
+      options:
+        - label: Disabled
+          value: disabled
+        - label: Count
+          value: count
+        - label: Block
+          value: block
+    - name: wafKnownBadInputsAction
+      type: string
+      default: count
+      description: Looks for request patterns linked to known exploits or attempts to find vulnerable apps.
+      displayName: Known Bad Inputs
+      group: waf
+      condition: '{{ eq (input "webAclArn") "" }}'
+      options:
+        - label: Disabled
+          value: disabled
+        - label: Count
+          value: count
+        - label: Block
+          value: block
+    - name: wafAmazonIpReputationAction
+      type: string
+      default: count
+      description: Checks whether the request comes from an IP AWS has linked to bots, DDoS, scanning, or other abuse.
+      displayName: Amazon IP Reputation
+      group: waf
+      condition: '{{ eq (input "webAclArn") "" }}'
+      options:
+        - label: Disabled
+          value: disabled
+        - label: Count
+          value: count
+        - label: Block
+          value: block
+    - name: wafAnonymousIpAction
+      type: string
+      default: count
+      description: Checks whether the request comes through VPNs, proxies, Tor, or hosting providers that can hide who is calling.
+      displayName: Anonymous IP
+      group: waf
+      condition: '{{ eq (input "webAclArn") "" }}'
+      options:
+        - label: Disabled
+          value: disabled
+        - label: Count
+          value: count
+        - label: Block
+          value: block
+    - name: webAclArn
+      type: string
+      default: ""
+      description: Attach an existing CloudFront-scoped AWS WAF WebACL by ARN instead of configuring rules here.
+      displayName: Existing WebACL ARN
+      group: waf
+    - name: existingVpcOriginId
+      type: string
+      default: ""
+      description: Reuse an existing CloudFront VPC origin by ID. Leave empty to create one from the environment's Ryvn-managed internal load balancer.
+      displayName: Existing VPC Origin ID
+      group: advanced
+    - name: vpcOriginEndpointLookupTags
+      type: string
+      default: ""
+      description: AWS load balancer tags as a YAML map, used to find the VPC origin's load balancer. Leave empty to use the environment's Ryvn-managed internal load balancer.
+      displayName: VPC Origin Endpoint Lookup Tags
+      group: advanced
+      multiline: true
+      condition: '{{ eq (input "existingVpcOriginId") "" }}'
+    - name: vpcOriginName
+      type: string
+      default: ""
+      description: Name for the created VPC origin. Leave empty for a generated name.
+      displayName: VPC Origin Name
+      group: advanced
+      condition: '{{ eq (input "existingVpcOriginId") "" }}'
+    - name: priceClass
+      type: string
+      default: PriceClass_100
+      description: CloudFront price class.
+      displayName: Price Class
+      group: advanced
+      options:
+        - label: PriceClass_100 (North America and Europe)
+          value: PriceClass_100
+        - label: PriceClass_200 (Most edge locations)
+          value: PriceClass_200
+        - label: PriceClass_All (All edge locations)
+          value: PriceClass_All
+    - name: enableMonitoring
+      type: boolean
+      default: false
+      description: Collect CloudFront real-time metrics.
+      displayName: Enable Monitoring
+      group: advanced
+    - name: waitForDeployment
+      type: boolean
+      default: false
+      description: Wait for CloudFront to finish deploying before this completes.
+      displayName: Wait for Deployment
+      group: advanced
+    - name: retainOnDelete
+      type: boolean
+      default: false
+      description: Disable the distribution instead of deleting it when this blueprint is removed.
+      displayName: Retain on Delete
+      group: advanced
+  outputs:
+    - name: distributionDomainName
+      type: string
+      from: '{{ (serviceInstallation "edge").outputs.distribution_domain_name }}'
+      description: CloudFront distribution DNS name.
+      displayName: Distribution Domain Name
+    - name: externalDnsTargetAnnotation
+      type: string
+      from: 'external-dns.alpha.kubernetes.io/target: {{ (serviceInstallation "edge").outputs.distribution_domain_name }}'
+      description: External DNS annotation to add to a service installation networking ingress so DNS targets the CloudFront distribution.
+      displayName: External DNS Target Annotation
+    - name: requiredDnsRecords
+      type: string
+      from: '{{ (serviceInstallation "edge").outputs.required_dns_records | toJson }}'
+      description: DNS records to create yourself when this blueprint isn't managing Route53.
+      displayName: Required DNS Records
+  installations:
+    - service: cloudfront-edge
+      name: '{{ ParentInstallationName }}'
+      alias: edge
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+      secrets:
+        - name: viewer-mtls-ca
+          valueFromInput:
+            name: viewerMtlsTrustedCaBundle
+      config: |
+        aws_region: '{{ .ryvn.env.state.cluster_region }}'
+        name_prefix: '{{ .ryvn.env.name }}-{{ ParentInstallationName }}-cloudfront-edge'
+        managed_public_dns_root: '{{ .ryvn.env.state.public_domain.name }}'
+        managed_private_dns_root: '{{ default "" (and .ryvn.env.state.internal_domain .ryvn.env.state.internal_domain.name) }}'
+        hostnames: {{ input "hostnames" | toJson }}
+        origin_type: vpc
+        preserve_viewer_host_header: {{ input "preserveViewerHostHeader" }}
+        price_class: '{{ input "priceClass" }}'
+        wait_for_deployment: {{ input "waitForDeployment" }}
+        retain_on_delete: {{ input "retainOnDelete" }}
+
+        {{- if input "enableViewerMtls" }}
+        viewer_mtls_ca_bundle_pem: |{{ k8sSecretValue "viewer-mtls-ca" "ca.crt" | trim | nindent 2 }}
+        viewer_mtls:
+          enabled: true
+          mode: '{{ input "viewerMtlsMode" }}'
+          advertise_trust_store_ca_names: {{ input "viewerMtlsAdvertiseTrustStoreCaNames" }}
+          ignore_certificate_expiry: {{ input "viewerMtlsIgnoreCertificateExpiry" }}
+          trust_store:
+            create: true
+        {{- end }}
+
+        vpc_origin:
+          {{- if input "existingVpcOriginId" }}
+          existing_vpc_origin_id: '{{ input "existingVpcOriginId" }}'
+          {{- else }}
+          create: true
+          endpoint_lookup_tags: {{ (input "vpcOriginEndpointLookupTags" | trim | fromYaml | default (dict "elbv2.k8s.aws/cluster" "{{ .ryvn.env.state.cluster_name }}" "service.k8s.aws/stack" "internal-ingress-nginx/internal-ingress-nginx-controller-internal" "service.k8s.aws/resource" "LoadBalancer")) | toJson }}
+          {{- if input "vpcOriginName" }}
+          name: '{{ input "vpcOriginName" }}'
+          {{- end }}
+          {{- end }}
+
+        monitoring:
+          enabled: {{ input "enableMonitoring" }}
+
+        {{- if and (eq (input "webAclArn") "") (gt (len (input "ipAllowList")) 0) }}
+        waf:
+          allowed_ips: {{ input "ipAllowList" | toJson }}
+        {{- end }}
+        {{- if and (eq (input "webAclArn") "") (or (ne (default "count" (input "wafCommonRuleSetAction")) "disabled") (ne (default "count" (input "wafKnownBadInputsAction")) "disabled") (ne (default "count" (input "wafAmazonIpReputationAction")) "disabled") (ne (default "count" (input "wafAnonymousIpAction")) "disabled")) }}
+        waf_advanced:
+          rule:
+            {{- if ne (default "count" (input "wafCommonRuleSetAction")) "disabled" }}
+            - name: AWSManagedRulesCommonRuleSet
+              priority: 0
+              override_action: {{ if eq (default "count" (input "wafCommonRuleSetAction")) "block" }}none{{ else }}count{{ end }}
+              managed_rule_group_statement:
+                name: AWSManagedRulesCommonRuleSet
+                vendor_name: AWS
+            {{- end }}
+            {{- if ne (default "count" (input "wafKnownBadInputsAction")) "disabled" }}
+            - name: AWSManagedRulesKnownBadInputsRuleSet
+              priority: 1
+              override_action: {{ if eq (default "count" (input "wafKnownBadInputsAction")) "block" }}none{{ else }}count{{ end }}
+              managed_rule_group_statement:
+                name: AWSManagedRulesKnownBadInputsRuleSet
+                vendor_name: AWS
+            {{- end }}
+            {{- if ne (default "count" (input "wafAmazonIpReputationAction")) "disabled" }}
+            - name: AWSManagedRulesAmazonIpReputationList
+              priority: 2
+              override_action: {{ if eq (default "count" (input "wafAmazonIpReputationAction")) "block" }}none{{ else }}count{{ end }}
+              managed_rule_group_statement:
+                name: AWSManagedRulesAmazonIpReputationList
+                vendor_name: AWS
+            {{- end }}
+            {{- if ne (default "count" (input "wafAnonymousIpAction")) "disabled" }}
+            - name: AWSManagedRulesAnonymousIpList
+              priority: 3
+              override_action: {{ if eq (default "count" (input "wafAnonymousIpAction")) "block" }}none{{ else }}count{{ end }}
+              managed_rule_group_statement:
+                name: AWSManagedRulesAnonymousIpList
+                vendor_name: AWS
+            {{- end }}
+        {{- end }}
+
+        {{- if input "webAclArn" }}
+        web_acl_arn: '{{ input "webAclArn" }}'
+        {{- end }}
+
+        tags:
+          ryvn.app/environment: '{{ .ryvn.env.name }}'
+          ryvn.app/blueprint: cloudfront-edge
+          ryvn.app/installation: '{{ ParentInstallationName }}'
+      releaseChannel: stable
+  distribution: marketplace-managed
