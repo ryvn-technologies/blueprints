@@ -31,6 +31,12 @@ spec:
       description: Forward the original Host header to the Ryvn-managed origin so routing can use the configured public hostname.
       displayName: Preserve Viewer Host Header
       group: origin
+    - name: originReadTimeoutSeconds
+      type: number
+      default: 30
+      description: "How long, in seconds, CloudFront waits for a response from the origin. Valid range: 1-120."
+      displayName: Origin Read Timeout (Seconds)
+      group: origin
     - name: enableViewerMtls
       type: boolean
       default: false
@@ -252,6 +258,7 @@ spec:
           name: '{{ input "vpcOriginName" }}'
           {{- end }}
           {{- end }}
+          origin_read_timeout: {{ input "originReadTimeoutSeconds" }}
 
         monitoring:
           enabled: {{ input "enableMonitoring" }}
