@@ -28,12 +28,6 @@ CloudFront routes requests to the more-specific match. Leaving `hostnames`
 empty uses the managed public DNS root apex and wildcard, so only one
 installation in an account can safely use that default.
 
-Generated AWS names include `name_prefix` plus a hash of the effective
-hostnames and origin settings. The bundled Ryvn blueprint includes
-`ParentInstallationName` in `name_prefix` so separate blueprint installations
-get distinct generated names, and the module truncates long prefixes before the
-hash so the uniqueness suffix is retained.
-
 ## Before you start
 
 ### Ryvn origin requirements
@@ -153,6 +147,7 @@ s3:PutBucketVersioning
 s3:PutObject
 s3:PutObjectTagging
 sts:GetCallerIdentity
+tag:GetResources
 wafv2:CheckCapacity
 wafv2:CreateIPSet
 wafv2:CreateWebACL
@@ -332,10 +327,9 @@ viewer_mtls:
 When `viewer_mtls_ca_bundle_pem` is set, the module creates the S3 bucket,
 uploads `viewer-mtls/ca-bundle.pem`, creates the CloudFront trust store, and
 wires the trust store to the distribution. If `trust_store.name` is empty, the
-module derives a stable name from `name_prefix`. This input is for public CA
-certificate material only. Terraform stores the PEM in state because it becomes
-the `aws_s3_object` content; use an existing trust store or existing S3 bundle
-instead if the bundle must stay out of Terraform state.
+module generates one. This input is for public CA certificate material only.
+Terraform stores the PEM in state, so use an existing trust store or S3 bundle
+if the bundle must stay out of Terraform state.
 
 ## Route53 DNS
 
@@ -528,6 +522,7 @@ Common optional inputs:
 
 | Name | Default | Description |
 |------|---------|-------------|
+| `name_prefix` | `ryvn-cloudfront-edge` | Optional prefix for generated AWS resource names. |
 | `managed_public_dns_root` | required | Managed public DNS root. The Ryvn blueprint injects `.ryvn.env.state.public_domain.name`. |
 | `managed_private_dns_root` | empty | Managed private DNS root. Required for internal/VPC origins when `vpc_origin.domain_name` is empty; the Ryvn blueprint injects `.ryvn.env.state.internal_domain.name`. |
 | `hostnames` | apex and wildcard | CloudFront aliases. Empty serves the managed public DNS root and wildcard. Do not reuse the same exact alias in parallel installations. |
