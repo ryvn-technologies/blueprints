@@ -144,13 +144,13 @@ spec:
     - name: webAclArn
       type: string
       default: ""
-      description: Attach an existing CloudFront-scoped AWS WAF WebACL by ARN instead of configuring rules here.
+      description: Attach an externally managed CloudFront-scoped AWS WAF WebACL by ARN instead of configuring rules here.
       displayName: Existing WebACL ARN
       group: waf
     - name: existingVpcOriginId
       type: string
       default: ""
-      description: Reuse an existing CloudFront VPC origin by ID. Leave empty to create one from the environment's Ryvn-managed internal load balancer.
+      description: Reuse an externally managed CloudFront VPC origin by ID. Leave empty to create one from the environment's Ryvn-managed internal load balancer.
       displayName: Existing VPC Origin ID
       group: advanced
     - name: vpcOriginEndpointLookupTags
@@ -164,7 +164,7 @@ spec:
     - name: vpcOriginName
       type: string
       default: ""
-      description: Name for the created VPC origin. Leave empty for a generated name.
+      description: Name for the created VPC origin. Leave empty for a generated name. A short endpoint fingerprint suffix is always appended.
       displayName: VPC Origin Name
       group: advanced
       condition: '{{ eq (input "existingVpcOriginId") "" }}'
@@ -227,7 +227,7 @@ spec:
             name: viewerMtlsTrustedCaBundle
       config: |
         aws_region: '{{ .ryvn.env.state.cluster_region }}'
-        name_prefix: '{{ .ryvn.env.name }}-{{ ParentInstallationName }}-cloudfront-edge'
+        name_prefix: 'cloudfront-edge'
         managed_public_dns_root: '{{ .ryvn.env.state.public_domain.name }}'
         managed_private_dns_root: '{{ default "" (and .ryvn.env.state.internal_domain .ryvn.env.state.internal_domain.name) }}'
         hostnames: {{ input "hostnames" | toJson }}
