@@ -16,10 +16,6 @@ locals {
   origin_is_public   = local.origin_mode == "public"
   origin_is_internal = local.origin_mode == "internal"
 
-  name_prefix            = trimspace(var.name_prefix)
-  name_prefix_normalized = trim(replace(lower(local.name_prefix), "/[^a-z0-9-]+/", "-"), "-")
-  resource_name_prefix   = substr(local.name_prefix_normalized, 0, min(52, length(local.name_prefix_normalized)))
-  short_name_prefix      = substr(local.name_prefix_normalized, 0, min(40, length(local.name_prefix_normalized)))
   public_origin_hostname = (
     trimspace(var.origin_hostname) != "" ?
     trimspace(var.origin_hostname) :
@@ -35,9 +31,6 @@ locals {
     local.internal_origin_hostname :
     local.public_origin_hostname
   )
-  resource_hash = substr(sha1(join(",", concat(local.hostname_keys, [local.origin_mode, local.origin_hostname]))), 0, 10)
-  resource_name = "${local.resource_name_prefix}-${local.resource_hash}"
-
   origin_id = "ryvn-${local.origin_mode}-origin-${substr(sha1(local.origin_hostname), 0, 12)}"
   origin_client_certificate_arn = (
     local.origin_is_public ?
@@ -73,7 +66,7 @@ locals {
     trimspace(var.viewer_certificate_arn)
   )
   create_viewer_mtls_trust_store   = var.viewer_mtls.enabled && var.viewer_mtls.trust_store.create
-  viewer_mtls_trust_store_name     = trimspace(var.viewer_mtls.trust_store.name) != "" ? trimspace(var.viewer_mtls.trust_store.name) : "${local.short_name_prefix}-${local.resource_hash}-viewer-mtls"
+  viewer_mtls_trust_store_name     = trimspace(var.viewer_mtls.trust_store.name) != "" ? trimspace(var.viewer_mtls.trust_store.name) : "${local.short_resource_name}-viewer-mtls"
   viewer_mtls_ca_bundle_pem        = trimspace(var.viewer_mtls_ca_bundle_pem)
   viewer_mtls_has_ca_bundle_pem    = nonsensitive(local.viewer_mtls_ca_bundle_pem != "")
   create_viewer_mtls_managed_ca_s3 = local.create_viewer_mtls_trust_store && local.viewer_mtls_has_ca_bundle_pem

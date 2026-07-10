@@ -28,11 +28,21 @@ CloudFront routes requests to the more-specific match. Leaving `hostnames`
 empty uses the managed public DNS root apex and wildcard, so only one
 installation in an account can safely use that default.
 
-Generated AWS names include `name_prefix` plus a hash of the effective
-hostnames and origin settings. The bundled Ryvn blueprint includes
-`ParentInstallationName` in `name_prefix` so separate blueprint installations
-get distinct generated names, and the module truncates long prefixes before the
-hash so the uniqueness suffix is retained.
+Generated AWS names use the optional `name_prefix` plus a state-backed random
+suffix. The module captures the complete generated naming base on the first
+apply, so later changes to `name_prefix`, installation names, or mutable inputs
+such as `hostnames` never move generated names. The bundled Ryvn blueprint uses
+a fixed prefix so renaming an installation does not change its Terraform
+configuration. The VPC origin name additionally carries a short endpoint-config
+fingerprint: AWS blocks `UpdateVpcOrigin` while the origin is attached, so
+endpoint changes replace the origin create-before-destroy and the fingerprint
+keeps both names unique during the swap.
+
+Installations created before `0.2.0` used a hostname-derived hash. On upgrade,
+the module automatically recovers the complete legacy naming base from its
+existing generated VPC-origin name and preserves it in Terraform state for WAF,
+logging, and viewer-mTLS resources. No migration input or state operation is
+required. New installations capture their generated random naming base instead.
 
 ## Before you start
 
@@ -153,6 +163,7 @@ s3:PutBucketVersioning
 s3:PutObject
 s3:PutObjectTagging
 sts:GetCallerIdentity
+tag:GetResources
 wafv2:CheckCapacity
 wafv2:CreateIPSet
 wafv2:CreateWebACL
@@ -332,10 +343,11 @@ viewer_mtls:
 When `viewer_mtls_ca_bundle_pem` is set, the module creates the S3 bucket,
 uploads `viewer-mtls/ca-bundle.pem`, creates the CloudFront trust store, and
 wires the trust store to the distribution. If `trust_store.name` is empty, the
-module derives a stable name from `name_prefix`. This input is for public CA
-certificate material only. Terraform stores the PEM in state because it becomes
-the `aws_s3_object` content; use an existing trust store or existing S3 bundle
-instead if the bundle must stay out of Terraform state.
+module derives a stable name from the frozen generated resource identity. This
+input is for public CA certificate material only. Terraform stores the PEM in
+state because it becomes the `aws_s3_object` content; use an existing trust
+store or existing S3 bundle instead if the bundle must stay out of Terraform
+state.
 
 ## Route53 DNS
 
@@ -528,6 +540,7 @@ Common optional inputs:
 
 | Name | Default | Description |
 |------|---------|-------------|
+| `name_prefix` | `ryvn-cloudfront-edge` | Optional human-readable prefix used when generated names are first created. Later changes do not rename resources; empty uses the random suffix alone. |
 | `managed_public_dns_root` | required | Managed public DNS root. The Ryvn blueprint injects `.ryvn.env.state.public_domain.name`. |
 | `managed_private_dns_root` | empty | Managed private DNS root. Required for internal/VPC origins when `vpc_origin.domain_name` is empty; the Ryvn blueprint injects `.ryvn.env.state.internal_domain.name`. |
 | `hostnames` | apex and wildcard | CloudFront aliases. Empty serves the managed public DNS root and wildcard. Do not reuse the same exact alias in parallel installations. |

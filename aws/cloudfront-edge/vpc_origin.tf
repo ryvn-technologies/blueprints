@@ -4,6 +4,12 @@ data "aws_lb" "vpc_origin_endpoint" {
   tags = each.value
 }
 
+resource "terraform_data" "vpc_origin_endpoint" {
+  count = local.create_vpc_origin ? 1 : 0
+
+  triggers_replace = local.vpc_origin_endpoint_fingerprint
+}
+
 resource "aws_cloudfront_vpc_origin" "this" {
   for_each = local.create_vpc_origin ? { this = var.vpc_origin } : {}
 
@@ -13,7 +19,7 @@ resource "aws_cloudfront_vpc_origin" "this" {
     arn                    = local.vpc_origin_endpoint_arn
     http_port              = each.value.http_port
     https_port             = each.value.https_port
-    name                   = trimspace(each.value.name) != "" ? trimspace(each.value.name) : local.resource_name
+    name                   = local.vpc_origin_name
     origin_protocol_policy = each.value.origin_protocol_policy
 
     origin_ssl_protocols {
@@ -33,4 +39,13 @@ resource "aws_cloudfront_vpc_origin" "this" {
   }
 
   tags = merge(var.tags, each.value.tags)
+
+  lifecycle {
+    # AWS rejects UpdateVpcOrigin while the origin is attached to a
+    # distribution (CannotUpdateEntityWhileInUse): endpoint config changes
+    # replace the origin instead, and the name is create-time-only.
+    create_before_destroy = true
+    ignore_changes        = [vpc_origin_endpoint_config[0].name]
+    replace_triggered_by  = [terraform_data.vpc_origin_endpoint[0]]
+  }
 }

@@ -11,19 +11,19 @@ variable "aws_region" {
 }
 
 variable "name_prefix" {
-  description = "Prefix for named AWS resources created by this module."
+  description = "Optional human-readable prefix used when generated AWS names are initialized. The complete generated names are then preserved in Terraform state, so later prefix changes do not rename resources. Leave empty to use only the random suffix."
   type        = string
   default     = "ryvn-cloudfront-edge"
   nullable    = false
 
   validation {
-    condition     = var.name_prefix != "" && trimspace(var.name_prefix) == var.name_prefix
-    error_message = "name_prefix must be non-empty and must not have leading or trailing whitespace."
+    condition     = trimspace(var.name_prefix) == var.name_prefix
+    error_message = "name_prefix must not have leading or trailing whitespace."
   }
 
   validation {
-    condition     = trim(replace(lower(var.name_prefix), "/[^a-z0-9-]+/", "-"), "-") != ""
-    error_message = "name_prefix must contain at least one ASCII letter or digit after normalization."
+    condition     = var.name_prefix == "" || trim(replace(lower(var.name_prefix), "/[^a-z0-9-]+/", "-"), "-") != ""
+    error_message = "name_prefix must be empty or contain at least one ASCII letter or digit after normalization."
   }
 }
 
@@ -174,7 +174,7 @@ variable "origin_client_certificate_arn" {
 }
 
 variable "vpc_origin" {
-  description = "CloudFront VPC origin configuration used when origin_type = internal or vpc. Use either create = true with endpoint_arn or endpoint_lookup_tags, or existing_vpc_origin_id."
+  description = "CloudFront VPC origin configuration used when origin_type = internal or vpc. Use either create = true with endpoint_arn or endpoint_lookup_tags, or existing_vpc_origin_id. Endpoint config changes replace the created VPC origin, and its name always carries a short endpoint fingerprint suffix."
   type = object({
     create                   = optional(bool, false)
     existing_vpc_origin_id   = optional(string, "")
