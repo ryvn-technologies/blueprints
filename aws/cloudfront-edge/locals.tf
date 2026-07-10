@@ -228,10 +228,16 @@ locals {
   )
 
   standard_logging_v2_enabled = var.standard_logging_v2.enabled
+  # aws_cloudwatch_log_delivery_destination.name must be 1-60 characters. The
+  # default resource name can be up to 63 characters, so "${resource_name}-logs"
+  # overflows. Prefer the full name when it fits and fall back to the shorter
+  # name (which preserves the unique random suffix) otherwise.
   standard_logging_v2_name = (
     trimspace(var.standard_logging_v2.name) != "" ?
     trimspace(var.standard_logging_v2.name) :
-    "${local.resource_name}-logs"
+    length("${local.resource_name}-logs") <= 60 ?
+    "${local.resource_name}-logs" :
+    "${local.short_resource_name}-logs"
   )
 
   required_dns_records = {

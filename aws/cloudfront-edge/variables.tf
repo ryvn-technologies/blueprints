@@ -786,6 +786,11 @@ variable "standard_logging_v2" {
     condition     = !var.standard_logging_v2.enabled || var.standard_logging_v2.destination_resource_arn != ""
     error_message = "standard_logging_v2.destination_resource_arn is required when standard_logging_v2.enabled = true."
   }
+
+  validation {
+    condition     = length(trimspace(var.standard_logging_v2.name)) <= 60
+    error_message = "standard_logging_v2.name must be at most 60 characters (aws_cloudwatch_log_delivery_destination name limit)."
+  }
 }
 
 variable "waf" {
