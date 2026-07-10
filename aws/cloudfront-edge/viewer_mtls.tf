@@ -3,7 +3,7 @@ resource "aws_s3_bucket" "viewer_mtls_ca_bundle" {
 
   provider = aws.us_east_1
 
-  bucket_prefix = substr("${local.name_prefix_normalized}-viewer-mtls-ca-", 0, 37)
+  bucket_prefix = local.viewer_mtls_bucket_name_prefix
   force_destroy = true
 
   tags = merge(var.tags, {
