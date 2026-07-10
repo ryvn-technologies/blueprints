@@ -16,6 +16,9 @@ spec:
     - name: waf
       description: Filter incoming traffic with AWS WAF.
       displayName: WAF
+    - name: logging
+      description: Deliver CloudFront access logs and WAF request logs to existing S3 buckets.
+      displayName: Logging
     - name: advanced
       description: Low-level origin and deployment overrides.
       displayName: Advanced
@@ -147,6 +150,33 @@ spec:
       description: Attach an externally managed CloudFront-scoped AWS WAF WebACL by ARN instead of configuring rules here.
       displayName: Existing WebACL ARN
       group: waf
+    - name: enableCloudFrontLogging
+      type: boolean
+      default: false
+      description: Deliver CloudFront standard access logs to an existing S3 bucket.
+      displayName: Enable CloudFront Access Logging
+      group: logging
+    - name: cloudFrontLogBucketArn
+      type: string
+      default: ""
+      description: Existing S3 bucket ARN for CloudFront standard access logs.
+      displayName: CloudFront Access Log Bucket ARN
+      group: logging
+      condition: '{{ input "enableCloudFrontLogging" }}'
+    - name: enableWafLogging
+      type: boolean
+      default: false
+      description: Deliver AWS WAF request logs to an existing S3 bucket.
+      displayName: Enable WAF Logging
+      group: logging
+      condition: '{{ eq (input "webAclArn") "" }}'
+    - name: wafLogBucketArn
+      type: string
+      default: ""
+      description: Existing same-account S3 bucket ARN for AWS WAF request logs. AWS requires the bucket name to start with `aws-waf-logs-`; see [AWS WAF S3 logging requirements](https://docs.aws.amazon.com/waf/latest/developerguide/logging-s3.html).
+      displayName: WAF Log Bucket ARN
+      group: logging
+      condition: '{{ and (eq (input "webAclArn") "") (input "enableWafLogging") }}'
     - name: existingVpcOriginId
       type: string
       default: ""
@@ -200,11 +230,26 @@ spec:
       displayName: Retain on Delete
       group: advanced
   outputs:
+    - name: distributionId
+      type: string
+      from: '{{ (serviceInstallation "edge").outputs.distribution_id }}'
+      description: CloudFront distribution ID.
+      displayName: Distribution ID
+    - name: distributionArn
+      type: string
+      from: '{{ (serviceInstallation "edge").outputs.distribution_arn }}'
+      description: CloudFront distribution ARN.
+      displayName: Distribution ARN
     - name: distributionDomainName
       type: string
       from: '{{ (serviceInstallation "edge").outputs.distribution_domain_name }}'
       description: CloudFront distribution DNS name.
       displayName: Distribution Domain Name
+    - name: webAclArn
+      type: string
+      from: '{{ (serviceInstallation "edge").outputs.web_acl_arn }}'
+      description: AWS WAFv2 WebACL ARN attached to the CloudFront distribution, when configured.
+      displayName: WebACL ARN
     - name: externalDnsTargetAnnotation
       type: string
       from: 'external-dns.alpha.kubernetes.io/target: {{ (serviceInstallation "edge").outputs.distribution_domain_name }}'
@@ -263,45 +308,58 @@ spec:
         monitoring:
           enabled: {{ input "enableMonitoring" }}
 
+        {{- if input "enableCloudFrontLogging" }}
+        standard_logging_v2:
+          enabled: true
+          destination_resource_arn: '{{ input "cloudFrontLogBucketArn" }}'
+          delivery_destination_type: S3
+        {{- end }}
+
         {{- if and (eq (input "webAclArn") "") (gt (len (input "ipAllowList")) 0) }}
         waf:
           allowed_ips: {{ input "ipAllowList" | toJson }}
         {{- end }}
-        {{- if and (eq (input "webAclArn") "") (or (ne (default "count" (input "wafCommonRuleSetAction")) "disabled") (ne (default "count" (input "wafKnownBadInputsAction")) "disabled") (ne (default "count" (input "wafAmazonIpReputationAction")) "disabled") (ne (default "count" (input "wafAnonymousIpAction")) "disabled")) }}
+        {{- if and (eq (input "webAclArn") "") (or (input "enableWafLogging") (ne (input "wafCommonRuleSetAction") "disabled") (ne (input "wafKnownBadInputsAction") "disabled") (ne (input "wafAmazonIpReputationAction") "disabled") (ne (input "wafAnonymousIpAction") "disabled")) }}
         waf_advanced:
+          {{- if input "enableWafLogging" }}
+          enabled_logging_configuration: true
+          log_destination_configs: '{{ input "wafLogBucketArn" }}'
+          {{- end }}
+          {{- if or (ne (input "wafCommonRuleSetAction") "disabled") (ne (input "wafKnownBadInputsAction") "disabled") (ne (input "wafAmazonIpReputationAction") "disabled") (ne (input "wafAnonymousIpAction") "disabled") }}
           rule:
-            {{- if ne (default "count" (input "wafCommonRuleSetAction")) "disabled" }}
+            {{- if ne (input "wafCommonRuleSetAction") "disabled" }}
             - name: AWSManagedRulesCommonRuleSet
               priority: 0
-              override_action: {{ if eq (default "count" (input "wafCommonRuleSetAction")) "block" }}none{{ else }}count{{ end }}
+              override_action: {{ if eq (input "wafCommonRuleSetAction") "block" }}none{{ else }}count{{ end }}
               managed_rule_group_statement:
                 name: AWSManagedRulesCommonRuleSet
                 vendor_name: AWS
             {{- end }}
-            {{- if ne (default "count" (input "wafKnownBadInputsAction")) "disabled" }}
+            {{- if ne (input "wafKnownBadInputsAction") "disabled" }}
             - name: AWSManagedRulesKnownBadInputsRuleSet
               priority: 1
-              override_action: {{ if eq (default "count" (input "wafKnownBadInputsAction")) "block" }}none{{ else }}count{{ end }}
+              override_action: {{ if eq (input "wafKnownBadInputsAction") "block" }}none{{ else }}count{{ end }}
               managed_rule_group_statement:
                 name: AWSManagedRulesKnownBadInputsRuleSet
                 vendor_name: AWS
             {{- end }}
-            {{- if ne (default "count" (input "wafAmazonIpReputationAction")) "disabled" }}
+            {{- if ne (input "wafAmazonIpReputationAction") "disabled" }}
             - name: AWSManagedRulesAmazonIpReputationList
               priority: 2
-              override_action: {{ if eq (default "count" (input "wafAmazonIpReputationAction")) "block" }}none{{ else }}count{{ end }}
+              override_action: {{ if eq (input "wafAmazonIpReputationAction") "block" }}none{{ else }}count{{ end }}
               managed_rule_group_statement:
                 name: AWSManagedRulesAmazonIpReputationList
                 vendor_name: AWS
             {{- end }}
-            {{- if ne (default "count" (input "wafAnonymousIpAction")) "disabled" }}
+            {{- if ne (input "wafAnonymousIpAction") "disabled" }}
             - name: AWSManagedRulesAnonymousIpList
               priority: 3
-              override_action: {{ if eq (default "count" (input "wafAnonymousIpAction")) "block" }}none{{ else }}count{{ end }}
+              override_action: {{ if eq (input "wafAnonymousIpAction") "block" }}none{{ else }}count{{ end }}
               managed_rule_group_statement:
                 name: AWSManagedRulesAnonymousIpList
                 vendor_name: AWS
             {{- end }}
+          {{- end }}
         {{- end }}
 
         {{- if input "webAclArn" }}
