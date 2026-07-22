@@ -1,0 +1,161 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: base-platform
+spec:
+  description: |
+    The shared Ryvn platform layer installed on every managed and pre-provisioned cluster. Installs the Ryvn agent (optional, controlled by Ryvn), KEDA for event-driven pod scaling, Ryvn's observability collector (Grafana Alloy-based) in the `observability` namespace, and kube-state-metrics.
+
+    Provider platform blueprints (aws/gcp/azure-platform) compose this blueprint as a nested child; pre-provisioned ("Other" / existing-cluster) environments install it directly as their platform blueprint.
+  displayName: Ryvn Base Platform
+  inputGroups:
+  - name: observability
+    description: Log collection, metrics forwarding, and optional log redaction.
+    displayName: Observability
+  - name: infrastructure
+    description: Whether Ryvn may make infrastructure (Terraform) changes in this environment, and the cloud identity the in-cluster agent assumes to do so.
+    displayName: Infrastructure
+  inputs:
+  - name: logs
+    type: boolean
+    default: true
+    description: Collect and forward workload logs.
+    displayName: Enable Log Collection
+    group: observability
+  - name: logRedaction
+    type: boolean
+    default: false
+    description: Strip sensitive data (emails, tokens, etc.) from logs before they leave the cluster. Define patterns below.
+    displayName: Enable Log Redaction
+    group: observability
+  - name: redactionPatterns
+    type: array
+    condition: '{{ input "logRedaction" }}'
+    description: Regex patterns matching sensitive data to redact from logs. Each match is replaced with [REDACTED].
+    displayName: Log Redaction Patterns
+    group: observability
+  - name: metrics
+    type: boolean
+    default: true
+    description: Collect and forward Prometheus metrics from your cluster to Ryvn's observability backend.
+    displayName: Enable Metrics Collection
+    group: observability
+  - name: manageAgent
+    type: boolean
+    default: true
+    hidden: true
+    description: Whether this blueprint installs and owns the ryvn-agent installation. Ryvn-internal migration stop-gap set only by Ryvn; not a user-facing option.
+  - name: keda
+    type: boolean
+    default: true
+    description: Install KEDA for event-driven pod autoscaling. Disable if your cluster already runs its own KEDA.
+    displayName: Enable KEDA
+  - name: allowInfrastructureChanges
+    type: boolean
+    default: false
+    condition: '{{ or (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "azure") }}'
+    description: Allow Ryvn to make infrastructure (Terraform) changes in this environment.
+    displayName: Allow Infrastructure Changes
+    group: infrastructure
+  - name: awsAgentRoleArn
+    type: string
+    condition: '{{ and (input "allowInfrastructureChanges") (eq EnvironmentProviderType "aws") }}'
+    description: ARN of the IAM role the ryvn-agent service account assumes (via IRSA) to run Terraform on AWS.
+    displayName: AWS Agent Role ARN
+    group: infrastructure
+  - name: gcpAgentServiceAccountEmail
+    type: string
+    condition: '{{ and (input "allowInfrastructureChanges") (eq EnvironmentProviderType "gcp") }}'
+    description: Email of the Google service account the ryvn-agent service account impersonates (via Workload Identity) to run Terraform on GCP.
+    displayName: GCP Agent Service Account Email
+    group: infrastructure
+  - name: azureAgentClientId
+    type: string
+    condition: '{{ and (input "allowInfrastructureChanges") (eq EnvironmentProviderType "azure") }}'
+    description: Client ID of the Azure workload identity the ryvn-agent uses to run Terraform on Azure.
+    displayName: Azure Agent Client ID
+    group: infrastructure
+  - name: azureAgentTenantId
+    type: string
+    condition: '{{ and (input "allowInfrastructureChanges") (eq EnvironmentProviderType "azure") }}'
+    description: Tenant ID of the Azure workload identity the ryvn-agent uses to run Terraform on Azure.
+    displayName: Azure Agent Tenant ID
+    group: infrastructure
+  - name: azureSubscriptionId
+    type: string
+    condition: '{{ and (input "allowInfrastructureChanges") (eq EnvironmentProviderType "azure") }}'
+    description: Azure subscription ID the ryvn-agent's Terraform executor targets.
+    displayName: Azure Subscription ID
+    group: infrastructure
+  installations:
+  - service: ryvn-agent
+    namespace: ryvn-system
+    condition: '{{ input "manageAgent" }}'
+    config: |
+      targetEnv: '{{ .ryvn.env.name }}'
+      {{- if and (input "allowInfrastructureChanges") (eq EnvironmentProviderType "aws") }}
+      serviceAccount:
+        annotations:
+          eks.amazonaws.com/role-arn: '{{ input "awsAgentRoleArn" }}'
+      {{- else if and (input "allowInfrastructureChanges") (eq EnvironmentProviderType "gcp") }}
+      serviceAccount:
+        annotations:
+          iam.gke.io/gcp-service-account: '{{ input "gcpAgentServiceAccountEmail" }}'
+      {{- else if and (input "allowInfrastructureChanges") (eq EnvironmentProviderType "azure") }}
+      serviceAccount:
+        annotations:
+          azure.workload.identity/client-id: '{{ input "azureAgentClientId" }}'
+          azure.workload.identity/tenant-id: '{{ input "azureAgentTenantId" }}'
+      podLabels:
+        azure.workload.identity/use: "true"
+      terraformExecutor:
+        azure:
+          subscriptionId: '{{ input "azureSubscriptionId" }}'
+      {{- end }}
+  - service: keda
+    namespace: kube-system
+    condition: '{{ input "keda" }}'
+    config: |
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+  - service: ryvn-collector
+    namespace: observability
+    config: |
+      # Alloy chart configuration
+      alloy:
+        enabled: true
+        alloy:
+          envFrom:
+          - secretRef:
+              name: '{{ k8sSecretName "ryvn-collector-client-creds" }}'
+          configMap:
+            create: false
+            name: ryvn-alloy-config
+      environment:
+        name: "{{ .ryvn.env.name }}"
+      org:
+        id: "{{ .ryvn.env.orgId }}"
+      features:
+        podLogs:
+          collectUserLogs: {{ input "logs" }}
+        logRedaction:
+          enabled: {{ input "logRedaction" }}
+          patterns:
+      {{- input "redactionPatterns" | toYaml | nindent 6 }}
+        metrics:
+          enabled: {{ input "metrics" }}
+    serviceUser:
+      credentialType: client-secret
+      enabled: true
+      secretName: ryvn-collector-client-creds
+  - service: kube-state-metrics
+    namespace: observability
+    config: |
+      metricLabelsAllowlist:
+        - nodes=[ryvn.app/node-group-name,schedule-group,karpenter.sh/nodepool,node.kubernetes.io/instance-type,eks.amazonaws.com/nodegroup]
+        - pods=[app.kubernetes.io/name,app.kubernetes.io/component,schedule-group]
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+  distribution: internal-managed
