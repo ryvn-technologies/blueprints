@@ -7,7 +7,7 @@ Put AWS CloudFront in front of a Ryvn origin. Public traffic enters through Clou
 For the hostnames you configure, this module:
 
 1. Creates a CloudFront distribution with your hostnames as aliases.
-2. Creates and DNS-validates an ACM viewer certificate in `us-east-1` for the environment public domain apex and wildcard.
+2. Creates and DNS-validates an ACM viewer certificate in `us-east-1`. Explicit `hostnames` certify those exact names; leaving them empty uses the environment public domain apex and wildcard.
 3. Forwards to a public custom origin with HTTPS-only origin mTLS, or to a CloudFront VPC origin.
 4. Forwards the viewer `Host` header by default for current Ryvn Gateway routing.
 5. Optionally creates Route53 alias records.
@@ -26,7 +26,9 @@ CloudFront rejects duplicate alternate domain names across distributions. A
 wildcard alias can overlap a more-specific alias in another distribution, and
 CloudFront routes requests to the more-specific match. Leaving `hostnames`
 empty uses the managed public DNS root apex and wildcard, so only one
-installation in an account can safely use that default.
+installation in an account can safely use that default. Installations with
+explicit hostnames receive hostname-scoped certificates and validation records,
+so their Terraform states do not share certificate resources.
 
 ## Before you start
 
@@ -52,7 +54,7 @@ With the default `preserve_viewer_host_header = true`, CloudFront connects to th
 
 - CloudFront, CloudFront-scoped WAF, CloudFront ACM certificates, and CloudFront standard logging v2 API calls use `us-east-1`.
 - The Route53 public hosted zone for the managed public DNS root must be visible to the AWS credentials running Terraform when using the default managed viewer certificate or `dns.enabled = true`.
-- If `viewer_certificate_arn` is set, it must be an ACM certificate in `us-east-1` that covers every hostname. Leave it empty for the default managed certificate.
+- If `viewer_certificate_arn` is set, it must be an ACM certificate in `us-east-1` that covers every hostname. Leave it empty for the automatically scoped managed certificate.
 - Viewer mTLS requires `http_version = "http2"` and a CloudFront trust store.
 - Public origin mode requires `origin_client_certificate_arn`, an ACM certificate in `us-east-1` suitable for TLS client authentication.
 - ACM public certificates are fine for viewer TLS. For origin mTLS client certificates, use an imported or private CA issued certificate rather than an ACM public certificate.
@@ -273,11 +275,21 @@ blueprint injects `managed_public_dns_root` from the environment public domain.
 origin_client_certificate_arn: "arn:aws:acm:us-east-1:123456789012:certificate/..."
 ```
 
-The managed certificate uses the public domain apex as its primary name and
-adds the managed public DNS root wildcard as the SAN. `hostnames` defaults to
-the same apex and wildcard aliases. When the module creates the viewer
-certificate or Route53 records, `hostnames` must be the apex, the wildcard, or
-one-label subdomains covered by the managed wildcard certificate and public
+With explicit `hostnames`, the managed certificate uses the sorted first
+hostname as its primary name and the remaining hostnames as SANs. This keeps
+certificate and validation-record ownership isolated between parallel
+installations. When `hostnames` is empty, the certificate instead uses the
+public domain apex and wildcard, matching the default CloudFront aliases.
+
+On upgrade, an existing installation with explicit hostnames replaces its
+environment-wide certificate using create-before-destroy. Terraform retains
+the legacy shared validation CNAME, validates the hostname-scoped certificate,
+switches CloudFront to it, and then removes the old certificate. Retaining the
+shared CNAME prevents one installation from interrupting ACM renewal for
+another installation that has not upgraded yet.
+
+When the module creates the viewer certificate or Route53 records, `hostnames`
+must be the apex, the wildcard, or one-label subdomains in the managed public
 zone. If you pass `viewer_certificate_arn` and leave `dns.enabled = false`,
 `hostnames` may be any valid CloudFront aliases covered by that certificate.
 
@@ -525,7 +537,7 @@ Common optional inputs:
 | `name_prefix` | `ryvn-cloudfront-edge` | Optional prefix for generated AWS resource names. |
 | `managed_public_dns_root` | required | Managed public DNS root. The Ryvn blueprint injects `.ryvn.env.state.public_domain.name`. |
 | `managed_private_dns_root` | empty | Managed private DNS root. Required for internal/VPC origins when `vpc_origin.domain_name` is empty; the Ryvn blueprint injects `.ryvn.env.state.internal_domain.name`. |
-| `hostnames` | apex and wildcard | CloudFront aliases. Empty serves the managed public DNS root and wildcard. Do not reuse the same exact alias in parallel installations. |
+| `hostnames` | apex and wildcard | CloudFront aliases. Explicit values create a certificate for those exact names. Empty serves and certifies the managed public DNS root and wildcard. Do not reuse the same exact alias in parallel installations. |
 | `origin_type` | `public` | `public` for origin mTLS custom origin, or `internal` for CloudFront VPC origin. `vpc` is accepted as an alias for `internal`. |
 | `origin_hostname` | `origin.<managed_public_dns_root>` | Override for the public Ryvn origin hostname. |
 | `origin_port` | `443` | HTTPS port for CloudFront-to-public-origin traffic. |
@@ -542,7 +554,7 @@ Common optional inputs:
 | `price_class` | `PriceClass_100` | CloudFront price class. |
 | `http_version` | `http2` | Viewer HTTP version setting. |
 | `dns` | disabled | Optional Route53 alias records. |
-| `viewer_certificate_arn` | empty | Optional existing ACM viewer certificate ARN in `us-east-1`. Empty creates the managed apex and wildcard certificate. |
+| `viewer_certificate_arn` | empty | Optional existing ACM viewer certificate ARN in `us-east-1`. Empty creates an automatically scoped managed certificate: exact configured hostnames, or apex and wildcard when `hostnames` is empty. |
 | `waf` | `{}` | Optional WebACL creation. Use `waf.allowed_ips` for an IP allowlist and `waf.managed_rules = true` for AWS's Common Rule Set. |
 | `waf_advanced` | `{}` | Explicit passthrough for upstream WAF module inputs such as advanced rules, custom responses, token domains, and logging filters. |
 | `web_acl_arn` | empty | Existing CloudFront-scoped AWS WAFv2 WebACL ARN to attach. |
