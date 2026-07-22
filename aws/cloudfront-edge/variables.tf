@@ -72,7 +72,7 @@ variable "managed_private_dns_root" {
 }
 
 variable "hostnames" {
-  description = "Public hostnames served by CloudFront. Leave empty to serve the managed public DNS root and wildcard. Multiple module installations in one AWS account must not reuse the same exact CloudFront alias."
+  description = "Public hostnames served by CloudFront. Explicit hostnames create a viewer certificate for those exact names. Leave empty to serve and certify the managed public DNS root and wildcard. Multiple module installations in one AWS account must not reuse the same exact CloudFront alias."
   type        = set(string)
   default     = []
   nullable    = false
@@ -105,7 +105,7 @@ variable "hostnames" {
         length(split(".", trimsuffix(hostname, ".${var.managed_public_dns_root}"))) == 1
       )
     ])
-    error_message = "When viewer_certificate_arn is empty or dns.enabled = true, hostnames must be the public domain apex, the public domain wildcard, or one-label subdomains covered by the module-managed public zone and wildcard viewer certificate."
+    error_message = "When viewer_certificate_arn is empty or dns.enabled = true, hostnames must be the public domain apex, the public domain wildcard, or one-label subdomains in the module-managed public zone."
   }
 }
 
@@ -287,7 +287,7 @@ variable "vpc_origin" {
 }
 
 variable "viewer_certificate_arn" {
-  description = "Optional existing ACM certificate ARN in us-east-1 covering every hostname. Leave empty to create and DNS-validate a viewer certificate for the managed public DNS root and wildcard."
+  description = "Optional existing ACM certificate ARN in us-east-1 covering every hostname. Leave empty to create and DNS-validate a managed viewer certificate. Explicit hostnames certify those exact names; leaving them empty uses the managed public DNS root and wildcard."
   type        = string
   default     = ""
   nullable    = false

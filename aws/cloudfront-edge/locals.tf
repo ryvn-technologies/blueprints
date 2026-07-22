@@ -56,10 +56,18 @@ locals {
 
   use_managed_viewer_certificate       = trimspace(var.viewer_certificate_arn) == ""
   lookup_public_route53_zone           = local.use_managed_viewer_certificate || var.dns.enabled
-  viewer_certificate_primary_hostname  = local.managed_public_dns_root
   viewer_certificate_wildcard_hostname = "*.${local.managed_public_dns_root}"
-  viewer_certificate_sans              = [local.viewer_certificate_wildcard_hostname]
-  viewer_certificate_domain_names      = toset(concat([local.viewer_certificate_primary_hostname], local.viewer_certificate_sans))
+  viewer_certificate_hostnames = (
+    length(var.hostnames) > 0 ?
+    local.hostname_keys :
+    [local.managed_public_dns_root, local.viewer_certificate_wildcard_hostname]
+  )
+  viewer_certificate_primary_hostname = local.viewer_certificate_hostnames[0]
+  viewer_certificate_sans             = slice(local.viewer_certificate_hostnames, 1, length(local.viewer_certificate_hostnames))
+  viewer_certificate_validation_domains = toset([
+    for hostname in local.viewer_certificate_hostnames : hostname
+    if !startswith(hostname, "*.") || !contains(local.viewer_certificate_hostnames, trimprefix(hostname, "*."))
+  ])
   viewer_certificate_arn = (
     local.use_managed_viewer_certificate ?
     aws_acm_certificate_validation.viewer[0].certificate_arn :
