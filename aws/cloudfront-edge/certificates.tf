@@ -19,8 +19,8 @@ resource "aws_acm_certificate" "viewer" {
   }
 }
 
-resource "aws_route53_record" "viewer_certificate_validation" {
-  for_each = local.use_managed_viewer_certificate ? local.viewer_certificate_domain_names : toset([])
+resource "aws_route53_record" "viewer_certificate_validation_record" {
+  for_each = local.use_managed_viewer_certificate ? local.viewer_certificate_validation_domains : toset([])
 
   zone_id         = data.aws_route53_zone.public[0].zone_id
   name            = one([for option in aws_acm_certificate.viewer[0].domain_validation_options : option.resource_record_name if option.domain_name == each.value])
@@ -35,5 +35,5 @@ resource "aws_acm_certificate_validation" "viewer" {
 
   provider                = aws.us_east_1
   certificate_arn         = aws_acm_certificate.viewer[0].arn
-  validation_record_fqdns = [for record in aws_route53_record.viewer_certificate_validation : record.fqdn]
+  validation_record_fqdns = [for record in aws_route53_record.viewer_certificate_validation_record : record.fqdn]
 }
