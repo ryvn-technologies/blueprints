@@ -10,6 +10,9 @@ spec:
     - name: origin
       description: Configure how CloudFront reaches the Ryvn-managed origin.
       displayName: Origin
+    - name: caching
+      description: Cache selected paths at the edge while the default behavior stays uncached.
+      displayName: Caching
     - name: viewerMtls
       description: Require client certificates from callers.
       displayName: Viewer mTLS
@@ -28,18 +31,49 @@ spec:
       default: []
       description: Public hostnames to serve through CloudFront.
       displayName: Host Names
-    - name: preserveViewerHostHeader
-      type: boolean
-      default: true
-      description: Forward the original Host header to the Ryvn-managed origin so routing can use the configured public hostname.
-      displayName: Preserve Viewer Host Header
-      group: origin
     - name: originReadTimeoutSeconds
       type: number
       default: 30
       description: "How long, in seconds, CloudFront waits for a response from the origin. Valid range: 1-120."
       displayName: Origin Read Timeout (Seconds)
       group: origin
+    - name: cachePolicies
+      type: string
+      default: ""
+      description: |
+        Define reusable cache policies as a YAML map. Behaviors reference each policy by its key.
+
+        ```yaml
+        static_assets:
+          min_ttl: 0
+          default_ttl: 86400
+          max_ttl: 31536000
+        ```
+
+        Every policy includes `Host` exactly once. Additional header names are case-insensitive, and query strings are allowlisted by name.
+      displayName: Cache Policies
+      group: caching
+      multiline: true
+    - name: orderedCacheBehaviors
+      type: string
+      default: ""
+      description: |
+        Define path-based cache behaviors as a YAML list evaluated in order.
+
+        ```yaml
+        - path_pattern: "/_next/static/*"
+          cache_policy_key: static_assets
+        ```
+      displayName: Ordered Cache Behaviors
+      group: caching
+      multiline: true
+    - name: customErrorResponses
+      type: string
+      default: ""
+      description: CloudFront custom error responses as a YAML list (`error_code`, optional `response_code`, `response_page_path`, and `error_caching_min_ttl`). Applies to the whole distribution.
+      displayName: Custom Error Responses
+      group: caching
+      multiline: true
     - name: enableViewerMtls
       type: boolean
       default: false
@@ -245,6 +279,11 @@ spec:
       from: '{{ (serviceInstallation "edge").outputs.distribution_domain_name }}'
       description: CloudFront distribution DNS name.
       displayName: Distribution Domain Name
+    - name: vpcOriginId
+      type: string
+      from: '{{ (serviceInstallation "edge").outputs.vpc_origin_id }}'
+      description: CloudFront VPC origin ID. Reference it from another installation's Existing VPC Origin ID input to share one VPC origin across distributions.
+      displayName: VPC Origin ID
     - name: webAclArn
       type: string
       from: '{{ (serviceInstallation "edge").outputs.web_acl_arn }}'
@@ -277,10 +316,21 @@ spec:
         managed_private_dns_root: '{{ default "" (and .ryvn.env.state.internal_domain .ryvn.env.state.internal_domain.name) }}'
         hostnames: {{ input "hostnames" | toJson }}
         origin_type: vpc
-        preserve_viewer_host_header: {{ input "preserveViewerHostHeader" }}
         price_class: '{{ input "priceClass" }}'
         wait_for_deployment: {{ input "waitForDeployment" }}
         retain_on_delete: {{ input "retainOnDelete" }}
+
+        {{- if (input "cachePolicies" | trim) }}
+        cache_policies:{{ input "cachePolicies" | trim | nindent 2 }}
+        {{- end }}
+
+        {{- if (input "orderedCacheBehaviors" | trim) }}
+        ordered_cache_behaviors:{{ input "orderedCacheBehaviors" | trim | nindent 2 }}
+        {{- end }}
+
+        {{- if (input "customErrorResponses" | trim) }}
+        custom_error_responses:{{ input "customErrorResponses" | trim | nindent 2 }}
+        {{- end }}
 
         {{- if input "enableViewerMtls" }}
         viewer_mtls_ca_bundle_pem: |{{ k8sSecretValue "viewer-mtls-ca" "ca.crt" | trim | nindent 2 }}
