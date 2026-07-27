@@ -68,13 +68,31 @@ resource "aws_cloudfront_distribution" "this" {
 
   default_cache_behavior {
     allowed_methods            = var.allowed_methods
-    cache_policy_id            = local.cache_policy_id
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
     cached_methods             = var.cached_methods
     compress                   = var.compress
     origin_request_policy_id   = local.origin_request_policy_id
     response_headers_policy_id = local.response_headers_policy_id
     target_origin_id           = local.origin_id
     viewer_protocol_policy     = "redirect-to-https"
+  }
+
+  # Behaviors are evaluated in list order and always target the Ryvn origin;
+  # origin selection is deliberately not part of the cache_behaviors schema.
+  dynamic "ordered_cache_behavior" {
+    for_each = local.ordered_cache_behaviors
+
+    content {
+      allowed_methods            = ordered_cache_behavior.value.allowed_methods
+      cache_policy_id            = ordered_cache_behavior.value.cache_policy_id
+      cached_methods             = ordered_cache_behavior.value.cached_methods
+      compress                   = ordered_cache_behavior.value.compress
+      origin_request_policy_id   = ordered_cache_behavior.value.origin_request_policy_id
+      path_pattern               = ordered_cache_behavior.value.path_pattern
+      response_headers_policy_id = ordered_cache_behavior.value.response_headers_policy_id
+      target_origin_id           = local.origin_id
+      viewer_protocol_policy     = "redirect-to-https"
+    }
   }
 
   dynamic "viewer_mtls_config" {

@@ -9,11 +9,12 @@ For the hostnames you configure, this module:
 1. Creates a CloudFront distribution with your hostnames as aliases.
 2. Creates and DNS-validates an ACM viewer certificate in `us-east-1`. Explicit `hostnames` certify those exact names; leaving them empty uses the environment public domain apex and wildcard.
 3. Forwards to a public custom origin with HTTPS-only origin mTLS, or to a CloudFront VPC origin.
-4. Forwards the viewer `Host` header by default for current Ryvn Gateway routing.
+4. Forwards the viewer `Host` header by default for current Ryvn Gateway routing. Module-owned cache policies also include it in their cache keys.
 5. Optionally creates Route53 alias records.
 6. Optionally enables viewer mTLS with an existing trust store or BYOCA S3 CA bundle.
 7. Optionally creates a CloudFront-scoped AWS WAFv2 WebACL through `aws-ss/wafv2/aws`, or attaches an existing WebACL ARN.
-8. Optionally attaches response headers policy, custom error responses, origin shield, monitoring, and standard logging v2.
+8. Optionally adds path-scoped cache behaviors in front of the uncached default behavior.
+9. Optionally attaches response headers policy, custom error responses, origin shield, monitoring, and standard logging v2.
 
 The public-origin mTLS client certificate is referenced by ARN only. Do not pass private keys into Terraform variables. CloudFront origin mTLS is not used for VPC origins; VPC mode relies on CloudFront VPC-origin network isolation and the origin's TLS posture.
 
@@ -48,7 +49,10 @@ For VPC origin mode, Ryvn or the edge owner must provide:
 - security groups and private subnets that allow CloudFront VPC origin traffic
 - an origin/server TLS posture compatible with `vpc_origin.origin_protocol_policy`
 
-With the default `preserve_viewer_host_header = true`, CloudFront connects to the configured origin hostname but forwards the viewer `Host` header, such as `api.example.com`. The Ryvn Gateway certificate must be valid for that public hostname.
+By default, CloudFront connects to the configured origin hostname but forwards
+the viewer `Host` header, such as `api.example.com`, through
+`Managed-AllViewer`. The Ryvn Gateway certificate must be valid for that public
+hostname.
 
 ### AWS requirements
 
@@ -72,11 +76,13 @@ acm:RemoveTagsFromCertificate
 acm:RequestCertificate
 cloudfront:AllowVendedLogDeliveryForResource
 cloudfront:AssociateDistributionWebACL
+cloudfront:CreateCachePolicy
 cloudfront:CreateConnectionGroup
 cloudfront:CreateDistribution
 cloudfront:CreateMonitoringSubscription
 cloudfront:CreateTrustStore
 cloudfront:CreateVpcOrigin
+cloudfront:DeleteCachePolicy
 cloudfront:DeleteDistribution
 cloudfront:DeleteMonitoringSubscription
 cloudfront:DeleteTrustStore
@@ -101,6 +107,7 @@ cloudfront:ListTrustStores
 cloudfront:ListVpcOrigins
 cloudfront:TagResource
 cloudfront:UntagResource
+cloudfront:UpdateCachePolicy
 cloudfront:UpdateDistribution
 cloudfront:UpdateTrustStore
 cloudfront:UpdateVpcOrigin
@@ -224,6 +231,77 @@ origin_type: "internal"
 vpc_origin:
   existing_vpc_origin_id: "vo_abc123"
 ```
+
+## Path-scoped cache behaviors
+
+The default cache behavior uses AWS-managed `CachingDisabled` for API traffic.
+Use `ordered_cache_behaviors` to cache selected paths. Behaviors are evaluated
+in list order and always use the Ryvn-managed origin. Field names match the
+`aws_cloudfront_distribution` `ordered_cache_behavior` block. Viewer requests
+redirect to HTTPS.
+
+Define module-owned policies in the `cache_policies` map, then reference them
+from behaviors through `cache_policy_key`. Terraform uses the map key as the
+policy's resource identity, so changing or reordering behavior paths does not
+replace an otherwise unchanged policy. Multiple behaviors can share one policy.
+External cache policy IDs and names are not supported.
+
+CloudFront honors the origin `Cache-Control` header within `min_ttl`/`max_ttl`
+and uses `default_ttl` when the origin sends none. Every module-owned cache
+policy keys on the URL path and viewer `Host` header and excludes cookies. Path
+patterns match across every alias of the distribution and the Ryvn origin
+routes by hostname, so mandatory `Host` keying prevents aliases from sharing
+cache entries; a user-supplied `Host` is ignored because the module adds it
+exactly once. Add whatever else a path varies its response on through
+`additional_headers` (normalized case-insensitively) and `query_strings`.
+Behaviors without an origin request policy forward the cache-policy values and
+CloudFront's standard origin-request values, but do not inherit the
+distribution default policy.
+
+Each installation creates one custom cache policy per `cache_policies` map
+entry. The managed default does not count toward the quota. AWS defaults to 20
+custom cache policies per account, so accounts with many policies may need a
+[CloudFront quota increase](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html).
+
+With no response headers policy, CloudFront passes origin response headers
+through unchanged, including origin CORS headers. As an optional safety net,
+set `response_headers_policy_name: "Managed-SimpleCORS"` to add
+`Access-Control-Allow-Origin: *` only when the origin response omits it.
+
+Error caching stays distribution-wide through `custom_error_responses`; use
+`error_caching_min_ttl` to tune how long CloudFront pins error responses.
+
+### Example: Next.js static assets and image optimization
+
+```yaml
+cache_policies:
+  static_assets:
+    min_ttl: 0
+    default_ttl: 86400
+    max_ttl: 31536000
+  image_optimizer:
+    min_ttl: 0
+    default_ttl: 0
+    max_ttl: 31536000
+    additional_headers:
+      - Accept
+    query_strings:
+      - url
+      - w
+      - q
+
+ordered_cache_behaviors:
+  - path_pattern: "/_next/static/*"
+    cache_policy_key: static_assets
+  - path_pattern: "/_next/image*"
+    cache_policy_key: image_optimizer
+```
+
+Hashed build output under `/_next/static` varies on nothing, so it keeps the
+smallest cache key and a long TTL. The Next.js image optimizer varies its
+response by `url`, `w`, and `q` and negotiates the output format from `Accept`,
+so all four values belong in its cache key. Other frameworks differ in path and
+parameter names; the shape is the same.
 
 ## Hardening and observability
 
@@ -541,8 +619,8 @@ Common optional inputs:
 | `origin_type` | `public` | `public` for origin mTLS custom origin, or `internal` for CloudFront VPC origin. `vpc` is accepted as an alias for `internal`. |
 | `origin_hostname` | `origin.<managed_public_dns_root>` | Override for the public Ryvn origin hostname. |
 | `origin_port` | `443` | HTTPS port for CloudFront-to-public-origin traffic. |
-| `preserve_viewer_host_header` | `true` | Uses `Managed-AllViewer` origin request policy so Ryvn routes on the public hostname. |
-| `cache_policy_name` | `Managed-CachingDisabled` | API-style default cache policy. |
+| `cache_policies` | `{}` | Named module-owned cache policies with mandatory Host keying, optional additional headers, optional query-string allowlists, and stable Terraform identities. |
+| `ordered_cache_behaviors` | `[]` | Path-based cache behaviors evaluated in list order. Each references a `cache_policies` key. |
 | `response_headers_policy_id` | empty | Existing CloudFront response headers policy to attach. |
 | `viewer_mtls` | disabled | Optional viewer mTLS using an existing trust store ID, a module-uploaded CA bundle, or an existing S3 CA bundle. |
 | `viewer_mtls_ca_bundle_pem` | empty | Public PEM CA bundle that the module uploads to S3 when creating a viewer mTLS trust store. Stored in Terraform state. |

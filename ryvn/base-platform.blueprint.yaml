@@ -13,8 +13,8 @@ spec:
     description: Log collection, metrics forwarding, and optional log redaction.
     displayName: Observability
   - name: infrastructure
-    description: Configure infrastructure permissions for the Ryvn Agent within this environment.
-    displayName: Infrastructure Permissions
+    description: Whether Ryvn may make infrastructure (Terraform) changes in this environment, and the cloud identity the in-cluster agent assumes to do so.
+    displayName: Infrastructure
   inputs:
   - name: logs
     type: boolean
