@@ -88,20 +88,8 @@ locals {
     trimspace(var.viewer_mtls.existing_trust_store_id)
   )
 
-  use_managed_cache_policy = var.cache_policy_id == ""
-  cache_policy_name        = trimspace(var.cache_policy_name)
-  cache_policy_id = (
-    local.use_managed_cache_policy ?
-    data.aws_cloudfront_cache_policy.this[0].id :
-    trimspace(var.cache_policy_id)
-  )
-
-  default_origin_request_policy_name = (
-    var.preserve_viewer_host_header ?
-    "Managed-AllViewer" :
-    "Managed-AllViewerExceptHostHeader"
-  )
-  use_managed_origin_request_policy = var.origin_request_policy_id == ""
+  default_origin_request_policy_name = "Managed-AllViewer"
+  use_managed_origin_request_policy  = var.origin_request_policy_id == ""
   origin_request_policy_name = (
     trimspace(var.origin_request_policy_name) != "" ?
     trimspace(var.origin_request_policy_name) :
@@ -119,6 +107,35 @@ locals {
     data.aws_cloudfront_response_headers_policy.this[0].id :
     trimspace(var.response_headers_policy_id) != "" ? trimspace(var.response_headers_policy_id) : null
   )
+
+  cache_behavior_origin_request_policy_names   = toset(compact([for behavior in var.ordered_cache_behaviors : behavior.origin_request_policy_name]))
+  cache_behavior_response_headers_policy_names = toset(compact([for behavior in var.ordered_cache_behaviors : behavior.response_headers_policy_name]))
+
+  # Cache-key values are forwarded automatically. Leave the origin request
+  # policy unset unless a behavior explicitly needs additional origin-only values.
+  ordered_cache_behaviors = [
+    for behavior in var.ordered_cache_behaviors : {
+      path_pattern    = behavior.path_pattern
+      allowed_methods = behavior.allowed_methods
+      cached_methods  = behavior.cached_methods
+      compress        = behavior.compress
+      cache_policy_id = aws_cloudfront_cache_policy.cache_behavior[behavior.cache_policy_key].id
+      origin_request_policy_id = (
+        behavior.origin_request_policy_id != "" ?
+        behavior.origin_request_policy_id :
+        behavior.origin_request_policy_name != "" ?
+        data.aws_cloudfront_origin_request_policy.cache_behavior[behavior.origin_request_policy_name].id :
+        null
+      )
+      response_headers_policy_id = (
+        behavior.response_headers_policy_id != "" ?
+        behavior.response_headers_policy_id :
+        behavior.response_headers_policy_name != "" ?
+        data.aws_cloudfront_response_headers_policy.cache_behavior[behavior.response_headers_policy_name].id :
+        null
+      )
+    }
+  ]
 
   distribution_comment = (
     trimspace(var.comment) != "" ?

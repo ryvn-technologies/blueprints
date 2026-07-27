@@ -25,13 +25,6 @@ provider "aws" {
   region = "us-east-1"
 }
 
-data "aws_cloudfront_cache_policy" "this" {
-  count = local.use_managed_cache_policy ? 1 : 0
-
-  provider = aws.us_east_1
-  name     = local.cache_policy_name
-}
-
 data "aws_cloudfront_origin_request_policy" "this" {
   count = local.use_managed_origin_request_policy ? 1 : 0
 
@@ -44,4 +37,18 @@ data "aws_cloudfront_response_headers_policy" "this" {
 
   provider = aws.us_east_1
   name     = trimspace(var.response_headers_policy_name)
+}
+
+data "aws_cloudfront_origin_request_policy" "cache_behavior" {
+  for_each = local.cache_behavior_origin_request_policy_names
+
+  provider = aws.us_east_1
+  name     = each.value
+}
+
+data "aws_cloudfront_response_headers_policy" "cache_behavior" {
+  for_each = local.cache_behavior_response_headers_policy_names
+
+  provider = aws.us_east_1
+  name     = each.value
 }

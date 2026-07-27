@@ -395,44 +395,8 @@ variable "viewer_mtls_ca_bundle_pem" {
   }
 }
 
-variable "preserve_viewer_host_header" {
-  description = "Whether CloudFront forwards the viewer Host header to Ryvn. Keep true for current Ryvn Gateway routing by public hostname."
-  type        = bool
-  default     = true
-  nullable    = false
-}
-
-variable "cache_policy_id" {
-  description = "CloudFront cache policy ID. Leave empty to use cache_policy_name."
-  type        = string
-  default     = ""
-  nullable    = false
-
-  validation {
-    condition     = trimspace(var.cache_policy_id) == var.cache_policy_id
-    error_message = "cache_policy_id must not have leading or trailing whitespace."
-  }
-}
-
-variable "cache_policy_name" {
-  description = "Managed or custom CloudFront cache policy name used when cache_policy_id is empty."
-  type        = string
-  default     = "Managed-CachingDisabled"
-  nullable    = false
-
-  validation {
-    condition = var.cache_policy_id != "" ? (
-      var.cache_policy_name == ""
-      ) : (
-      var.cache_policy_name != "" &&
-      trimspace(var.cache_policy_name) == var.cache_policy_name
-    )
-    error_message = "Set either cache_policy_id or cache_policy_name, not both. cache_policy_name must be non-empty when cache_policy_id is empty and must not have leading or trailing whitespace."
-  }
-}
-
 variable "origin_request_policy_id" {
-  description = "CloudFront origin request policy ID. Leave empty to use origin_request_policy_name or the module's preserve-host default."
+  description = "CloudFront origin request policy ID. Leave empty to use origin_request_policy_name or the module's Managed-AllViewer default."
   type        = string
   default     = ""
   nullable    = false
@@ -449,7 +413,7 @@ variable "origin_request_policy_id" {
 }
 
 variable "origin_request_policy_name" {
-  description = "Managed or custom CloudFront origin request policy name used when origin_request_policy_id is empty. Defaults to Managed-AllViewer when preserving Host, otherwise Managed-AllViewerExceptHostHeader."
+  description = "Managed or custom CloudFront origin request policy name used when origin_request_policy_id is empty. Defaults to Managed-AllViewer."
   type        = string
   default     = ""
   nullable    = false
@@ -525,6 +489,135 @@ variable "compress" {
   type        = bool
   default     = true
   nullable    = false
+}
+
+variable "cache_policies" {
+  description = "Named module-owned cache policies referenced by ordered_cache_behaviors through cache_policy_key. Map keys determine Terraform resource identity, so changing a behavior path does not replace its policy. Every policy includes Host in its cache key and excludes cookies. Additional headers and query-string names can be included per policy."
+  type = map(object({
+    min_ttl            = optional(number, 0)
+    default_ttl        = optional(number, 86400)
+    max_ttl            = optional(number, 31536000)
+    additional_headers = optional(set(string), [])
+    query_strings      = optional(set(string), [])
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.cache_policies) :
+      key != "" && trimspace(key) == key
+    ])
+    error_message = "cache_policies keys must be non-empty and must not have leading or trailing whitespace."
+  }
+
+  validation {
+    condition = alltrue([
+      for policy in values(var.cache_policies) :
+      policy.min_ttl >= 0 &&
+      policy.min_ttl <= policy.default_ttl &&
+      policy.default_ttl <= policy.max_ttl
+    ])
+    error_message = "cache_policies TTLs must satisfy 0 <= min_ttl <= default_ttl <= max_ttl."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for policy in values(var.cache_policies) : [
+        for header in policy.additional_headers :
+        header != "" &&
+        trimspace(header) == header &&
+        length(regexall("\\s", header)) == 0
+      ]
+    ]))
+    error_message = "cache_policies additional_headers values must be non-empty and must not contain whitespace."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for policy in values(var.cache_policies) : [
+        for query_string in policy.query_strings :
+        query_string != "" &&
+        trimspace(query_string) == query_string &&
+        length(regexall("\\s", query_string)) == 0
+      ]
+    ]))
+    error_message = "cache_policies query_strings values must be non-empty and must not contain whitespace."
+  }
+}
+
+variable "ordered_cache_behaviors" {
+  description = "Path-based cache behaviors evaluated in list order. Each behavior references a cache policy through cache_policy_key. Leave both origin request policy fields empty to forward only cache-key values."
+  type = list(object({
+    path_pattern                 = string
+    cache_policy_key             = string
+    origin_request_policy_id     = optional(string, "")
+    origin_request_policy_name   = optional(string, "")
+    response_headers_policy_id   = optional(string, "")
+    response_headers_policy_name = optional(string, "")
+    allowed_methods              = optional(list(string), ["GET", "HEAD", "OPTIONS"])
+    cached_methods               = optional(list(string), ["GET", "HEAD"])
+    compress                     = optional(bool, true)
+  }))
+  default  = []
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for behavior in var.ordered_cache_behaviors :
+      behavior.path_pattern != "" &&
+      length(regexall("\\s", behavior.path_pattern)) == 0
+    ])
+    error_message = "ordered_cache_behaviors path_pattern values must be non-empty and must not contain whitespace."
+  }
+
+  validation {
+    condition = length(distinct([
+      for behavior in var.ordered_cache_behaviors : behavior.path_pattern
+    ])) == length(var.ordered_cache_behaviors)
+    error_message = "ordered_cache_behaviors path_pattern values must be unique."
+  }
+
+  validation {
+    condition = alltrue([
+      for behavior in var.ordered_cache_behaviors :
+      trimspace(behavior.cache_policy_key) == behavior.cache_policy_key &&
+      trimspace(behavior.origin_request_policy_id) == behavior.origin_request_policy_id &&
+      trimspace(behavior.origin_request_policy_name) == behavior.origin_request_policy_name &&
+      trimspace(behavior.response_headers_policy_id) == behavior.response_headers_policy_id &&
+      trimspace(behavior.response_headers_policy_name) == behavior.response_headers_policy_name
+    ])
+    error_message = "ordered_cache_behaviors string fields must not have leading or trailing whitespace."
+  }
+
+  validation {
+    condition = alltrue([
+      for behavior in var.ordered_cache_behaviors :
+      contains(keys(var.cache_policies), behavior.cache_policy_key)
+    ])
+    error_message = "Each ordered_cache_behaviors cache_policy_key must reference a key in cache_policies."
+  }
+
+  validation {
+    condition = alltrue([
+      for behavior in var.ordered_cache_behaviors :
+      !(behavior.origin_request_policy_id != "" && behavior.origin_request_policy_name != "") &&
+      !(behavior.response_headers_policy_id != "" && behavior.response_headers_policy_name != "")
+    ])
+    error_message = "ordered_cache_behaviors entries must not set both the ID and the name of the same policy."
+  }
+
+  validation {
+    condition = alltrue([
+      for behavior in var.ordered_cache_behaviors :
+      length(behavior.allowed_methods) > 0 &&
+      alltrue([for method in behavior.allowed_methods : contains(["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"], method)]) &&
+      length(behavior.cached_methods) > 0 &&
+      alltrue([for method in behavior.cached_methods : contains(["GET", "HEAD", "OPTIONS"], method)]) &&
+      alltrue([for method in behavior.cached_methods : contains(behavior.allowed_methods, method)])
+    ])
+    error_message = "ordered_cache_behaviors methods must use CloudFront-supported HTTP methods, and cached_methods must be GET, HEAD, or OPTIONS values within allowed_methods."
+  }
 }
 
 variable "price_class" {

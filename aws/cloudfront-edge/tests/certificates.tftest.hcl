@@ -13,8 +13,6 @@ variables {
   vpc_origin = {
     existing_vpc_origin_id = "vpc-origin-test"
   }
-  cache_policy_id          = "cache-policy-test"
-  cache_policy_name        = ""
   origin_request_policy_id = "origin-request-policy-test"
   wait_for_deployment      = false
 }
