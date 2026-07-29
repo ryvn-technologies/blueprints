@@ -492,13 +492,15 @@ variable "compress" {
 }
 
 variable "cache_policies" {
-  description = "Named module-owned cache policies referenced by ordered_cache_behaviors through cache_policy_key. Map keys determine Terraform resource identity, so changing a behavior path does not replace its policy. Every policy includes Host in its cache key and excludes cookies. Additional headers and query-string names can be included per policy."
+  description = "Named module-owned cache policies referenced by ordered_cache_behaviors through cache_policy_key. Map keys determine Terraform resource identity, so changing a behavior path does not replace its policy. Every policy includes Host in its cache key, excludes cookies, and enables the gzip and Brotli Accept-Encoding settings by default. Additional headers, query-string names, and encoding settings can be configured per policy."
   type = map(object({
-    min_ttl            = optional(number, 0)
-    default_ttl        = optional(number, 86400)
-    max_ttl            = optional(number, 31536000)
-    additional_headers = optional(set(string), [])
-    query_strings      = optional(set(string), [])
+    min_ttl                       = optional(number, 0)
+    default_ttl                   = optional(number, 86400)
+    max_ttl                       = optional(number, 31536000)
+    enable_accept_encoding_brotli = optional(bool, true)
+    enable_accept_encoding_gzip   = optional(bool, true)
+    additional_headers            = optional(set(string), [])
+    query_strings                 = optional(set(string), [])
   }))
   default  = {}
   nullable = false

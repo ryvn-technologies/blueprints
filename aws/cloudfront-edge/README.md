@@ -1,71 +1,199 @@
 # CloudFront Edge
 
-Put AWS CloudFront in front of a Ryvn origin. Public traffic enters through CloudFront and optional AWS WAF, then CloudFront forwards requests to either a public Ryvn Gateway origin with origin mTLS or a CloudFront VPC origin without origin mTLS.
+Puts AWS CloudFront in front of an environment's public hostnames. CloudFront terminates TLS at the edge, optionally filters traffic with AWS WAF, and forwards each request privately to the environment's internal load balancer through a CloudFront VPC origin. AWS environments only.
 
-## What this does
+## What it creates
 
-For the hostnames you configure, this module:
+- A CloudFront distribution with your hostnames as aliases.
+- An ACM certificate in `us-east-1`, DNS-validated in the environment's public Route53 zone.
+- A CloudFront VPC origin pointing at the environment's internal load balancer.
+- Optionally: an AWS WAF WebACL, a viewer mTLS trust store, cached path behaviors, access log delivery, and real-time metrics.
 
-1. Creates a CloudFront distribution with your hostnames as aliases.
-2. Creates and DNS-validates an ACM viewer certificate in `us-east-1`. Explicit `hostnames` certify those exact names; leaving them empty uses the environment public domain apex and wildcard.
-3. Forwards to a public custom origin with HTTPS-only origin mTLS, or to a CloudFront VPC origin.
-4. Forwards the viewer `Host` header by default for current Ryvn Gateway routing. Module-owned cache policies also include it in their cache keys.
-5. Optionally creates Route53 alias records.
-6. Optionally enables viewer mTLS with an existing trust store or BYOCA S3 CA bundle.
-7. Optionally creates a CloudFront-scoped AWS WAFv2 WebACL through `aws-ss/wafv2/aws`, or attaches an existing WebACL ARN.
-8. Optionally adds path-scoped cache behaviors in front of the uncached default behavior.
-9. Optionally attaches response headers policy, custom error responses, origin shield, monitoring, and standard logging v2.
+Some behavior is fixed and has no input:
 
-The public-origin mTLS client certificate is referenced by ARN only. Do not pass private keys into Terraform variables. CloudFront origin mTLS is not used for VPC origins; VPC mode relies on CloudFront VPC-origin network isolation and the origin's TLS posture.
+- Viewers are always redirected to HTTPS.
+- The default behavior never caches, and always compresses eligible responses. Opt individual paths in under [Caching](#caching).
+- The viewer `Host` header reaches the origin and is part of every cache key, because the origin routes by hostname.
+- Every cache behavior targets the environment's origin.
 
-## Multiple installations
+## Hostnames
 
-You can install this module more than once in the same environment to give
-different hostnames different CloudFront distributions and WAF rules. Separate
-installations must not reuse the same exact `hostnames` value because
-CloudFront rejects duplicate alternate domain names across distributions. A
-wildcard alias can overlap a more-specific alias in another distribution, and
-CloudFront routes requests to the more-specific match. Leaving `hostnames`
-empty uses the managed public DNS root apex and wildcard, so only one
-installation in an account can safely use that default. Installations with
-explicit hostnames receive hostname-scoped certificates and validation records,
-so their Terraform states do not share certificate resources.
+`hostnames` are the public names CloudFront serves. Leave it empty to serve the environment's public domain apex and its wildcard.
 
-## Before you start
+Because the blueprint issues the certificate itself, each hostname must be the environment public domain, its wildcard, or a one-label subdomain of it — `example.com`, `*.example.com`, or `api.example.com`.
 
-### Ryvn origin requirements
+Install the blueprint more than once when different hostnames need different WAF rules or cache behavior. Give each installation its own hostnames: CloudFront rejects the same alias on two distributions.
 
-For public origin mode, Ryvn must provide:
+## Pointing DNS at CloudFront
 
-- a stable public origin hostname
-- Gateway routes for every public hostname, or another agreed routing mode
-- an origin/server TLS certificate valid for the forwarded host behavior
-- a trusted CA bundle that validates CloudFront's origin client certificate
-- direct-origin rejection for requests without the trusted client certificate
+The blueprint does not create DNS records. Add the `externalDnsTargetAnnotation` output to the networking ingress of the service installation that serves the hostname, and external-dns points the record at the distribution.
 
-For VPC origin mode, Ryvn or the edge owner must provide:
+For hostnames outside a Ryvn-managed zone, read `requiredDnsRecords` and create them in your provider. Apex records need an ALIAS/ANAME-style record if your provider supports one.
 
-- a CloudFront-supported VPC origin endpoint, such as an internal ALB, NLB, or EC2 instance
-- security groups and private subnets that allow CloudFront VPC origin traffic
-- an origin/server TLS posture compatible with `vpc_origin.origin_protocol_policy`
+Test through the distribution before cutting DNS over:
 
-By default, CloudFront connects to the configured origin hostname but forwards
-the viewer `Host` header, such as `api.example.com`, through
-`Managed-AllViewer`. The Ryvn Gateway certificate must be valid for that public
-hostname.
+```bash
+curl -sv --connect-to 'api.example.com:443:d123456abcdef8.cloudfront.net:443' https://api.example.com/healthz
+```
 
-### AWS requirements
+## Caching
 
-- CloudFront, CloudFront-scoped WAF, CloudFront ACM certificates, and CloudFront standard logging v2 API calls use `us-east-1`.
-- The Route53 public hosted zone for the managed public DNS root must be visible to the AWS credentials running Terraform when using the default managed viewer certificate or `dns.enabled = true`.
-- If `viewer_certificate_arn` is set, it must be an ACM certificate in `us-east-1` that covers every hostname. Leave it empty for the automatically scoped managed certificate.
-- Viewer mTLS requires `http_version = "http2"` and a CloudFront trust store.
-- Public origin mode requires `origin_client_certificate_arn`, an ACM certificate in `us-east-1` suitable for TLS client authentication.
-- ACM public certificates are fine for viewer TLS. For origin mTLS client certificates, use an imported or private CA issued certificate rather than an ACM public certificate.
+Nothing is cached until you opt a path in; the default behavior uses CloudFront's `Managed-CachingDisabled` policy, which suits API traffic. Two inputs work together:
 
-### Terraform executor IAM permissions
+- `cachePolicies` — a YAML map of named policies: TTLs, cache-key headers, and query strings.
+- `orderedCacheBehaviors` — a YAML list of path patterns, each referencing a policy by its map key, evaluated in order before the default behavior.
 
-To support every module feature, grant the Terraform executor these IAM actions:
+### cachePolicies
+
+Map keys are the policy's identity, so renaming a behavior's path does not replace its policy, and several behaviors can share one policy. Every policy keys on the URL path and the viewer `Host` header and ignores cookies. CloudFront honors the origin's `Cache-Control` within `min_ttl`/`max_ttl` and falls back to `default_ttl` when the origin sends none.
+
+| Field | Default | Notes |
+|------|---------|-------|
+| `min_ttl` | `0` | Lower bound on caching, even against origin `Cache-Control`. |
+| `default_ttl` | `86400` | Used when the origin sends no caching headers. |
+| `max_ttl` | `31536000` | Upper bound on origin-requested TTLs. |
+| `enable_accept_encoding_gzip` | `true` | Request and cache gzip. |
+| `enable_accept_encoding_brotli` | `true` | Request and cache Brotli. |
+| `additional_headers` | `[]` | Extra cache-key headers. `Host` is always included. |
+| `query_strings` | `[]` | Query-string allowlist for the cache key. Empty keeps query strings out of the key. |
+
+Each map entry becomes one CloudFront cache policy. AWS allows 20 per account by default ([quota increase][aws-quotas]).
+
+### orderedCacheBehaviors
+
+| Field | Default | Notes |
+|------|---------|-------|
+| `path_pattern` | required | For example `/_next/static/*`. Unique per installation. |
+| `cache_policy_key` | required | A key from `cachePolicies`. |
+| `compress` | `true` | [Compress eligible responses at the edge][aws-compression]. |
+| `allowed_methods` | `GET, HEAD, OPTIONS` | Viewer methods for this path. |
+| `cached_methods` | `GET, HEAD` | Must be a subset of `allowed_methods`. |
+| `origin_request_policy_id` / `origin_request_policy_name` | empty | Set at most one. Empty forwards the cache-key values plus CloudFront's standard origin-request values. A policy that drops `Host` breaks origin routing. |
+| `response_headers_policy_id` / `response_headers_policy_name` | empty | Set at most one. |
+
+Edge compression on a cached path needs both `compress: true` on the behavior and the encoding enabled in its cache policy. CloudFront normalizes `Accept-Encoding` into the cache key, so gzip, Brotli, and uncompressed responses never share a cache entry.
+
+### Example: Next.js static assets and image optimization
+
+`cachePolicies`:
+
+```yaml
+static_assets:
+  min_ttl: 0
+  default_ttl: 86400
+  max_ttl: 31536000
+  # both default to true
+  enable_accept_encoding_gzip: true
+  enable_accept_encoding_brotli: true
+image_optimizer:
+  default_ttl: 0
+  enable_accept_encoding_gzip: true
+  enable_accept_encoding_brotli: true
+  additional_headers:
+    - Accept
+  query_strings:
+    - url
+    - w
+    - q
+```
+
+`orderedCacheBehaviors`:
+
+```yaml
+- path_pattern: "/_next/static/*"
+  cache_policy_key: static_assets
+  compress: true
+- path_pattern: "/_next/image*"
+  cache_policy_key: image_optimizer
+  compress: true
+```
+
+Hashed build output under `/_next/static` varies on nothing, so it keeps the smallest cache key and a long TTL. The image optimizer varies its response by `url`, `w`, and `q` and negotiates the output format from `Accept`, so all four values belong in its cache key. Both paths spell the compression flags out even though all three are `true` by default. Other frameworks differ in path and parameter names; the shape is the same.
+
+### customErrorResponses
+
+A YAML list applied across the distribution. `error_code` (4xx/5xx) is required; `response_code`, `response_page_path`, and `error_caching_min_ttl` are optional.
+
+```yaml
+- error_code: 403
+  response_code: 403
+  response_page_path: "/errors/403.html"
+  error_caching_min_ttl: 30
+```
+
+## Origin
+
+CloudFront reaches the environment through a CloudFront VPC origin, so origin traffic never crosses the public internet. The blueprint creates one from the environment's internal load balancer; [Advanced](#advanced) covers reusing or retargeting it.
+
+`originReadTimeoutSeconds` sets how long CloudFront waits for an origin response, 1 to 120 seconds. It defaults to 30.
+
+## Viewer mTLS
+
+Set `enableViewerMtls` to make CloudFront validate client certificates against a trust store before forwarding a request. The CA bundle is uploaded to a private, versioned, encrypted S3 bucket in the environment's account and wired into a CloudFront trust store.
+
+| Input | Default | Notes |
+|------|---------|-------|
+| `viewerMtlsMode` | `required` | `required` rejects callers without a valid certificate; `optional` requests one but still allows callers without it. |
+| `viewerMtlsTrustedCaBundle` | from the `trusted-client-ca` variable group | PEM bundle under the `ca.crt` key. Public CA certificates only — no private keys. |
+| `viewerMtlsAdvertiseTrustStoreCaNames` | `false` | Advertise accepted CA names during the TLS handshake so callers can present a matching certificate. |
+| `viewerMtlsIgnoreCertificateExpiry` | `false` | Accept expired client certificates that still chain to a trusted CA. |
+
+## WAF
+
+By default the blueprint creates a CloudFront-scoped WebACL with four AWS managed rule groups in count mode: matches are recorded but nothing is blocked. Review the counts, then move a group to `block`. Set every group to `disabled` and leave `ipAllowList` empty to skip the WebACL entirely.
+
+| Input | Default | Notes |
+|------|---------|-------|
+| `wafCommonRuleSetAction` | `count` | Common web app attacks such as XSS, path traversal, and oversized requests. |
+| `wafKnownBadInputsAction` | `count` | Request patterns linked to known exploits. |
+| `wafAmazonIpReputationAction` | `count` | Sources AWS links to bots, DDoS, or scanning. |
+| `wafAnonymousIpAction` | `count` | VPNs, proxies, Tor, and hosting providers that hide the caller. |
+| `ipAllowList` | `[]` | CIDR blocks allowed to reach CloudFront. Empty allows all sources. IPv4 and IPv6 may be mixed. |
+
+Setting `ipAllowList` flips the WebACL's default action to block and appends the allow rules after the managed rules, so:
+
+- allowlisted IP, clean request → allowed
+- allowlisted IP, request a managed rule blocks → blocked
+- any other IP → `403`
+
+To attach a WebACL you manage elsewhere, set `webAclArn` to a CloudFront-scoped (`us-east-1`, `global/webacl/…`) ARN. It replaces the rule inputs above, since CloudFront accepts one WebACL per distribution.
+
+## Logging
+
+Logs are delivered to S3 buckets you already own; the blueprint does not create them.
+
+| Input | Default | Notes |
+|------|---------|-------|
+| `enableCloudFrontLogging` / `cloudFrontLogBucketArn` | off | CloudFront standard access logs to an existing S3 bucket. |
+| `enableWafLogging` / `wafLogBucketArn` | off | WAF request logs to an existing same-account S3 bucket. AWS requires the bucket name to start with `aws-waf-logs-` ([details][aws-waf-logging]). |
+
+## Advanced
+
+| Input | Default | Notes |
+|------|---------|-------|
+| `existingVpcOriginId` | empty | Reuse a VPC origin instead of creating one. Pair it with another installation's `vpcOriginId` output to share one VPC origin across distributions. |
+| `vpcOriginEndpointLookupTags` | empty | YAML map of AWS tags selecting the load balancer behind the VPC origin. Empty uses the environment's internal load balancer. Changing the endpoint replaces the VPC origin. |
+| `vpcOriginName` | generated | Name for the created VPC origin. A short endpoint fingerprint suffix is always appended. |
+| `priceClass` | `PriceClass_100` | Edge locations: `PriceClass_100` (North America and Europe), `PriceClass_200`, or `PriceClass_All`. |
+| `enableMonitoring` | `false` | CloudFront real-time metrics. |
+| `waitForDeployment` | `false` | Wait for CloudFront to finish deploying before the installation completes. |
+| `retainOnDelete` | `false` | Disable the distribution instead of deleting it when the installation is removed. |
+
+## Outputs
+
+| Output | Description |
+|------|-------------|
+| `distributionId` | CloudFront distribution ID. |
+| `distributionArn` | CloudFront distribution ARN. |
+| `distributionDomainName` | Distribution DNS name — the DNS target for your hostnames. |
+| `vpcOriginId` | VPC origin ID. Pass it to another installation's `existingVpcOriginId` to share one VPC origin. |
+| `webAclArn` | WebACL attached to the distribution, when one is configured. |
+| `externalDnsTargetAnnotation` | Annotation to add to a service installation's networking ingress so DNS targets CloudFront. |
+| `requiredDnsRecords` | Records to create yourself when Ryvn is not managing the zone. |
+
+## AWS permissions
+
+The environment's Terraform executor needs these actions:
 
 ```text
 acm:AddTagsToCertificate
@@ -177,529 +305,6 @@ wafv2:UpdateIPSet
 wafv2:UpdateWebACL
 ```
 
-## Public origin configuration
-
-This is the default `origin_type = "public"` mode. The Ryvn
-`cloudfront-edge` blueprint injects `managed_public_dns_root` from
-`.ryvn.env.state.public_domain.name`, and the module derives the aliases and
-origin hostname from that value:
-
-```yaml
-origin_client_certificate_arn: "arn:aws:acm:us-east-1:123456789012:certificate/..."
-```
-
-By default, public origin mode uses `origin.<managed_public_dns_root>`, so a Ryvn
-environment public domain of `example.com` resolves to `origin.example.com`.
-
-## Internal origin configuration
-
-Internal mode uses a CloudFront VPC origin and does not accept
-`origin_client_certificate_arn`. The Ryvn `cloudfront-edge` blueprint injects
-`managed_private_dns_root` from `.ryvn.env.state.internal_domain.name`, and the
-module derives `internal-origin.<managed_private_dns_root>` from that value.
-
-Create a CloudFront VPC origin by looking up the internal load balancer from
-AWS tags:
-
-```yaml
-origin_type: "internal"
-
-vpc_origin:
-  create: true
-  endpoint_lookup_tags:
-    elbv2.k8s.aws/cluster: "ryvn-eks-example"
-    service.k8s.aws/stack: "internal-ingress-nginx/internal-ingress-nginx-controller-internal"
-    service.k8s.aws/resource: "LoadBalancer"
-  origin_protocol_policy: "https-only"
-```
-
-Alternatively, pass the endpoint ARN directly:
-
-```yaml
-origin_type: "internal"
-
-vpc_origin:
-  create: true
-  endpoint_arn: "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/net/internal/..."
-```
-
-Use an existing CloudFront VPC origin:
-
-```yaml
-origin_type: "internal"
-
-vpc_origin:
-  existing_vpc_origin_id: "vo_abc123"
-```
-
-## Path-scoped cache behaviors
-
-The default cache behavior uses AWS-managed `CachingDisabled` for API traffic.
-Use `ordered_cache_behaviors` to cache selected paths. Behaviors are evaluated
-in list order and always use the Ryvn-managed origin. Field names match the
-`aws_cloudfront_distribution` `ordered_cache_behavior` block. Viewer requests
-redirect to HTTPS.
-
-Define module-owned policies in the `cache_policies` map, then reference them
-from behaviors through `cache_policy_key`. Terraform uses the map key as the
-policy's resource identity, so changing or reordering behavior paths does not
-replace an otherwise unchanged policy. Multiple behaviors can share one policy.
-External cache policy IDs and names are not supported.
-
-CloudFront honors the origin `Cache-Control` header within `min_ttl`/`max_ttl`
-and uses `default_ttl` when the origin sends none. Every module-owned cache
-policy keys on the URL path and viewer `Host` header and excludes cookies. Path
-patterns match across every alias of the distribution and the Ryvn origin
-routes by hostname, so mandatory `Host` keying prevents aliases from sharing
-cache entries; a user-supplied `Host` is ignored because the module adds it
-exactly once. Add whatever else a path varies its response on through
-`additional_headers` (normalized case-insensitively) and `query_strings`.
-Behaviors without an origin request policy forward the cache-policy values and
-CloudFront's standard origin-request values, but do not inherit the
-distribution default policy.
-
-Each installation creates one custom cache policy per `cache_policies` map
-entry. The managed default does not count toward the quota. AWS defaults to 20
-custom cache policies per account, so accounts with many policies may need a
-[CloudFront quota increase](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html).
-
-With no response headers policy, CloudFront passes origin response headers
-through unchanged, including origin CORS headers. As an optional safety net,
-set `response_headers_policy_name: "Managed-SimpleCORS"` to add
-`Access-Control-Allow-Origin: *` only when the origin response omits it.
-
-Error caching stays distribution-wide through `custom_error_responses`; use
-`error_caching_min_ttl` to tune how long CloudFront pins error responses.
-
-### Example: Next.js static assets and image optimization
-
-```yaml
-cache_policies:
-  static_assets:
-    min_ttl: 0
-    default_ttl: 86400
-    max_ttl: 31536000
-  image_optimizer:
-    min_ttl: 0
-    default_ttl: 0
-    max_ttl: 31536000
-    additional_headers:
-      - Accept
-    query_strings:
-      - url
-      - w
-      - q
-
-ordered_cache_behaviors:
-  - path_pattern: "/_next/static/*"
-    cache_policy_key: static_assets
-  - path_pattern: "/_next/image*"
-    cache_policy_key: image_optimizer
-```
-
-Hashed build output under `/_next/static` varies on nothing, so it keeps the
-smallest cache key and a long TTL. The Next.js image optimizer varies its
-response by `url`, `w`, and `q` and negotiates the output format from `Accept`,
-so all four values belong in its cache key. Other frameworks differ in path and
-parameter names; the shape is the same.
-
-## Hardening and observability
-
-Attach an existing response headers policy by ID or name:
-
-```yaml
-response_headers_policy_id: "67f7725c-6f97-4210-82d7-5512b31e9d03"
-```
-
-Add custom error responses and origin shield:
-
-```yaml
-custom_error_responses:
-  - error_code: 403
-    response_code: 403
-    response_page_path: "/errors/403.html"
-    error_caching_min_ttl: 30
-
-origin_shield:
-  enabled: true
-  origin_shield_region: "us-east-1"
-```
-
-Enable CloudFront realtime metrics and standard logging v2:
-
-```yaml
-monitoring:
-  enabled: true
-
-standard_logging_v2:
-  enabled: true
-  name: "acme-prod-edge-logs"
-  destination_resource_arn: "arn:aws:s3:::acme-cloudfront-logs/cloudfront"
-  delivery_destination_type: "S3"
-  output_format: "parquet"
-  s3_delivery_configuration:
-    enable_hive_compatible_path: true
-    suffix_path: "{DistributionId}/{yyyy}/{MM}/{dd}/{HH}"
-```
-
-## Viewer certificate
-
-By default, the module uses `managed_public_dns_root`, looks up the Route53 public
-hosted zone by that name, requests an ACM certificate in `us-east-1`, and
-creates DNS validation records in that zone. The Ryvn `cloudfront-edge`
-blueprint injects `managed_public_dns_root` from the environment public domain.
-
-```yaml
-origin_client_certificate_arn: "arn:aws:acm:us-east-1:123456789012:certificate/..."
-```
-
-With explicit `hostnames`, the managed certificate uses the sorted first
-hostname as its primary name and the remaining hostnames as SANs. This keeps
-certificate and validation-record ownership isolated between parallel
-installations. When `hostnames` is empty, the certificate instead uses the
-public domain apex and wildcard, matching the default CloudFront aliases.
-
-On upgrade, an existing installation with explicit hostnames replaces its
-environment-wide certificate using create-before-destroy. Terraform retains
-the legacy shared validation CNAME, validates the hostname-scoped certificate,
-switches CloudFront to it, and then removes the old certificate. Retaining the
-shared CNAME prevents one installation from interrupting ACM renewal for
-another installation that has not upgraded yet.
-
-When the module creates the viewer certificate or Route53 records, `hostnames`
-must be the apex, the wildcard, or one-label subdomains in the managed public
-zone. If you pass `viewer_certificate_arn` and leave `dns.enabled = false`,
-`hostnames` may be any valid CloudFront aliases covered by that certificate.
-
-## Viewer mTLS
-
-Use an existing CloudFront trust store:
-
-```yaml
-viewer_mtls:
-  enabled: true
-  mode: "required"
-  existing_trust_store_id: "ts_abc123"
-```
-
-Or create a trust store from a BYOCA PEM bundle already uploaded to S3:
-
-```yaml
-viewer_mtls:
-  enabled: true
-  mode: "required"
-  trust_store:
-    create: true
-    name: "acme-prod-viewer-mtls"
-    ca_bundle_s3:
-      bucket: "acme-security-artifacts"
-      key: "cloudfront/client-ca-bundle.pem"
-      region: "us-east-1"
-      version: "..."
-```
-
-Or let the module upload the CA bundle to a private, versioned S3 bucket and
-wire that object version into the trust store:
-
-```yaml
-viewer_mtls_ca_bundle_pem: |
-  -----BEGIN CERTIFICATE-----
-  ...
-  -----END CERTIFICATE-----
-
-viewer_mtls:
-  enabled: true
-  mode: "required"
-  trust_store:
-    create: true
-```
-
-When `viewer_mtls_ca_bundle_pem` is set, the module creates the S3 bucket,
-uploads `viewer-mtls/ca-bundle.pem`, creates the CloudFront trust store, and
-wires the trust store to the distribution. If `trust_store.name` is empty, the
-module generates one. This input is for public CA certificate material only.
-Terraform stores the PEM in state, so use an existing trust store or S3 bundle
-if the bundle must stay out of Terraform state.
-
-## Route53 DNS
-
-When Route53 owns the public zone, enable alias records. The module uses the
-same `managed_public_dns_root` hosted-zone lookup used for certificate validation:
-
-```yaml
-dns:
-  enabled: true
-  create_ipv4_alias: true
-  create_ipv6_alias: true
-```
-
-When another DNS provider owns the zone, pass `viewer_certificate_arn`, leave
-DNS disabled, and use:
-
-```bash
-terraform output required_dns_records
-```
-
-Each hostname should point at the CloudFront distribution name. Apex records
-need an ALIAS/ANAME-style record if your DNS provider supports one:
-
-```text
-acme.com ALIAS/ANAME d123456abcdef8.cloudfront.net
-*.acme.com CNAME d123456abcdef8.cloudfront.net
-```
-
-## WAF
-
-CloudFront accepts one WebACL per distribution. This module gives you one WAF
-surface:
-
-- `waf` creates and attaches a CloudFront-scoped WebACL for common Ryvn edge controls.
-- `waf_advanced` adds raw upstream WAF module inputs for custom rules, responses, token domains, and logging filters.
-- `web_acl_arn` attaches an externally managed WebACL instead.
-
-Leave `waf.enabled` unset for normal use. The module creates a WebACL
-automatically when `waf` or `waf_advanced` has content. Set
-`waf.enabled = false` only as a temporary kill switch; set `waf.enabled = true`
-only when you intentionally want to create an otherwise empty WebACL.
-
-### Simple IP allowlist
-
-To lock the edge down to a known set of networks, set `waf.allowed_ips` to a
-list of CIDR blocks. That is the entire configuration:
-
-```yaml
-waf:
-  allowed_ips:
-    - "203.0.113.0/24"
-    - "198.51.100.7/32"
-```
-
-The module creates a CloudFront-scoped WebACL that blocks by default and allows
-only these CIDRs, building the IP set and allow rule for you and attaching the
-WebACL to the distribution. Requests from any other address get a WAF `403`.
-
-IPv4 and IPv6 may be mixed; because WAFv2 IP sets are single-family, the module
-creates one IP set per address family:
-
-```yaml
-waf:
-  allowed_ips:
-    - "203.0.113.0/24"
-    - "2001:db8::/48"
-```
-
-### Managed rules (OWASP) plus an IP allowlist
-
-To add AWS's Common Rule Set before the allowlist, set `managed_rules: true` in
-the same `waf` block:
-
-```yaml
-waf:
-  allowed_ips:
-    - "203.0.113.0/24"
-  managed_rules: true
-```
-
-There is no AWS managed group literally named "OWASP";
-`AWSManagedRulesCommonRuleSet` is AWS's core rule set that covers the OWASP-style
-protections. `managed_rules: true` expands to an enforced
-`AWSManagedRulesCommonRuleSet` rule with `vendor_name = "AWS"`.
-
-Add extra AWS managed groups without writing raw WAF rule statements:
-
-```yaml
-waf:
-  allowed_ips:
-    - "203.0.113.0/24"
-  managed_rules: true
-  managed_rule_groups:
-    - AWSManagedRulesKnownBadInputsRuleSet
-    - AWSManagedRulesSQLiRuleSet
-```
-
-When `waf.allowed_ips` is set, the module forces the WebACL default action to
-`block` and appends the allowlist allow rules after custom and generated managed
-rules. That ordering matters: managed rules evaluate first and can block
-malicious requests from allowlisted IPs, then the allow rule lets clean
-allowlisted traffic through, and everything else falls through to the default
-block. The result:
-
-- allowlisted IP, clean request → allowed
-- allowlisted IP, malicious request → blocked by the managed rule
-- any other IP → blocked
-
-### Existing WebACL
-
-Attach an externally managed CloudFront-scoped WebACL ARN:
-
-```yaml
-web_acl_arn: "arn:aws:wafv2:us-east-1:123456789012:global/webacl/acme-prod-edge/..."
-```
-
-### Advanced WebACL passthrough
-
-Create a WebACL in this module through the `aws-ss/wafv2/aws` child module:
-
-```yaml
-waf_advanced:
-  name: acme-prod-edge-waf
-  default_action: allow
-
-  rule:
-    - name: AWSManagedRulesCommonRuleSet
-      priority: 10
-      override_action: count
-      managed_rule_group_statement:
-        name: AWSManagedRulesCommonRuleSet
-        vendor_name: AWS
-      visibility_config:
-        cloudwatch_metrics_enabled: true
-        metric_name: AWSManagedRulesCommonRuleSet
-        sampled_requests_enabled: true
-```
-
-The `waf_advanced` object is an explicit passthrough to the upstream module's
-input shape for fields this wrapper does not reserve. Common upstream fields
-such as `name`, `description`, `default_action`, `visibility_config`,
-`custom_response_body`, `captcha_config`, `challenge_config`, `token_domains`,
-`rule`, `tags`, `enabled_logging_configuration`, `log_destination_configs`,
-`redacted_fields`, and `logging_filter` belong here.
-Ryvn still fixes CloudFront-specific wiring: `scope = "CLOUDFRONT"`,
-`region = "us-east-1"`, `enabled_web_acl_association = false`,
-`resource_arn = []`, and attaches the created ARN through the CloudFront
-distribution.
-
-The wrapper also defaults `cloudwatch_metrics_enabled = true` and
-`sampled_requests_enabled = true` for rule-level `visibility_config` blocks so
-simple rules only need to provide a rule `metric_name`.
-
-For an allowlist, prefer `waf.allowed_ips` above. To block specific CIDRs (a
-blocklist) or build any other custom IP-set rule, create or reference a WAF IP
-set outside this wrapper and pass its ARN in the raw upstream rule shape:
-
-```yaml
-waf_advanced:
-  default_action: allow
-  visibility_config:
-    metric_name: acme-prod-edge-waf
-
-  rule:
-    - name: block-listed-ips
-      priority: 10
-      action: block
-      ip_set_reference_statement:
-        arn: "arn:aws:wafv2:us-east-1:123456789012:global/ipset/acme-prod-blocked/..."
-      visibility_config:
-        metric_name: block-listed-ips
-```
-
-The simple `waf.allowed_ips` path is the only path where this wrapper creates
-WAF IP sets for you. The advanced path is intentionally passthrough.
-
-The WebACL must use `scope = "CLOUDFRONT"` and be managed through the
-`us-east-1` AWS provider.
-
-## Inputs
-
-Required by mode:
-
-| Name | Description |
-|------|-------------|
-| `origin_client_certificate_arn` | ACM client certificate ARN in `us-east-1` for public-origin CloudFront origin mTLS. |
-| `vpc_origin` | VPC origin configuration when `origin_type = "internal"` or `origin_type = "vpc"`. Use `endpoint_lookup_tags` or `endpoint_arn` when creating a VPC origin, or `existing_vpc_origin_id` to reuse one. |
-
-Common optional inputs:
-
-| Name | Default | Description |
-|------|---------|-------------|
-| `name_prefix` | `ryvn-cloudfront-edge` | Optional prefix for generated AWS resource names. |
-| `managed_public_dns_root` | required | Managed public DNS root. The Ryvn blueprint injects `.ryvn.env.state.public_domain.name`. |
-| `managed_private_dns_root` | empty | Managed private DNS root. Required for internal/VPC origins when `vpc_origin.domain_name` is empty; the Ryvn blueprint injects `.ryvn.env.state.internal_domain.name`. |
-| `hostnames` | apex and wildcard | CloudFront aliases. Explicit values create a certificate for those exact names. Empty serves and certifies the managed public DNS root and wildcard. Do not reuse the same exact alias in parallel installations. |
-| `origin_type` | `public` | `public` for origin mTLS custom origin, or `internal` for CloudFront VPC origin. `vpc` is accepted as an alias for `internal`. |
-| `origin_hostname` | `origin.<managed_public_dns_root>` | Override for the public Ryvn origin hostname. |
-| `origin_port` | `443` | HTTPS port for CloudFront-to-public-origin traffic. |
-| `cache_policies` | `{}` | Named module-owned cache policies with mandatory Host keying, optional additional headers, optional query-string allowlists, and stable Terraform identities. |
-| `ordered_cache_behaviors` | `[]` | Path-based cache behaviors evaluated in list order. Each references a `cache_policies` key. |
-| `response_headers_policy_id` | empty | Existing CloudFront response headers policy to attach. |
-| `viewer_mtls` | disabled | Optional viewer mTLS using an existing trust store ID, a module-uploaded CA bundle, or an existing S3 CA bundle. |
-| `viewer_mtls_ca_bundle_pem` | empty | Public PEM CA bundle that the module uploads to S3 when creating a viewer mTLS trust store. Stored in Terraform state. |
-| `custom_error_responses` | `[]` | Optional CloudFront custom error responses. |
-| `origin_shield` | disabled | Optional CloudFront origin shield configuration. |
-| `monitoring` | disabled | Optional CloudFront realtime metrics subscription. |
-| `standard_logging_v2` | disabled | Optional CloudFront standard logging v2 log delivery. |
-| `allowed_methods` | all methods | Viewer HTTP methods allowed by CloudFront. |
-| `price_class` | `PriceClass_100` | CloudFront price class. |
-| `http_version` | `http2` | Viewer HTTP version setting. |
-| `dns` | disabled | Optional Route53 alias records. |
-| `viewer_certificate_arn` | empty | Optional existing ACM viewer certificate ARN in `us-east-1`. Empty creates an automatically scoped managed certificate: exact configured hostnames, or apex and wildcard when `hostnames` is empty. |
-| `waf` | `{}` | Optional WebACL creation. Use `waf.allowed_ips` for an IP allowlist and `waf.managed_rules = true` for AWS's Common Rule Set. |
-| `waf_advanced` | `{}` | Explicit passthrough for upstream WAF module inputs such as advanced rules, custom responses, token domains, and logging filters. |
-| `web_acl_arn` | empty | Existing CloudFront-scoped AWS WAFv2 WebACL ARN to attach. |
-| `tags` | `{}` | Tags for AWS resources that support tags. |
-
-## Outputs
-
-| Name | Description |
-|------|-------------|
-| `distribution_id` | CloudFront distribution ID. |
-| `distribution_arn` | CloudFront distribution ARN. |
-| `distribution_domain_name` | CloudFront DNS name. |
-| `distribution_hosted_zone_id` | Hosted zone ID for Route53 alias records. |
-| `aliases` | Configured hostnames. |
-| `origin_type` | Effective origin mode. |
-| `origin_hostname` | Effective origin hostname. |
-| `vpc_origin_id` | CloudFront VPC origin ID when `origin_type = "internal"` or `origin_type = "vpc"`. |
-| `web_acl_arn` | Attached WAF WebACL ARN, when configured. |
-| `waf` | Created WAF WebACL and IP set details when this module creates a WebACL. |
-| `viewer_certificate_arn` | ACM viewer certificate ARN. |
-| `viewer_mtls` | Viewer mTLS mode, trust store identifiers, and created trust store audit fields. |
-| `origin_client_certificate_arn` | ACM client certificate ARN used for public-origin mTLS. |
-| `monitoring_subscription_id` | CloudFront monitoring subscription ID when enabled. |
-| `standard_logging_v2` | CloudFront standard logging v2 resource identifiers. |
-| `required_dns_records` | CNAME records to create outside Terraform-managed Route53. |
-| `route53_records` | Route53 alias records this module manages. |
-
-## Rollout
-
-1. Pick `origin_type = "public"` or `origin_type = "internal"` and confirm the origin security contract.
-2. For public origins, configure Ryvn Gateway trust for the origin client certificate CA.
-3. Confirm Ryvn serves an origin/server certificate valid for the forwarded Host behavior.
-4. Confirm the Route53 public hosted zone for the managed public DNS root exists and is delegated.
-5. If viewer mTLS is enabled, create or select the CloudFront trust store and test client certificate issuance.
-6. For public origins, import or reference the ACM origin client certificate in `us-east-1`.
-7. For VPC origins, create or reference the CloudFront VPC origin and verify security groups/private subnet access.
-8. Configure `waf`/`waf_advanced` or select an external CloudFront-scoped WebACL, if WAF is needed.
-9. Create the CloudFront distribution.
-10. Test before DNS cutover with `curl --connect-to`.
-11. Point DNS at CloudFront.
-12. Run viewer mTLS, WAF, and direct-origin bypass or VPC-origin access tests.
-13. Move WAF rules from count mode to enforcement after review, if you staged custom rules in count mode.
-
-## Local validation
-
-Requires Terraform >= 1.9:
-
-```bash
-terraform init -backend=false -reconfigure
-terraform fmt -check -recursive
-terraform validate
-terraform test
-```
-
-For production, use a reviewed plan artifact:
-
-```bash
-terraform plan -out=tfplan
-```
-
-Do not apply directly to production without reviewing the plan and confirming DNS, certificate, WAF, and rollback steps.
-
-## Rollback
-
-- DNS: point the hostname back to the previous target. Lower TTL before cutover where possible.
-- CloudFront: reapply the previous distribution config or detach the WebACL.
-- VPC origin: disassociate it from the distribution before deleting a managed VPC origin.
-- Viewer mTLS: disable `viewer_mtls.enabled` or restore the previous trust store through a reviewed plan.
-- WAF: set `waf.enabled = false`, detach `web_acl_arn`, or roll back external WebACL rules.
-- Certificates: do not delete imported origin client certificates until CloudFront no longer references them.
+[aws-compression]: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/ServingCompressedFiles.html
+[aws-quotas]: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html
+[aws-waf-logging]: https://docs.aws.amazon.com/waf/latest/developerguide/logging-s3.html

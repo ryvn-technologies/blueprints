@@ -50,7 +50,7 @@ spec:
           max_ttl: 31536000
         ```
 
-        Every policy includes `Host` exactly once. Additional header names are case-insensitive, and query strings are allowlisted by name.
+        Every policy includes `Host`. `enable_accept_encoding_gzip` and `enable_accept_encoding_brotli` default to `true`.
       displayName: Cache Policies
       group: caching
       multiline: true
@@ -63,7 +63,10 @@ spec:
         ```yaml
         - path_pattern: "/_next/static/*"
           cache_policy_key: static_assets
+          compress: true
         ```
+
+        `compress` defaults to `true` and enables CloudFront edge compression.
       displayName: Ordered Cache Behaviors
       group: caching
       multiline: true
