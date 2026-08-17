@@ -1,0 +1,113 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: sandbox-runtime
+spec:
+  description: |
+    Adds a sandboxed container runtime to an existing cluster for running untrusted or agent-generated code. Installs gVisor (runsc) on a dedicated node pool and registers a `gvisor` RuntimeClass, so a workload opts in with a single field:
+
+    ```yaml
+    spec:
+      runtimeClassName: gvisor
+    ```
+
+    The node pool is tainted and the RuntimeClass carries the matching node selector and toleration, so sandbox pods land only on gVisor nodes and nothing else lands there. Nodes run AL2023 (gVisor does not run on Bottlerocket or on managed-node auto modes) and install a checksum-pinned gVisor release during boot through a systemd unit that the kubelet's own startup unit requires, so a node that fails to install the runtime never joins the cluster and is replaced instead. Consolidation is deliberately conservative so idle-node reclamation does not discard the sandbox image cache. The AMI is pinned to a specific AL2023 release rather than tracking the latest one, because an AMI change drifts the whole pool and draining a sandbox node ends the sandboxes running on it; a sandbox that must survive pool maintenance should carry the `karpenter.sh/do-not-disrupt: "true"` annotation.
+
+    Network isolation is a separate, cluster-level setting and is not part of this blueprint. To enforce NetworkPolicy (required for default-deny sandbox egress), add to the environment config:
+
+    ```yaml
+    config:
+      cluster_addons:
+        vpc-cni:
+          configuration_values: |
+            enableNetworkPolicy: "true"
+            nodeAgent:
+              enablePolicyEventLogs: "true"
+            env:
+              NETWORK_POLICY_ENFORCING_MODE: "strict"
+    ```
+
+    `strict` denies pod traffic until policies are reconciled; the default `standard` mode allows traffic in the window before reconciliation, which weakens a default-deny containment guarantee.
+  displayName: Sandbox Runtime
+  inputs:
+    - name: instanceCategories
+      type: array
+      default:
+        - m
+        - c
+      description: "EC2 instance families the sandbox pool can use: m (general purpose), c (compute optimized), r (memory optimized)."
+      displayName: Instance Categories
+    - name: cpuSizes
+      type: array
+      default:
+        - '4'
+        - '8'
+        - '16'
+      description: Allowed vCPU counts per sandbox node. Wider ranges give scaling more flexibility to find capacity.
+      displayName: CPU Sizes
+    - name: cpuLimit
+      type: string
+      default: '256'
+      description: Maximum total vCPUs across the sandbox pool. Acts as the ceiling on concurrent sandbox capacity.
+      displayName: Pool vCPU Limit
+    - name: amiAlias
+      type: string
+      default: al2023@v20260810
+      description: "AL2023 EKS-optimized AMI to run sandbox nodes on, as a Karpenter alias (family@version). Pinned on purpose: with al2023@latest every AMI release replaces the pool's nodes. List available versions with: aws ssm get-parameters-by-path --path /aws/service/eks/optimized-ami/<k8s-version>/amazon-linux-2023/ --recursive"
+      displayName: Node AMI
+    - name: diskSize
+      type: string
+      default: 200Gi
+      description: Root disk per sandbox node. Holds prebaked sandbox images, so size it for the image set you want kept warm on the node.
+      displayName: Node Disk Size
+    - name: consolidateAfter
+      type: string
+      default: 30m
+      description: How long a node must sit empty before it is reclaimed. Longer keeps images cached on the node and sandbox startup fast; shorter reduces cost.
+      displayName: Empty Node Reclaim Delay
+    - name: verifyRuntime
+      type: boolean
+      default: false
+      description: After install, run a pod on the RuntimeClass and assert it reports the gVisor kernel. Adds several minutes to the install because it waits for a sandbox node to be provisioned.
+      displayName: Verify Runtime After Install
+  installations:
+    - service: ryvn-sandbox-runtime
+      namespace: ryvn-system
+      provisionsInfrastructure: true
+      config: |
+        karpenter:
+          role: '{{ .ryvn.env.state.cluster_name }}'
+          clusterName: '{{ .ryvn.env.state.cluster_name }}'
+          {{- if and .ryvn.env.state.vpc .ryvn.env.state.vpc.subnet_discovery_by_id_required }}
+          # The subnets are the customer's and carry no discovery tag Ryvn could
+          # apply, so they are given by ID.
+          subnetIds:
+          {{- .ryvn.env.state.vpc.private_subnet_ids | toYaml | nindent 10 }}
+          {{- end }}
+        nodeClass:
+          amiSelectorTerms:
+            - alias: {{ input "amiAlias" }}
+          blockDeviceMappings:
+            - deviceName: /dev/xvda
+              ebs:
+                volumeSize: {{ input "diskSize" }}
+                volumeType: gp3
+                encrypted: true
+        nodePool:
+          requirements:
+            instanceCategories:
+        {{- input "instanceCategories" | toYaml | nindent 6 }}
+            cpuSizes:
+        {{- input "cpuSizes" | toYaml | nindent 6 }}
+          limits:
+            cpu: {{ input "cpuLimit" }}
+          disruption:
+            consolidateAfter: {{ input "consolidateAfter" }}
+        verify:
+          enabled: {{ input "verifyRuntime" }}
+  outputs:
+    - name: runtime_class_name
+      type: string
+      displayName: RuntimeClass Name
+      description: Value to set as `runtimeClassName` on pods that should run sandboxed.
+      from: gvisor
