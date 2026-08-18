@@ -73,6 +73,7 @@ spec:
   installations:
     - service: ryvn-sandbox-runtime
       namespace: ryvn-system
+      releaseChannel: stable
       provisionsInfrastructure: true
       config: |
         karpenter:
