@@ -279,8 +279,8 @@ spec:
             password: '{{ k8sSecretValue "rabbitmq-admin" "password" }}'
           appUser:
             enabled: {{ input "createAppUser" }}
-            existingSecretName: '{{ k8sSecretName "rabbitmq-app-user" }}'
             username: '{{ input "appUsername" }}'
+            password: '{{ k8sSecretValue "rabbitmq-app-user" "password" }}'
             vhost: '{{ input "appVhost" }}'
         metrics:
           enabled: {{ input "enableMetrics" }}
