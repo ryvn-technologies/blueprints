@@ -3,71 +3,68 @@ kind: Blueprint
 metadata:
   name: rabbitmq
 spec:
-  description: Production-oriented RabbitMQ cluster backed by the official RabbitMQ operators.
+  description: |
+    Deploys a production-ready RabbitMQ cluster, run by the official RabbitMQ operators.
+
+    Declare the users, vhosts, queues, exchanges, bindings, and policies below; every deploy reconciles the broker to match. Services connect over AMQP using the connection outputs.
   displayName: RabbitMQ
   inputGroups:
     - name: access
       displayName: Access
-      description: Control whether the RabbitMQ management UI is exposed publicly.
-    - name: auth
-      displayName: Authentication
-      description: Credentials for the cluster admin and the initial RabbitMQ user.
-    - name: sizing
-      displayName: Sizing
-      description: Resource profile for each RabbitMQ node in the cluster.
-    - name: storage
-      displayName: Storage
-      description: Persistent volume configuration for RabbitMQ data.
+      description: Public access to the management UI
+    - name: credentials
+      displayName: Credentials
+      description: Admin account and application user
+    - name: capacity
+      displayName: Capacity
+      description: Replicas, resources, and storage
     - name: topology
       displayName: Topology
-      description: Declarative queues, exchanges, bindings, policies, and vhosts to create in the cluster.
+      description: Vhosts, queues, exchanges, bindings, and policies
     - name: observability
       displayName: Observability
-      description: Control metrics scraping integration for the RabbitMQ service.
-    - name: advanced
-      displayName: Advanced
-      description: Lower-level cluster and topology overrides.
+      description: Prometheus metrics collection
   inputs:
     - name: exposeManagementUI
       type: boolean
       default: false
-      description: Publish the RabbitMQ management UI at a public HTTPS URL.
+      description: Publish the management UI at a public HTTPS URL, protected only by the RabbitMQ credentials. Leave off to keep it in-cluster on port 15672.
       displayName: Expose Management UI
       group: access
     - name: adminUsername
       type: string
       default: admin
-      description: Username for the cluster admin account.
+      description: Username for the RabbitMQ administrator account.
       displayName: Admin Username
-      group: auth
+      group: credentials
     - name: adminPassword
       type: string
       isSecret: true
-      description: Password for the cluster admin account.
+      description: Password for the administrator account. Applied on first boot; changing it later has no effect.
       displayName: Admin Password
-      group: auth
+      group: credentials
       generated:
         type: random-string
         length: 32
     - name: createAppUser
       type: boolean
       default: true
-      description: Create an initial RabbitMQ user with configure, write, and read permissions across all chart-managed vhosts.
-      displayName: Create Initial User
-      group: auth
+      description: Create a non-admin user for your applications, with full permissions on the vhost below and every vhost under Topology.
+      displayName: Create Application User
+      group: credentials
     - name: appUsername
       type: string
       default: app
-      description: Username for the initial RabbitMQ user.
-      displayName: Initial Username
-      group: auth
+      description: Username your applications authenticate with.
+      displayName: Application Username
+      group: credentials
       condition: '{{ input "createAppUser" }}'
     - name: appPassword
       type: string
       isSecret: true
-      description: Password for the initial RabbitMQ user.
-      displayName: Initial Password
-      group: auth
+      description: Password for the application user. Can be rotated after install.
+      displayName: Application Password
+      group: credentials
       condition: '{{ input "createAppUser" }}'
       generated:
         type: random-string
@@ -75,16 +72,16 @@ spec:
     - name: appVhost
       type: string
       default: /
-      description: Primary virtual host for the initial RabbitMQ user.
-      displayName: Initial User Vhost
-      group: auth
+      description: Vhost the application user connects to. Created if it does not exist; only list it under Vhosts to set its default queue type.
+      displayName: Application Vhost
+      group: credentials
       condition: '{{ input "createAppUser" }}'
     - name: size
       type: string
       default: standard
-      description: Resource sizing profile for each RabbitMQ replica.
+      description: CPU and memory requested by each replica. A replica that does not fit your nodes stays Pending.
       displayName: Size
-      group: sizing
+      group: capacity
       options:
         - label: "Micro (100m CPU, 512Mi memory)"
           value: micro
@@ -97,38 +94,32 @@ spec:
     - name: replicas
       type: string
       default: "3"
-      description: Number of RabbitMQ replicas. Use 1 for development or constrained test clusters; 3 is the recommended minimum for production.
+      description: How many RabbitMQ nodes to run. Three survives losing one; a single node has no redundancy.
       displayName: Replicas
-      group: sizing
+      group: capacity
       options:
         - label: "1 replica"
           value: "1"
-        - label: "3 replicas (recommended for prod)"
+        - label: "3 replicas (recommended)"
           value: "3"
     - name: storageSizeGi
       type: number
       default: 30
-      description: Persistent storage size per RabbitMQ replica in GiB.
+      description: Volume size per replica, in GiB. Can be grown later, never shrunk.
       displayName: Storage Size (GiB)
-      group: storage
+      group: capacity
     - name: storageClassName
       type: string
       default: ""
-      description: Optional storage class override for RabbitMQ PVCs.
+      description: Storage class for the replica volumes, which sets disk type and IOPS. Empty uses the cluster default.
       displayName: Storage Class
-      group: storage
-    - name: enableMetrics
-      type: boolean
-      default: false
-      description: Annotate the RabbitMQ service for Ryvn collector scraping of Prometheus metrics.
-      displayName: Enable Metrics
-      group: observability
+      group: capacity
     - name: topologyAllowedNamespaces
       type: array
       default: []
-      description: Additional namespaces allowed to manage topology resources against this cluster.
+      description: Other namespaces allowed to declare topology against this cluster.
       displayName: Allowed Topology Namespaces
-      group: advanced
+      group: topology
     - name: vhostDefinitions
       type: string
       default: ""
@@ -136,7 +127,7 @@ spec:
       displayName: Vhosts
       group: topology
       description: |
-        YAML list of vhost definitions. Example:
+        Virtual hosts to create, as a YAML list. Each is an isolated namespace for queues and exchanges, and the application user gets access to all of them.
         ```yaml
         - name: orders
           defaultQueueType: quorum
@@ -148,7 +139,7 @@ spec:
       displayName: Queues
       group: topology
       description: |
-        YAML list of queue definitions. Example:
+        Queues to create, as a YAML list. Quorum queues replicate across nodes; classic queues live on one. Omit `vhost` to use `/`.
         ```yaml
         - name: order.events
           vhost: /
@@ -162,7 +153,7 @@ spec:
       displayName: Exchanges
       group: topology
       description: |
-        YAML list of exchange definitions. Example:
+        Exchanges to create, as a YAML list. `type` is `direct`, `topic`, `fanout`, or `headers`, and cannot be changed later.
         ```yaml
         - name: events
           type: topic
@@ -175,7 +166,7 @@ spec:
       displayName: Bindings
       group: topology
       description: |
-        YAML list of binding definitions. Example:
+        Routes from an exchange to a queue or another exchange, as a YAML list. Source and destination must exist in the same vhost.
         ```yaml
         - source: events
           destination: order.events
@@ -189,14 +180,21 @@ spec:
       displayName: Policies
       group: topology
       description: |
-        YAML list of policy definitions. Example:
+        Policies applied to queues or exchanges matching a name pattern, as a YAML list. Sets message TTLs, length limits, and dead-lettering; highest-priority match wins.
         ```yaml
-        - name: ha-queues
-          pattern: ".*"
+        - name: order-events-ttl
+          pattern: "^order\\."
           applyTo: queues
           definition:
-            ha-mode: all
+            message-ttl: 86400000
+            max-length: 1000000
         ```
+    - name: enableMetrics
+      type: boolean
+      default: false
+      description: Scrape queue depth, message rates, and node health into dashboards and alerts.
+      displayName: Enable Metrics
+      group: observability
   installations:
     - service: rabbitmq-cluster-operator
       namespace: rabbitmq-system
@@ -300,10 +298,6 @@ spec:
               hosts:
                 - '{{ .ryvn.installation.name }}.{{ .ryvn.env.state.public_domain.name }}'
         topology:
-          reconcileHook:
-            enabled: true
-          cleanupHook:
-            enabled: true
         {{- if input "vhostDefinitions" | trim }}
           vhosts: |
         {{ input "vhostDefinitions" | nindent 12 }}
