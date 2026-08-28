@@ -149,6 +149,9 @@ spec:
       credentialType: client-secret
       enabled: true
       secretName: ryvn-collector-client-creds
+      # The collector holds only the env-scoped system role that permits
+      # telemetry ingest through the observability gateways.
+      role: collector
   - service: kube-state-metrics
     namespace: observability
     config: |
