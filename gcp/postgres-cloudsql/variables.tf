@@ -20,6 +20,17 @@ variable "environment" {
   type        = string
 }
 
+variable "managed_tag_value" {
+  description = "Permanent ID of the tag value marking this instance as Ryvn-managed (e.g. tagValues/123456789012). The environment's agent role only has Cloud SQL write access on instances carrying it. Empty means the environment grants Cloud SQL write access project-wide and no tag is attached."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.managed_tag_value == "" || startswith(var.managed_tag_value, "tagValues/")
+    error_message = "managed_tag_value must be a tag value permanent ID of the form tagValues/123456789012."
+  }
+}
+
 # Engine
 variable "postgres_version" {
   description = "PostgreSQL major version"

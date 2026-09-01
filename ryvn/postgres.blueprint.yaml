@@ -291,6 +291,9 @@ spec:
         database_username: '{{ input "username" }}'
         database_password: '{{ k8sSecretValue "database-password" "database_password" }}'
         private_network: '{{ .ryvn.env.state.vpc.self_link }}'
+        {{- with .ryvn.env.state.cloudsql_managed_tag_value }}
+        managed_tag_value: '{{ . }}'
+        {{- end }}
         backup_retention_days: {{ input "backupRetentionDays" }}
         deletion_protection: {{ input "deletionProtection" }}
       secrets:

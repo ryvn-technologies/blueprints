@@ -48,7 +48,15 @@ locals {
   database_flags = local.pg_cron_flags
 }
 
+resource "google_project_service" "sqladmin" {
+  project            = var.project_id
+  service            = "sqladmin.googleapis.com"
+  disable_on_destroy = false
+}
+
 resource "google_sql_database_instance" "this" {
+  depends_on = [google_project_service.sqladmin]
+
   name             = local.name
   database_version = local.database_version
   region           = var.region
@@ -148,9 +156,22 @@ resource "google_sql_database_instance" "this" {
   }
 }
 
+# Marks the instance as Ryvn-managed. The agent's Cloud SQL write permissions
+# are granted through a role binding conditioned on this tag, so it has to be
+# attached before any database or user is created on the instance.
+resource "google_tags_location_tag_binding" "managed" {
+  count = var.managed_tag_value != "" ? 1 : 0
+
+  parent    = "//sqladmin.googleapis.com/projects/${var.project_id}/instances/${google_sql_database_instance.this.name}"
+  tag_value = var.managed_tag_value
+  location  = var.region
+}
+
 # Default database
 resource "google_sql_database" "this" {
   count = var.database_name != null ? 1 : 0
+
+  depends_on = [google_tags_location_tag_binding.managed]
 
   name     = var.database_name
   instance = google_sql_database_instance.this.name
@@ -163,6 +184,8 @@ resource "google_sql_database" "this" {
 # cloudsqlsuperuser to built-in PostgreSQL users.
 resource "google_sql_user" "application" {
   count = local.uses_builtin_postgres ? 0 : 1
+
+  depends_on = [google_tags_location_tag_binding.managed]
 
   name     = local.database_username
   instance = google_sql_database_instance.this.name
