@@ -48,15 +48,18 @@ locals {
   database_flags = local.pg_cron_flags
 }
 
-resource "google_project_service" "sqladmin" {
-  project            = var.project_id
-  service            = "sqladmin.googleapis.com"
-  disable_on_destroy = false
+# sqladmin.googleapis.com is a project prerequisite, not something Terraform
+# manages here: the agent has no serviceusage permissions. Installations that
+# managed it before forget it without calling the API.
+removed {
+  from = google_project_service.sqladmin
+
+  lifecycle {
+    destroy = false
+  }
 }
 
 resource "google_sql_database_instance" "this" {
-  depends_on = [google_project_service.sqladmin]
-
   name             = local.name
   database_version = local.database_version
   region           = var.region
