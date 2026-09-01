@@ -26,6 +26,9 @@ spec:
     - name: users
       description: Optional read-only and read-write application users
       displayName: Application Users
+    - name: metrics
+      description: Database metrics collection
+      displayName: Metrics
     - name: networking
       description: Tailnet access
       displayName: Networking
@@ -149,6 +152,29 @@ spec:
         length: 24
       group: users
       condition: '{{ input "enableReadWriteUser" }}'
+    - name: enableMetrics
+      type: boolean
+      default: false
+      description: Prepare the database for metrics collection by provisioning a dedicated monitoring role, which can read Postgres statistics only, never your data. Collection of the metrics themselves is not available yet; once it is, this is the toggle that turns it on.
+      displayName: Enable Metrics
+      group: metrics
+    - name: monitorUsername
+      type: string
+      default: ryvn_monitor
+      description: Username for the monitoring role. Lowercase letters, digits, and underscores only.
+      displayName: Monitor Username
+      group: metrics
+      condition: '{{ input "enableMetrics" }}'
+    - name: monitorPassword
+      type: string
+      description: Password for the monitoring role. Minimum 8 characters.
+      displayName: Monitor Password
+      isSecret: true
+      generated:
+        type: random-string
+        length: 24
+      group: metrics
+      condition: '{{ input "enableMetrics" }}'
     - name: exposeToTailnet
       type: boolean
       default: false
@@ -382,6 +408,14 @@ spec:
           isSecret: true
           valueFromInput:
             name: readWritePassword
+        - key: MONITOR_ENABLED
+          value: '{{ input "enableMetrics" }}'
+        - key: MONITOR_USERNAME
+          value: '{{ if input "enableMetrics" }}{{ input "monitorUsername" }}{{ end }}'
+        - key: MONITOR_PASSWORD
+          isSecret: true
+          valueFromInput:
+            name: monitorPassword
       config: |
         concurrencyPolicy: Forbid
         backoffLimit: 2
