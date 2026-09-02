@@ -8,6 +8,10 @@ spec:
 
     Prerequisites: configure ACLs and create an OAuth client in the Tailscale admin console. See the [Tailscale Kubernetes Operator quickstart](https://tailscale.com/docs/kubernetes-operator/quickstart) for full setup instructions.
   displayName: Tailscale Operator
+  inputGroups:
+    - name: externalHosts
+      displayName: External Hosts
+      description: Expose databases and other endpoints that Ryvn does not manage.
   inputs:
     - name: clientId
       type: string
@@ -19,6 +23,15 @@ spec:
       isSecret: true
       displayName: Client Secret
       description: Tailscale OAuth client secret.
+    - name: externalHosts
+      type: map
+      default: {}
+      displayName: External Hosts
+      description: |
+        Hosts outside the cluster to expose on your Tailnet as `<name>-<environment>`. The host must be reachable from the environment's VPC.
+
+        Example: `analytics` → `mydb.abc123.us-east-1.rds.amazonaws.com` is reachable as `analytics-prod`.
+      group: externalHosts
   installations:
     - service: tailscale-operator
       namespace: tailscale-operator
@@ -40,6 +53,25 @@ spec:
                 path: client_id
               - key: client_secret
                 path: client_secret
+    - service: tailscale-resources
+      name: '{{ ParentInstallationName }}-ext'
+      namespace: tailscale-operator
+      releaseChannel: stable
+      config: |
+        externalServices:
+          {{- if input "externalHosts" }}
+          {{- range $name, $host := input "externalHosts" }}
+          - name: '{{ ParentInstallationName }}-{{ $name }}'
+            externalName: '{{ $host }}'
+            annotations:
+              tailscale.com/hostname: '{{ $name }}-{{ EnvironmentName }}'
+            labels:
+              ryvn.app/blueprint: tailscale-operator
+              ryvn.app/exposed-service: '{{ $name }}'
+          {{- end }}
+          {{- else }}
+          []
+          {{- end }}
   outputs:
     - name: namespace
       type: string
