@@ -155,7 +155,7 @@ spec:
     - name: enableMetrics
       type: boolean
       default: false
-      description: Prepare the database for metrics collection by provisioning a dedicated monitoring role, which can read Postgres statistics only, never your data. Collection of the metrics themselves is not available yet; once it is, this is the toggle that turns it on.
+      description: Collect Postgres engine metrics such as connections, transaction and tuple rates, cache hit ratio, locks and database size. Provisions a dedicated monitoring role, which can read Postgres statistics only, never your data, and runs a small exporter pod in your cluster that scrapes the database.
       displayName: Enable Metrics
       group: metrics
     - name: monitorUsername
@@ -429,6 +429,43 @@ spec:
           limits:
             cpu: 300m
             memory: 256Mi
+      releaseChannel: stable
+    - service: postgres-exporter
+      name: '{{ ParentInstallationName }}-metrics'
+      secrets:
+        - name: monitor-password
+          values:
+            - key: password
+              valueFromInput:
+                name: monitorPassword
+      config: |
+        replicaCount: {{ if input "enableMetrics" }}1{{ else }}0{{ end }}
+        config:
+          datasource:
+            host: '{{ (serviceInstallation "postgres").outputs.host }}'
+            port: '{{ (serviceInstallation "postgres").outputs.port }}'
+            user: '{{ if input "enableMetrics" }}{{ input "monitorUsername" }}{{ end }}'
+            database: '{{ input "databaseName" }}'
+            sslmode: require
+            passwordSecret:
+              name: {{ k8sSecretName "monitor-password" }}
+              key: password
+          extraArgs:
+            - --no-collector.stat_user_tables
+            - --no-collector.statio_user_tables
+        service:
+          annotations:
+            ryvn.app/scrape-metrics: '{{ input "enableMetrics" }}'
+            ryvn.app/metrics-port: '9187'
+            ryvn.app/drop-runtime-metrics: 'true'
+          labels:
+            ryvn.app/installation-name: '{{ ParentInstallationName }}'
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
       releaseChannel: stable
     - service: tailscale-resources
       name: '{{ ParentInstallationName }}-ts'
