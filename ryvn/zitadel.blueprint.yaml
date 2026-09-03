@@ -212,6 +212,12 @@ spec:
         replicaCount: 3
         login:
           enabled: false
+        tools:
+          kubectl:
+            image:
+              # The chart defaults this to the cluster's patch version, which
+              # alpine/k8s does not publish for every GKE release.
+              tag: "1.35.8"
         zitadel:
           masterkeySecretName: '{{ k8sSecretName "masterkey" }}'
           configmapConfig:
