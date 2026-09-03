@@ -23,7 +23,8 @@ resource "random_id" "suffix" {
 }
 
 locals {
-  name = "${var.name_prefix}-${random_id.suffix.hex}"
+  name             = "${var.name_prefix}-${random_id.suffix.hex}"
+  creates_database = var.database_name != null && var.database_name != "postgres"
 
   delegated_subnet_id = var.delegated_subnet_id == null ? "" : trimspace(var.delegated_subnet_id)
   private_dns_zone_id = var.private_dns_zone_id == null ? "" : trimspace(var.private_dns_zone_id)
@@ -93,7 +94,7 @@ resource "azurerm_postgresql_flexible_server" "this" {
 
 # Default database
 resource "azurerm_postgresql_flexible_server_database" "this" {
-  count = var.database_name != null ? 1 : 0
+  count = local.creates_database ? 1 : 0
 
   name      = var.database_name
   server_id = azurerm_postgresql_flexible_server.this.id

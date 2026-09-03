@@ -23,9 +23,11 @@ resource "random_id" "suffix" {
 }
 
 locals {
-  name          = "${var.name_prefix}-${random_id.suffix.hex}"
-  major_version = split(".", var.engine_version)[0]
-  family        = "postgres${local.major_version}"
+  name             = "${var.name_prefix}-${random_id.suffix.hex}"
+  creates_database = var.database_name != null && var.database_name != "postgres"
+  database_name    = coalesce(var.database_name, "postgres")
+  major_version    = split(".", var.engine_version)[0]
+  family           = "postgres${local.major_version}"
 
   all_tags = merge(var.tags, {
     Terraform   = "true"
@@ -62,7 +64,7 @@ resource "aws_db_parameter_group" "this" {
 
   parameter {
     name         = "cron.database_name"
-    value        = var.database_name
+    value        = local.database_name
     apply_method = "pending-reboot"
   }
 
@@ -87,7 +89,7 @@ resource "aws_db_instance" "this" {
   storage_encrypted     = true
 
   # Database
-  db_name  = var.database_name
+  db_name  = local.creates_database ? var.database_name : null
   username = var.database_username
   password = var.database_password
   port     = 5432
@@ -120,4 +122,9 @@ resource "aws_db_instance" "this" {
   enabled_cloudwatch_logs_exports       = var.enabled_cloudwatch_logs_exports
 
   tags = local.all_tags
+
+  # db_name only applies at creation and forces replacement if changed.
+  lifecycle {
+    ignore_changes = [db_name]
+  }
 }

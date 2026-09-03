@@ -29,6 +29,8 @@ locals {
   backups_enabled       = var.backup_retention_days > 0
   database_username     = trimspace(var.database_username)
   uses_builtin_postgres = local.database_username == "postgres"
+  # Cloud SQL ships with a built-in postgres database; creating it again fails.
+  creates_database = var.database_name != null && var.database_name != "postgres"
 
   transaction_log_retention_days = local.backups_enabled ? min(var.backup_retention_days, 7) : null
 
@@ -172,7 +174,7 @@ resource "google_tags_location_tag_binding" "managed" {
 
 # Default database
 resource "google_sql_database" "this" {
-  count = var.database_name != null ? 1 : 0
+  count = local.creates_database ? 1 : 0
 
   depends_on = [google_tags_location_tag_binding.managed]
 
