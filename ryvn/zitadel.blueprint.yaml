@@ -1,0 +1,268 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: zitadel
+spec:
+  displayName: ZITADEL
+  description: >
+    Deploys a dedicated ZITADEL instance and applies Ryvn's declarative identity
+    configuration. The Helm FirstInstance machine credential owns the Terraform
+    state; runtime application and service-account credentials are exposed as
+    blueprint outputs for the rest of the control-plane stack.
+  inputGroups:
+    - name: endpoint
+      displayName: Endpoint
+      description: Public ZITADEL endpoint.
+    - name: database
+      displayName: Database
+      description: PostgreSQL connection supplied by the BYOC database installation.
+    - name: applications
+      displayName: Application URLs
+      description: Public dashboard and Grafana endpoints.
+    - name: federation
+      displayName: Ryvn operator federation
+      description: Per-instance client registered in central Ryvn ZITADEL.
+  inputs:
+    - name: domain
+      type: string
+      displayName: Authentication Domain
+      description: Public hostname for the ZITADEL issuer, without a scheme.
+      group: endpoint
+      immutable: true
+    - name: databaseHost
+      type: string
+      displayName: Database Host
+      description: PostgreSQL hostname reachable from the cluster.
+      group: database
+      immutable: true
+    - name: databasePassword
+      type: string
+      isSecret: true
+      displayName: Database Password
+      description: Password for the zitadel database user.
+      group: database
+    - name: dashboardUrl
+      type: string
+      displayName: Dashboard URL
+      description: Public base URL for the Ryvn dashboard and Login V2 UI.
+      group: applications
+    - name: grafanaUrl
+      type: string
+      displayName: Grafana URL
+      description: Public base URL for the instance Grafana deployment.
+      group: applications
+    - name: operatorOidcClientId
+      type: string
+      displayName: Operator OIDC Client ID
+      description: Client ID registered for this instance in central Ryvn ZITADEL.
+      group: federation
+    - name: operatorOidcClientSecret
+      type: string
+      isSecret: true
+      displayName: Operator OIDC Client Secret
+      description: Client secret registered for this instance in central Ryvn ZITADEL.
+      group: federation
+    - name: masterkey
+      type: string
+      isSecret: true
+      hidden: true
+      generated:
+        type: random-string
+        length: 32
+      displayName: Master Key
+      description: Generated once and retained across upgrades.
+      immutable: true
+  outputs:
+    - name: issuerUrl
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.issuer_url }}'
+      displayName: Issuer URL
+      description: Public OIDC issuer URL.
+    - name: organizationId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_org_id }}'
+      displayName: Organization ID
+      description: ZITADEL ID of the platform organization.
+    - name: projectId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_project_id }}'
+      displayName: Project ID
+      description: ZITADEL ID of the Ryvn project used as the API audience.
+    - name: dashboardClientId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_ui_client_id }}'
+      displayName: Dashboard Client ID
+      description: OIDC client ID for the Ryvn dashboard.
+    - name: dashboardClientSecret
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_ui_client_secret }}'
+      displayName: Dashboard Client Secret
+      description: OIDC client secret for the Ryvn dashboard.
+      isSecret: true
+    - name: grafanaClientId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.grafana_client_id }}'
+      displayName: Grafana Client ID
+      description: OIDC client ID for Grafana.
+    - name: grafanaClientSecret
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.grafana_client_secret }}'
+      displayName: Grafana Client Secret
+      description: OIDC client secret for Grafana.
+      isSecret: true
+    - name: cliClientId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_cli_client_id }}'
+      displayName: CLI Client ID
+      description: Public OIDC client ID for CLI login.
+    - name: loginClientPat
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.login_client_pat }}'
+      displayName: Login Client PAT
+      description: IAM_LOGIN_CLIENT token used by the custom Login V2 UI.
+      isSecret: true
+    - name: orchestratorClientId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_orchestrator_client_id }}'
+      displayName: Orchestrator Client ID
+      description: Client ID of the orchestrator API application.
+    - name: authProxyClientId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.auth_proxy_client_id }}'
+      displayName: Auth Proxy Client ID
+      description: Client ID of the auth-proxy API application.
+    - name: orchestratorServiceUserId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_orchestrator_svc_user_id }}'
+      displayName: Orchestrator Service User ID
+      description: User ID of the orchestrator machine account.
+    - name: orchestratorServiceAccountJson
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_orchestrator_svc_key_details }}'
+      displayName: Orchestrator Service Account
+      description: Complete JSON key document mounted as service-account.json.
+      isSecret: true
+    - name: orchestratorApplicationAccountJson
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_orchestrator_key_details }}'
+      displayName: Orchestrator Application Account
+      description: Complete JSON key document mounted as application-account.json.
+      isSecret: true
+    - name: authProxyApplicationAccountJson
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.auth_proxy_key_details }}'
+      displayName: Auth Proxy Application Account
+      description: Complete JSON key document used by auth-proxy.
+      isSecret: true
+    - name: idpCallbackUrl
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.idp_callback_url_v2 }}'
+      displayName: IdP Callback URL
+      description: Login V2 callback URL to register at external identity providers.
+    - name: operatorOidcIdpId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.operator_oidc_idp_id }}'
+      displayName: Operator IdP ID
+      description: ZITADEL identity-provider ID for central Ryvn federation.
+  installations:
+    - service: zitadel
+      name: '{{ ParentInstallationName }}'
+      alias: zitadel
+      namespace: zitadel
+      releaseChannel: stable
+      secrets:
+        - name: masterkey
+          values:
+            - key: masterkey
+              valueFromInput:
+                name: masterkey
+        - name: database
+          values:
+            - key: user-password
+              valueFromInput:
+                name: databasePassword
+      config: |
+        fullnameOverride: '{{ ParentInstallationName }}'
+        replicaCount: 3
+        login:
+          enabled: false
+        zitadel:
+          masterkeySecretName: '{{ k8sSecretName "masterkey" }}'
+          configmapConfig:
+            ExternalDomain: '{{ input "domain" }}'
+            ExternalPort: 443
+            ExternalSecure: true
+            TLS:
+              Enabled: false
+            Database:
+              Postgres:
+                Host: '{{ input "databaseHost" }}'
+                Port: 5432
+                Database: zitadel
+                MaxOpenConns: 20
+                MaxIdleConns: 10
+                MaxConnLifetime: 30m
+                MaxConnIdleTime: 5m
+                User:
+                  Username: zitadel
+                  SSL:
+                    Mode: require
+            FirstInstance:
+              Skip: false
+              Org:
+                Name: Ryvn Bootstrap
+                Machine:
+                  Machine:
+                    Username: zitadel-terraform-admin
+                    Name: Ryvn ZITADEL Terraform Bootstrap
+                  MachineKey:
+                    ExpirationDate: "9999-12-31T23:59:59Z"
+                    Type: 1
+                  # The upstream chart otherwise merges in its default IAM_OWNER PAT.
+                  Pat: null
+        initJob:
+          # The BYOC database and owner role are provisioned before this blueprint.
+          # Initialize only ZITADEL's schema so the chart never needs a database-admin credential.
+          command: zitadel
+        env:
+          - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: '{{ k8sSecretName "database" }}'
+                key: user-password
+        ingress:
+          enabled: true
+          className: external-nginx
+          annotations:
+            cert-manager.io/cluster-issuer: external-issuer
+            nginx.ingress.kubernetes.io/backend-protocol: GRPC
+            nginx.ingress.kubernetes.io/ssl-redirect: "true"
+          hosts:
+            - host: '{{ input "domain" }}'
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - hosts:
+                - '{{ input "domain" }}'
+              secretName: '{{ ParentInstallationName }}-tls'
+    - service: zitadel-terraform
+      name: '{{ ParentInstallationName }}-config'
+      alias: zitadel-terraform
+      namespace: zitadel
+      releaseChannel: stable
+      provisionsInfrastructure: true
+      secrets:
+        - name: idp-credentials
+          values:
+            - key: operator-client-secret
+              valueFromInput:
+                name: operatorOidcClientSecret
+      config: |
+        zitadel_domain: '{{ input "domain" }}'
+        zitadel_bootstrap_secret_namespace: '{{ (serviceInstallation "zitadel").namespace }}'
+        dashboard_url: '{{ input "dashboardUrl" }}'
+        grafana_url: '{{ input "grafanaUrl" }}'
+        operator_oidc_idp_client_id: '{{ input "operatorOidcClientId" }}'
+        operator_oidc_idp_client_secret: '{{ k8sSecretValue "idp-credentials" "operator-client-secret" }}'
+  distribution: internal-managed
