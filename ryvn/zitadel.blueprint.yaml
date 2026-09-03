@@ -15,7 +15,9 @@ spec:
       description: Public ZITADEL endpoint.
     - name: database
       displayName: Database
-      description: PostgreSQL connection supplied by the BYOC database installation.
+      description: >
+        PostgreSQL instance supplied by the BYOC database installation. The init job
+        uses the admin role to create the zitadel database and user on it.
     - name: applications
       displayName: Application URLs
       description: Public dashboard and Grafana endpoints.
@@ -39,8 +41,30 @@ spec:
       type: string
       isSecret: true
       displayName: Database Password
-      description: Password for the zitadel database user.
+      description: Password for the zitadel database user created by the init job.
       group: database
+      immutable: true
+    - name: databaseAdminUsername
+      type: string
+      default: postgres
+      displayName: Database Admin Username
+      description: Existing role with CREATEDB and CREATEROLE, used only by the init job.
+      group: database
+      immutable: true
+    - name: databaseAdminPassword
+      type: string
+      isSecret: true
+      displayName: Database Admin Password
+      description: Password for the database admin role.
+      group: database
+      immutable: true
+    - name: databaseAdminDatabase
+      type: string
+      default: postgres
+      displayName: Database Admin Database
+      description: Existing database the admin role connects to before the zitadel database exists.
+      group: database
+      immutable: true
     - name: dashboardUrl
       type: string
       displayName: Dashboard URL
@@ -169,7 +193,6 @@ spec:
       name: '{{ ParentInstallationName }}'
       alias: zitadel
       namespace: zitadel
-      releaseChannel: stable
       secrets:
         - name: masterkey
           values:
@@ -181,6 +204,9 @@ spec:
             - key: user-password
               valueFromInput:
                 name: databasePassword
+            - key: admin-password
+              valueFromInput:
+                name: databaseAdminPassword
       config: |
         fullnameOverride: '{{ ParentInstallationName }}'
         replicaCount: 3
@@ -207,6 +233,11 @@ spec:
                   Username: zitadel
                   SSL:
                     Mode: require
+                Admin:
+                  Username: '{{ input "databaseAdminUsername" }}'
+                  ExistingDatabase: '{{ input "databaseAdminDatabase" }}'
+                  SSL:
+                    Mode: require
             FirstInstance:
               Skip: false
               Org:
@@ -220,16 +251,17 @@ spec:
                     Type: 1
                   # The upstream chart otherwise merges in its default IAM_OWNER PAT.
                   Pat: null
-        initJob:
-          # The BYOC database and owner role are provisioned before this blueprint.
-          # Initialize only ZITADEL's schema so the chart never needs a database-admin credential.
-          command: zitadel
         env:
           - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD
             valueFrom:
               secretKeyRef:
                 name: '{{ k8sSecretName "database" }}'
                 key: user-password
+          - name: ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: '{{ k8sSecretName "database" }}'
+                key: admin-password
         ingress:
           enabled: true
           className: external-nginx
@@ -250,7 +282,6 @@ spec:
       name: '{{ ParentInstallationName }}-config'
       alias: zitadel-terraform
       namespace: zitadel
-      releaseChannel: stable
       provisionsInfrastructure: true
       secrets:
         - name: idp-credentials
