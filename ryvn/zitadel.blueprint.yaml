@@ -24,6 +24,9 @@ spec:
     - name: federation
       displayName: Ryvn operator federation
       description: Per-instance client registered in central Ryvn ZITADEL.
+    - name: vendorIdentity
+      displayName: Vendor identity provider
+      description: Optional OIDC provider owned by the vendor, e.g. Okta. All credentials are required when enabled.
   inputs:
     - name: domain
       type: string
@@ -85,6 +88,50 @@ spec:
       isSecret: true
       displayName: Operator OIDC Client Secret
       description: Client secret registered for this instance in central Ryvn ZITADEL.
+      group: federation
+    - name: enableVendorIdp
+      type: boolean
+      default: false
+      displayName: Enable Vendor IdP
+      description: Create an instance-scope OIDC provider for the vendor's own identity provider.
+      group: vendorIdentity
+    - name: vendorIdpName
+      type: string
+      displayName: Vendor IdP Name
+      description: Display name for the vendor-owned OIDC provider.
+      group: vendorIdentity
+      condition: '{{ input "enableVendorIdp" }}'
+    - name: vendorIdpIssuer
+      type: string
+      displayName: Vendor IdP Issuer
+      description: OIDC issuer for the vendor-owned identity provider.
+      group: vendorIdentity
+      condition: '{{ input "enableVendorIdp" }}'
+    - name: vendorIdpClientId
+      type: string
+      displayName: Vendor IdP Client ID
+      description: OIDC client ID for the vendor-owned identity provider.
+      group: vendorIdentity
+      condition: '{{ input "enableVendorIdp" }}'
+    - name: vendorIdpClientSecret
+      type: string
+      isSecret: true
+      displayName: Vendor IdP Client Secret
+      description: OIDC client secret for the vendor-owned identity provider.
+      group: vendorIdentity
+      condition: '{{ input "enableVendorIdp" }}'
+    - name: vendorIdpScopes
+      type: array
+      default: [openid, profile, email]
+      displayName: Vendor IdP Scopes
+      description: OIDC scopes requested from the vendor-owned identity provider.
+      group: vendorIdentity
+      condition: '{{ input "enableVendorIdp" }}'
+    - name: operatorEmailDomain
+      type: string
+      default: ryvn.ai
+      displayName: Operator Email Domain
+      description: Verified non-primary domain on the hub org. Operator emails on this domain route to the hub org.
       group: federation
     - name: masterkey
       type: string
@@ -188,6 +235,32 @@ spec:
       from: '{{ (serviceInstallation "zitadel-terraform").outputs.operator_oidc_idp_id }}'
       displayName: Operator IdP ID
       description: ZITADEL identity-provider ID for central Ryvn federation.
+    - name: vendorIdpId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.vendor_idp_id }}'
+      displayName: Vendor IdP ID
+      description: ZITADEL identity-provider ID for the vendor-owned OIDC provider.
+    - name: provisionerUserId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_provisioner_user_id }}'
+      displayName: Provisioner User ID
+      description: User ID of the hub provisioning machine account.
+    - name: provisionerClientId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_provisioner_client_id }}'
+      displayName: Provisioner Client ID
+      description: Client ID of the hub provisioning machine account.
+    - name: provisionerClientSecret
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_provisioner_client_secret }}'
+      displayName: Provisioner Client Secret
+      description: Client secret of the hub provisioning machine account.
+      isSecret: true
+    - name: operatorEmailDomain
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_operator_email_domain }}'
+      displayName: Operator Email Domain
+      description: Verified non-primary domain for hub operator emails.
   installations:
     - service: zitadel
       name: '{{ ParentInstallationName }}'
@@ -295,11 +368,23 @@ spec:
             - key: operator-client-secret
               valueFromInput:
                 name: operatorOidcClientSecret
+            - key: vendor-client-secret
+              valueFromInput:
+                name: vendorIdpClientSecret
       config: |
         zitadel_domain: '{{ input "domain" }}'
         zitadel_bootstrap_secret_namespace: '{{ (serviceInstallation "zitadel").namespace }}'
         dashboard_url: '{{ input "dashboardUrl" }}'
         grafana_url: '{{ input "grafanaUrl" }}'
+        operator_email_domain: '{{ input "operatorEmailDomain" }}'
         operator_oidc_idp_client_id: '{{ input "operatorOidcClientId" }}'
         operator_oidc_idp_client_secret: '{{ k8sSecretValue "idp-credentials" "operator-client-secret" }}'
+        {{- if input "enableVendorIdp" }}
+        vendor_idp_name: '{{ input "vendorIdpName" }}'
+        vendor_idp_issuer: '{{ input "vendorIdpIssuer" }}'
+        vendor_idp_client_id: '{{ input "vendorIdpClientId" }}'
+        vendor_idp_client_secret: '{{ k8sSecretValue "idp-credentials" "vendor-client-secret" }}'
+        vendor_idp_scopes:
+        {{- input "vendorIdpScopes" | toYaml | nindent 10 }}
+        {{- end }}
   distribution: internal-managed
