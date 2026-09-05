@@ -49,6 +49,37 @@ resource "aws_s3_bucket_versioning" "viewer_mtls_ca_bundle" {
   }
 }
 
+# Rejects plaintext HTTP (Security Hub S3.5).
+resource "aws_s3_bucket_policy" "viewer_mtls_ca_bundle" {
+  for_each = aws_s3_bucket.viewer_mtls_ca_bundle
+
+  provider = aws.us_east_1
+
+  bucket = each.value.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          each.value.arn,
+          "${each.value.arn}/*",
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      },
+    ]
+  })
+
+  depends_on = [aws_s3_bucket_public_access_block.viewer_mtls_ca_bundle]
+}
+
 resource "aws_s3_object" "viewer_mtls_ca_bundle" {
   for_each = local.create_viewer_mtls_managed_ca_s3 ? { this = true } : {}
 
@@ -63,6 +94,7 @@ resource "aws_s3_object" "viewer_mtls_ca_bundle" {
   tags = var.tags
 
   depends_on = [
+    aws_s3_bucket_policy.viewer_mtls_ca_bundle,
     aws_s3_bucket_public_access_block.viewer_mtls_ca_bundle,
     aws_s3_bucket_server_side_encryption_configuration.viewer_mtls_ca_bundle,
     aws_s3_bucket_versioning.viewer_mtls_ca_bundle,

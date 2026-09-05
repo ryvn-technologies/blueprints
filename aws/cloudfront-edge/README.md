@@ -129,7 +129,7 @@ CloudFront reaches the environment through a CloudFront VPC origin, so origin tr
 
 ## Viewer mTLS
 
-Set `enableViewerMtls` to make CloudFront validate client certificates against a trust store before forwarding a request. The CA bundle is uploaded to a private, versioned, encrypted S3 bucket in the environment's account and wired into a CloudFront trust store.
+Set `enableViewerMtls` to make CloudFront validate client certificates against a trust store before forwarding a request. The CA bundle is uploaded to a private, versioned, encrypted S3 bucket in the environment's account, with a bucket policy that denies non-TLS requests, and wired into a CloudFront trust store.
 
 | Input | Default | Notes |
 |------|---------|-------|
@@ -267,6 +267,7 @@ route53:ListHostedZonesByName
 route53:ListResourceRecordSets
 s3:CreateBucket
 s3:DeleteBucket
+s3:DeleteBucketPolicy
 s3:DeleteObject
 s3:GetBucketEncryption
 s3:GetBucketPolicy
