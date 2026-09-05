@@ -1,0 +1,227 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: aws-platform
+spec:
+  description: |
+    Provisions an EKS cluster on AWS. Installs Karpenter for node auto-scaling (picks EC2 instance types from the families and sizes you allow), KEDA for event-driven pod scaling, and cluster-autoscaler (disabled by default, available if needed).
+
+    Also installs Ryvn's observability collector (Grafana Alloy-based) in the `observability` namespace, which ships logs and Prometheus metrics from your cluster to Ryvn. Log redaction optionally strips sensitive data matching your regex patterns before anything leaves the cluster.
+
+    The defaults (m and r instance families, 4--32 vCPUs, 128 GiB ephemeral disk) work for most workloads. Define custom Karpenter NodePools and EC2NodeClasses if you need GPU nodes, specific AMIs, or dedicated instance store policies.
+  displayName: AWS EKS Platform
+  inputGroups:
+  - name: observability
+    description: Log collection, metrics forwarding, and optional log redaction.
+    displayName: Observability
+  inputs:
+  - name: legacy
+    type: boolean
+    default: false
+    description: Use legacy EKS provisioner
+    hidden: true
+  - name: instanceCategories
+    type: array
+    default:
+    - m
+    - r
+    description: "EC2 instance families Karpenter can use: m (general purpose), r (memory optimized), c (compute optimized), t (burstable). Karpenter picks the best fit from these families based on your workload needs."
+    displayName: Instance Categories
+  - name: cpuSizes
+    type: array
+    default:
+    - '4'
+    - '8'
+    - '16'
+    - '32'
+    description: Allowed vCPU counts per instance. Karpenter picks from these sizes when scaling up nodes. Wider ranges give Karpenter more flexibility to find capacity.
+    displayName: CPU Sizes
+  - name: diskSize
+    type: string
+    default: 128Gi
+    description: Ephemeral disk per node for container images, logs, and scratch data. Lost when the node is replaced. Increase this if your images are large or workloads write a lot to local disk.
+    displayName: Node Disk Size
+  - name: customNodePools
+    type: string
+    default: ''
+    description: Define custom Karpenter NodePools with specific instance requirements, taints, or labels. Overrides the default node pool when set. Provide as YAML.
+    displayName: Custom Node Pools
+    multiline: true
+  - name: customNodeClasses
+    type: string
+    default: ''
+    description: Define custom Karpenter EC2NodeClasses with specific AMIs, block device mappings, or instance store policies. Overrides the default node class when set. Provide as YAML.
+    displayName: Custom Node Classes
+    multiline: true
+  - name: logs
+    type: boolean
+    default: true
+    description: Collect and forward workload logs.
+    displayName: Enable Log Collection
+    group: observability
+  - name: logRedaction
+    type: boolean
+    default: false
+    description: Strip sensitive data (emails, tokens, etc.) from logs before they leave the cluster. Define patterns below.
+    displayName: Enable Log Redaction
+    group: observability
+  - name: redactionPatterns
+    type: array
+    condition: '{{ input "logRedaction" }}'
+    description: Regex patterns matching sensitive data to redact from logs. Each match is replaced with [REDACTED].
+    displayName: Log Redaction Patterns
+    group: observability
+  - name: metrics
+    type: boolean
+    default: true
+    description: Collect and forward Prometheus metrics from your cluster to Ryvn's observability backend.
+    displayName: Enable Metrics Collection
+    group: observability
+  installations:
+  - service: aws-eks-karpenter
+    condition: '{{ not (input "legacy") }}'
+    config: |
+      # Include the entire environment config since this is how its passed in today
+      {{ .ryvn.env.config | toYaml }}
+    releaseChannel: stable
+  - service: aws-eks-legacy
+    condition: '{{ input "legacy" }}'
+    config: |
+      {{ .ryvn.env.config | toYaml }}
+    releaseChannel: stable
+  - service: ryvn-admission
+    namespace: ryvn-system
+  - service: karpenter-crd
+    namespace: kube-system
+    releaseChannel: stable
+  - service: ryvn-karpenter-nodepool
+    namespace: kube-system
+    provisionsInfrastructure: true
+    config: |
+      karpenter:
+        role: '{{ .ryvn.env.state.cluster_name }}'
+        clusterName: '{{ .ryvn.env.state.cluster_name }}'
+        {{- if and .ryvn.env.state.vpc .ryvn.env.state.vpc.subnet_discovery_by_id_required }}
+        # The subnets are pre-existing and carry no karpenter.sh/discovery tag
+        # Ryvn could apply, so Karpenter is given them by ID. Absent from the
+        # state of environments provisioned before that output existed, which
+        # is the tag-discovery case anyway.
+        subnetIds:
+        {{- .ryvn.env.state.vpc.private_subnet_ids | toYaml | nindent 10 }}
+        {{- end }}
+      
+      {{- if input "customNodeClasses" }}
+      nodeClasses:
+        {{- input "customNodeClasses" | nindent 2 }}
+      {{- else if ne (input "diskSize") "128Gi" }}
+      nodeClasses:
+        ryvn-ec2-node-class:
+          blockDeviceMappings:
+            - deviceName: /dev/xvda
+              ebs:
+                volumeSize: 32Gi
+                volumeType: gp3
+                encrypted: true
+            - deviceName: /dev/xvdb
+              ebs:
+                volumeSize: {{ input "diskSize" }}
+                volumeType: gp3
+                encrypted: true
+      {{- end }}
+      
+      {{- if input "customNodePools" }}
+      nodePools:
+        {{- input "customNodePools" | nindent 2 }}
+      {{- else }}
+      nodePools:
+        application:
+          requirements:
+            instanceCategories:
+      {{- input "instanceCategories" | toYaml | nindent 10 }}
+            cpuSizes:
+      {{- input "cpuSizes" | toYaml | nindent 10 }}
+      {{- end }}
+    releaseChannel: stable
+  - service: karpenter
+    namespace: kube-system
+    config: |
+      nodeSelector:
+        # limits to the node that karpenter doesn't managed (system-node)
+        karpenter.sh/controller: "true"
+      dnsPolicy: Default
+      replicas: 2
+      settings:
+        clusterName: '{{ .ryvn.env.state.cluster_name }}'
+        clusterEndpoint: '{{ .ryvn.env.state.cluster_endpoint }}'
+        interruptionQueue: '{{ .ryvn.env.state.karpenter.queue_name }}'
+      webhook:
+        enabled: false
+    releaseChannel: stable
+  - service: cluster-autoscaler
+    namespace: kube-system
+    config: |
+      autoDiscovery:
+        clusterName: '{{ .ryvn.env.state.cluster_name }}'
+      awsRegion: '{{ .ryvn.env.state.cluster_region }}'
+      # We enable cluster-autoscaler (replicaCount: 1) if it's configured and enabled on the environment
+      replicaCount: {{ if and .ryvn.env.config.cluster_autoscaler .ryvn.env.config.cluster_autoscaler.enabled }}1{{ else }}0{{ end }}
+      {{- if and .ryvn.env.config.cluster_autoscaler .ryvn.env.config.cluster_autoscaler.extraArgs }}
+      extraArgs: {{ .ryvn.env.config.cluster_autoscaler.extraArgs | toYaml | nindent 4 }}
+      {{- end }}
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+      rbac:
+        # match release name so pod identity works
+        serviceAccount:
+          name: {{ .ryvn.installation.name }}
+    releaseChannel: stable
+  - service: keda
+    namespace: kube-system
+    config: |
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+    releaseChannel: stable
+  - service: ryvn-collector
+    namespace: observability
+    config: |
+      # Alloy chart configuration
+      alloy:
+        enabled: true
+        alloy:
+          envFrom:
+          - secretRef:
+              name: '{{ k8sSecretName "ryvn-collector-client-creds" }}'
+          configMap:
+            create: false
+            name: ryvn-alloy-config
+      environment:
+        name: "{{ .ryvn.env.name }}"
+      org:
+        id: "{{ .ryvn.env.orgId }}"
+      features:
+        podLogs:
+          collectUserLogs: {{ input "logs" }}
+        logRedaction:
+          enabled: {{ input "logRedaction" }}
+          patterns: 
+      {{- input "redactionPatterns" | toYaml | nindent 6 }}
+        metrics:
+          enabled: {{ input "metrics" }}
+    releaseChannel: stable
+    serviceUser:
+      credentialType: client-secret
+      enabled: true
+      secretName: ryvn-collector-client-creds
+      # The collector holds only the env-scoped system role that permits
+      # telemetry ingest through the observability gateways.
+      role: collector
+  outputs:
+    - name: outbound_ips
+      displayName: Outbound IPs
+      description: JSON array of public IP addresses used for outbound internet traffic from workloads in this environment.
+      type: string
+      isSecret: false
+      from: '{{- if input "legacy" -}}{{ with (serviceInstallation "aws-eks-legacy").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- else -}}{{ with (serviceInstallation "aws-eks-karpenter").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- end -}}'
+  distribution: internal-managed

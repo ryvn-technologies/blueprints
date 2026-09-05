@@ -1,0 +1,94 @@
+kind: Blueprint
+metadata:
+  name: azure-platform
+spec:
+  description: |
+    Provisions an AKS cluster on Azure. Installs KEDA for event-driven pod scaling and Ryvn's observability collector (Grafana Alloy-based) in the `observability` namespace for shipping logs and Prometheus metrics to Ryvn.
+
+    Log redaction optionally strips sensitive data matching your regex patterns before anything leaves the cluster.
+  displayName: Azure AKS Platform
+  inputGroups:
+  - name: observability
+    description: Log collection, metrics forwarding, and optional log redaction.
+    displayName: Observability
+  inputs:
+  - name: logs
+    type: boolean
+    default: true
+    description: Collect and forward workload logs.
+    displayName: Enable Log Collection
+    group: observability
+  - name: logRedaction
+    type: boolean
+    default: false
+    description: Strip sensitive data (emails, tokens, etc.) from logs before they leave the cluster. Define patterns below.
+    displayName: Enable Log Redaction
+    group: observability
+  - name: redactionPatterns
+    type: array
+    condition: '{{ input "logRedaction" }}'
+    description: Regex patterns matching sensitive data to redact from logs. Each match is replaced with [REDACTED].
+    displayName: Log Redaction Patterns
+    group: observability
+  - name: metrics
+    type: boolean
+    default: true
+    description: Collect and forward Prometheus metrics from your cluster to Ryvn's observability backend.
+    displayName: Enable Metrics Collection
+    group: observability
+  installations:
+  - service: azure-aks
+    config: |
+      {{ .ryvn.env.config | toYaml }}
+    releaseChannel: stable
+  - service: ryvn-admission
+    namespace: ryvn-system
+  - service: keda
+    namespace: kube-system
+    config: |
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+    releaseChannel: stable
+  - service: ryvn-collector
+    namespace: observability
+    config: |
+      # Alloy chart configuration
+      alloy:
+        enabled: true
+        alloy:
+          envFrom:
+          - secretRef:
+              name: '{{ k8sSecretName "ryvn-collector-client-creds" }}'
+          configMap:
+            create: false
+            name: ryvn-alloy-config
+      environment:
+        name: "{{ .ryvn.env.name }}"
+      org:
+        id: "{{ .ryvn.env.orgId }}"
+      features:
+        podLogs:
+          collectUserLogs: {{ input "logs" }}
+        logRedaction:
+          enabled: {{ input "logRedaction" }}
+          patterns:
+      {{- input "redactionPatterns" | toYaml | nindent 6 }}
+        metrics:
+          enabled: {{ input "metrics" }}
+    releaseChannel: stable
+    serviceUser:
+      credentialType: client-secret
+      enabled: true
+      secretName: ryvn-collector-client-creds
+      # The collector holds only the env-scoped system role that permits
+      # telemetry ingest through the observability gateways.
+      role: collector
+  outputs:
+    - name: outbound_ips
+      displayName: Outbound IPs
+      description: JSON array of public IP addresses used for outbound internet traffic from workloads in this environment.
+      type: string
+      isSecret: false
+      from: '{{ with (serviceInstallation "azure-aks").outputs.outbound_ips }}{{ . | toJson }}{{ end }}'
+  distribution: internal-managed

@@ -1,0 +1,492 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Creates the RyvnAccessRole for BYO-VPC environments. Unlike the full-provisioning template, this grants no VPC-lifecycle or account-wide EC2 permissions: network mutations are restricted to the specified VPC via the ec2:Vpc condition key. Ryvn carves subnets, route tables, and security groups inside that VPC and manages EKS within it.",
+  "Parameters": {
+    "TrustedArn": {
+      "Type": "String",
+      "Description": "The ARN of the AWS role from Ryvn allowed to assume the role created by this CloudFormation template. This should not be changed unless you are using self-hosted version of Ryvn."
+    },
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id",
+      "Description": "The existing VPC Ryvn will deploy into. Subnet, route table, and security group operations are restricted to this VPC."
+    },
+    "ManageNatGateway": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "Whether Ryvn should create and manage a NAT gateway inside your VPC (create-NAT egress). Set to false when egress is via a transit gateway or an existing NAT gateway, which drops the NAT and Elastic IP permissions entirely. Recommended when applicable: AWS exposes no ec2:Vpc condition key on the natgateway or elastic-ip resource types, so DeleteNatGateway, AllocateAddress, ReleaseAddress and DisassociateAddress cannot be restricted to your VPC and are granted account-wide when this is true."
+    }
+  },
+  "Conditions": {
+    "ManageNatGateway": {
+      "Fn::Equals": [
+        {
+          "Ref": "ManageNatGateway"
+        },
+        "true"
+      ]
+    }
+  },
+  "Resources": {
+    "RyvnAccessRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": [
+                  {
+                    "Ref": "TrustedArn"
+                  }
+                ]
+              },
+              "Action": ["sts:AssumeRole", "sts:TagSession"]
+            },
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com",
+                  "eks.amazonaws.com",
+                  "pods.eks.amazonaws.com"
+                ]
+              },
+              "Action": ["sts:AssumeRole", "sts:TagSession"]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "RyvnAccessRolePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetRole",
+                    "iam:CreateRole",
+                    "iam:DeleteRole",
+                    "iam:UpdateRole",
+                    "iam:PutRolePermissionsBoundary",
+                    "iam:GetUser",
+                    "iam:GetPolicy",
+                    "iam:CreatePolicy",
+                    "iam:DeletePolicy",
+                    "iam:GetPolicyVersion",
+                    "iam:CreatePolicyVersion",
+                    "iam:DeletePolicyVersion",
+                    "iam:ListPolicyVersions",
+                    "iam:ListPolicyTags",
+                    "iam:ListAttachedGroupPolicies",
+                    "iam:GetGroupPolicy",
+                    "iam:ListAttachedRolePolicies",
+                    "iam:ListRolePolicies",
+                    "iam:GetRolePolicy",
+                    "iam:PutRolePolicy",
+                    "iam:AttachRolePolicy",
+                    "iam:DetachRolePolicy",
+                    "iam:DeleteRolePolicy",
+                    "iam:ListAttachedUserPolicies",
+                    "iam:ListUserPolicies",
+                    "iam:GetUserPolicy",
+                    "iam:ListRoleTags",
+                    "iam:ListUserTags",
+                    "iam:TagPolicy",
+                    "iam:UntagPolicy",
+                    "iam:TagRole",
+                    "iam:UntagRole",
+                    "iam:RemoveClientIDFromOpenIDConnectProvider",
+                    "iam:ListOpenIDConnectProviderTags",
+                    "iam:UpdateOpenIDConnectProviderThumbprint",
+                    "iam:UntagOpenIDConnectProvider",
+                    "iam:AddClientIDToOpenIDConnectProvider",
+                    "iam:DeleteOpenIDConnectProvider",
+                    "iam:GetOpenIDConnectProvider",
+                    "iam:TagOpenIDConnectProvider",
+                    "iam:CreateOpenIDConnectProvider",
+                    "iam:UpdateAssumeRolePolicy"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "RyvnRoute53Access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "route53:CreateHostedZone",
+                    "route53:GetHostedZone",
+                    "route53:ListHostedZones",
+                    "route53:ChangeTagsForResource",
+                    "route53:ListResourceRecordSets",
+                    "route53:DeleteHostedZone",
+                    "route53:ListTagsForResource",
+                    "route53:GetChange",
+                    "route53:ChangeResourceRecordSets",
+                    "route53:GetDNSSEC",
+                    "route53:AssociateVPCWithHostedZone",
+                    "route53:DisassociateVPCFromHostedZone"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "RyvnEksAllAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "eks:*",
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:createqueue",
+                    "events:TagResource",
+                    "events:PutRule",
+                    "events:DescribeRule",
+                    "events:ListTagsForResource",
+                    "events:ListTargetsByRule",
+                    "events:PutTargets",
+                    "events:RemoveTargets",
+                    "events:DeleteRule",
+                    "sqs:tagqueue",
+                    "sqs:deletequeue",
+                    "sqs:getqueueattributes",
+                    "sqs:setqueueattributes",
+                    "sqs:listqueuetags"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Action": [
+                    "ssm:GetParameter",
+                    "ssm:GetParameters"
+                  ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "kms:CreateGrant",
+                    "kms:DescribeKey",
+                    "kms:TagResource",
+                    "kms:CreateKey",
+                    "kms:CreateAlias",
+                    "kms:ListAliases",
+                    "kms:DeleteAlias",
+                    "kms:EnableKeyRotation",
+                    "kms:GetKeyPolicy",
+                    "kms:PutKeyPolicy",
+                    "kms:GetKeyRotationStatus",
+                    "kms:ListResourceTags",
+                    "kms:ListGrants",
+                    "kms:RetireGrant",
+                    "kms:ScheduleKeyDeletion"
+                  ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "logs:PutRetentionPolicy",
+                    "logs:CreateLogGroup",
+                    "logs:TagResource",
+                    "logs:TagLogGroup",
+                    "logs:DescribeLogGroups",
+                    "logs:ListTagsForResource",
+                    "logs:ListTagsLogGroup",
+                    "logs:DeleteLogGroup"
+                  ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "RyvnIamLimitedAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:CreateInstanceProfile",
+                    "iam:DeleteInstanceProfile",
+                    "iam:GetInstanceProfile",
+                    "iam:RemoveRoleFromInstanceProfile",
+                    "iam:GetRole",
+                    "iam:CreateRole",
+                    "iam:DeleteRole",
+                    "iam:AttachRolePolicy",
+                    "iam:PutRolePolicy",
+                    "iam:UpdateAssumeRolePolicy",
+                    "iam:AddRoleToInstanceProfile",
+                    "iam:ListInstanceProfilesForRole",
+                    "iam:PassRole",
+                    "iam:DetachRolePolicy",
+                    "iam:DeleteRolePolicy",
+                    "iam:GetRolePolicy",
+                    "iam:GetOpenIDConnectProvider",
+                    "iam:CreateOpenIDConnectProvider",
+                    "iam:DeleteOpenIDConnectProvider",
+                    "iam:TagOpenIDConnectProvider",
+                    "iam:ListAttachedRolePolicies",
+                    "iam:TagRole",
+                    "iam:UntagRole",
+                    "iam:GetPolicy",
+                    "iam:CreatePolicy",
+                    "iam:DeletePolicy",
+                    "iam:ListPolicyVersions"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetRole",
+                    "iam:GetUser"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:CreateServiceLinkedRole"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:AWSServiceName": [
+                        "eks.amazonaws.com",
+                        "eks-nodegroup.amazonaws.com",
+                        "eks-fargate.amazonaws.com",
+                        "spot.amazonaws.com"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "RyvnByoVpcNetworkPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "VpcScopedNetworkMutations",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:DeleteSubnet",
+                    "ec2:ModifySubnetAttribute",
+                    "ec2:DeleteRouteTable",
+                    "ec2:AssociateRouteTable",
+                    "ec2:DisassociateRouteTable",
+                    "ec2:CreateRoute",
+                    "ec2:DeleteRoute",
+                    "ec2:ReplaceRoute",
+                    "ec2:DeleteSecurityGroup",
+                    "ec2:AuthorizeSecurityGroupIngress",
+                    "ec2:AuthorizeSecurityGroupEgress",
+                    "ec2:RevokeSecurityGroupIngress",
+                    "ec2:RevokeSecurityGroupEgress"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEquals": {
+                      "ec2:Vpc": {
+                        "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VpcId}"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "VpcResourceAccess",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:CreateSubnet",
+                    "ec2:CreateRouteTable",
+                    "ec2:CreateSecurityGroup"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VpcId}"
+                  }
+                },
+                {
+                  "Sid": "ChildResourceCreation",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:CreateSubnet",
+                    "ec2:CreateRouteTable",
+                    "ec2:CreateSecurityGroup"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:route-table/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/*"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "SecurityGroupRuleCreation",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:AuthorizeSecurityGroupIngress",
+                    "ec2:AuthorizeSecurityGroupEgress"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group-rule/*"
+                  }
+                },
+                {
+                  "Fn::If": [
+                    "ManageNatGateway",
+                    {
+                      "Sid": "NatGatewayCreationVpcScoped",
+                      "Effect": "Allow",
+                      "Action": [
+                        "ec2:CreateNatGateway"
+                      ],
+                      "Resource": "*",
+                      "Condition": {
+                        "StringEquals": {
+                          "ec2:Vpc": {
+                            "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VpcId}"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "Ref": "AWS::NoValue"
+                    }
+                  ]
+                },
+                {
+                  "Fn::If": [
+                    "ManageNatGateway",
+                    {
+                      "Sid": "NatGatewayCreationResources",
+                      "Effect": "Allow",
+                      "Action": [
+                        "ec2:CreateNatGateway"
+                      ],
+                      "Resource": [
+                        {
+                          "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:natgateway/*"
+                        },
+                        {
+                          "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:elastic-ip/*"
+                        },
+                        {
+                          "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VpcId}"
+                        }
+                      ]
+                    },
+                    {
+                      "Ref": "AWS::NoValue"
+                    }
+                  ]
+                },
+                {
+                  "Fn::If": [
+                    "ManageNatGateway",
+                    {
+                      "Sid": "NatAndEipLifecycleAccountWide",
+                      "Effect": "Allow",
+                      "Action": [
+                        "ec2:DeleteNatGateway",
+                        "ec2:AllocateAddress",
+                        "ec2:ReleaseAddress",
+                        "ec2:DisassociateAddress"
+                      ],
+                      "Resource": "*"
+                    },
+                    {
+                      "Ref": "AWS::NoValue"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "RyvnByoVpcComputePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "Ec2ComputeAndDescribe",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:CreateTags",
+                    "ec2:DeleteTags",
+                    "ec2:CreateLaunchTemplate",
+                    "ec2:CreateLaunchTemplateVersion",
+                    "ec2:ModifyLaunchTemplate",
+                    "ec2:DeleteLaunchTemplate",
+                    "ec2:DeleteLaunchTemplateVersions",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:DescribeAddresses",
+                    "ec2:DescribeAddressesAttribute",
+                    "ec2:DescribeAvailabilityZones",
+                    "ec2:DescribeImages",
+                    "ec2:DescribeInstances",
+                    "ec2:DescribeInstanceTypes",
+                    "ec2:DescribeInternetGateways",
+                    "ec2:DescribeLaunchTemplates",
+                    "ec2:DescribeLaunchTemplateVersions",
+                    "ec2:DescribeNatGateways",
+                    "ec2:DescribeNetworkAcls",
+                    "ec2:DescribeNetworkInterfaces",
+                    "ec2:DescribeRouteTables",
+                    "ec2:DescribeSecurityGroupReferences",
+                    "ec2:DescribeSecurityGroupRules",
+                    "ec2:DescribeSecurityGroups",
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeTags",
+                    "ec2:DescribeVpcAttribute",
+                    "ec2:DescribeVpcs",
+                    "ec2:DescribeTransitGateways",
+                    "ec2:DescribeTransitGatewayAttachments",
+                    "ec2:DescribeTransitGatewayVpcAttachments"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ],
+        "RoleName": "RyvnAccessRole",
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/AWSCloudFormationFullAccess"
+          }
+        ]
+      }
+    }
+  }
+}
