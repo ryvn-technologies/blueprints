@@ -94,6 +94,7 @@ includedPermissions:
   - container.operations.list
   # Node pool instance groups, read back by the provider after cluster/node pool create
   - compute.instanceGroupManagers.get
+  - compute.instanceGroupManagers.list
   # Service accounts for nodes, ryvn-agent, external-dns, cert-manager, and their Workload Identity bindings
   - iam.serviceAccounts.create
   - iam.serviceAccounts.delete
