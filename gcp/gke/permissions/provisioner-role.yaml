@@ -1,0 +1,152 @@
+# Custom IAM role for the Ryvn provisioner service account (ryvn-provisioner@<project>).
+#
+# Grants every Google Cloud API call Ryvn makes while creating, updating and
+# deleting a GKE environment in the project, plus the call Ryvn uses to verify
+# its credentials (compute.zones.list). Use it instead of roles/owner.
+#
+# Bind it together with roles/container.admin, which carries the Kubernetes-side
+# permissions Ryvn needs to install its in-cluster agent (see README.md).
+#
+# Embedded by permissions.go and rendered into the setup script served at
+# GET /v1/orgs/{orgId}/environments/provisioning/gcp-setup. By hand:
+#   gcloud iam roles create ryvnProvisioner --project=<project> --file=provisioner-role.yaml
+#   gcloud iam roles update ryvnProvisioner --project=<project> --file=provisioner-role.yaml
+#
+# Live-validated 2026-09-03: apply, agent bootstrap, re-apply and destroy under a
+# scratch service account bound to this role + roles/container.admin, with Data
+# Access audit logs on. Per-permission evidence is in README.md.
+title: Ryvn Provisioner
+description: Provision, update and deprovision a Ryvn GKE environment (infra/gke-provision). Pair with roles/container.admin.
+stage: GA
+includedPermissions:
+  # Project and API enablement
+  - resourcemanager.projects.get
+  - resourcemanager.projects.getIamPolicy
+  - resourcemanager.projects.setIamPolicy
+  - serviceusage.services.enable
+  - serviceusage.services.get
+  - serviceusage.services.list
+  - serviceusage.operations.get
+  # Compute reads and long-running operation polling
+  - compute.projects.get
+  - compute.regions.get
+  - compute.regions.list
+  - compute.zones.get
+  - compute.zones.list
+  - compute.globalOperations.get
+  - compute.regionOperations.get
+  - compute.zoneOperations.get
+  # VPC, subnet, firewall rules
+  - compute.networks.create
+  - compute.networks.delete
+  - compute.networks.get
+  - compute.networks.list
+  - compute.networks.update
+  - compute.networks.updatePolicy
+  - compute.networks.use
+  - compute.networks.addPeering
+  - compute.networks.removePeering
+  - compute.networks.updatePeering
+  - compute.subnetworks.create
+  - compute.subnetworks.delete
+  - compute.subnetworks.get
+  - compute.subnetworks.list
+  - compute.subnetworks.update
+  - compute.subnetworks.setPrivateIpGoogleAccess
+  - compute.subnetworks.use
+  - compute.firewalls.create
+  - compute.firewalls.delete
+  - compute.firewalls.get
+  - compute.firewalls.list
+  - compute.firewalls.update
+  # Cloud NAT: reserved external address, Cloud Router, NAT config
+  - compute.addresses.create
+  - compute.addresses.delete
+  - compute.addresses.get
+  - compute.addresses.list
+  - compute.addresses.setLabels
+  - compute.addresses.use
+  - compute.routers.create
+  - compute.routers.delete
+  - compute.routers.get
+  - compute.routers.list
+  - compute.routers.update
+  # Private Services Access range and peering (Cloud SQL, Memorystore)
+  - compute.globalAddresses.create
+  - compute.globalAddresses.createInternal
+  - compute.globalAddresses.delete
+  - compute.globalAddresses.deleteInternal
+  - compute.globalAddresses.get
+  - compute.globalAddresses.list
+  - compute.globalAddresses.setLabels
+  - compute.globalAddresses.use
+  - servicenetworking.services.addPeering
+  - servicenetworking.services.deleteConnection
+  - servicenetworking.services.get
+  - servicenetworking.operations.get
+  # GKE cluster and node pools (Terraform side; Kubernetes-side access comes from roles/container.admin)
+  - container.clusters.create
+  - container.clusters.delete
+  - container.clusters.get
+  - container.clusters.list
+  - container.clusters.update
+  - container.operations.get
+  - container.operations.list
+  # Node pool instance groups, read back by the provider after cluster/node pool create
+  - compute.instanceGroupManagers.get
+  # Service accounts for nodes, ryvn-agent, external-dns, cert-manager, and their Workload Identity bindings
+  - iam.serviceAccounts.create
+  - iam.serviceAccounts.delete
+  - iam.serviceAccounts.get
+  - iam.serviceAccounts.list
+  - iam.serviceAccounts.update
+  - iam.serviceAccounts.getIamPolicy
+  - iam.serviceAccounts.setIamPolicy
+  - iam.serviceAccounts.actAs
+  # Custom roles for the ryvn-agent (project-wide role and tag-scoped Cloud SQL role)
+  - iam.roles.create
+  - iam.roles.delete
+  - iam.roles.get
+  - iam.roles.list
+  - iam.roles.undelete
+  - iam.roles.update
+  # Tag key/value that scopes the agent's Cloud SQL permissions
+  - resourcemanager.tagKeys.create
+  - resourcemanager.tagKeys.delete
+  - resourcemanager.tagKeys.get
+  - resourcemanager.tagKeys.list
+  - resourcemanager.tagKeys.update
+  - resourcemanager.tagValues.create
+  - resourcemanager.tagValues.delete
+  - resourcemanager.tagValues.get
+  - resourcemanager.tagValues.list
+  - resourcemanager.tagValues.update
+  # Cloud DNS: public zone, private zone bound to the VPC, CAA record
+  - dns.managedZones.create
+  - dns.managedZones.delete
+  - dns.managedZones.get
+  - dns.managedZones.list
+  - dns.managedZones.update
+  - dns.managedZoneOperations.get
+  - dns.changes.create
+  - dns.changes.get
+  - dns.changes.list
+  - dns.resourceRecordSets.create
+  - dns.resourceRecordSets.delete
+  - dns.resourceRecordSets.get
+  - dns.resourceRecordSets.list
+  - dns.resourceRecordSets.update
+  - dns.networks.bindPrivateDNSZone
+  # Cloud KMS: key ring + key for GKE Secrets encryption (kms.tf), grant to the GKE service agent.
+  # Rings/keys cannot be deleted; destroy disables rotation and destroys the key versions.
+  - cloudkms.keyRings.create
+  - cloudkms.keyRings.get
+  - cloudkms.keyRings.list
+  - cloudkms.cryptoKeys.create
+  - cloudkms.cryptoKeys.get
+  - cloudkms.cryptoKeys.list
+  - cloudkms.cryptoKeys.update
+  - cloudkms.cryptoKeys.getIamPolicy
+  - cloudkms.cryptoKeys.setIamPolicy
+  - cloudkms.cryptoKeyVersions.list
+  - cloudkms.cryptoKeyVersions.destroy
