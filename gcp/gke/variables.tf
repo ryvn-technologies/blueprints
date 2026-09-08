@@ -9,6 +9,12 @@ variable "project_id" {
   type        = string
 }
 
+variable "provisioner_service_account_email" {
+  description = "Service account to impersonate for provisioning. When unset, use the provider's default credentials."
+  type        = string
+  default     = null
+}
+
 variable "region" {
   description = "GCP region"
   type        = string
