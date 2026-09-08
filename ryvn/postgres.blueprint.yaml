@@ -154,7 +154,7 @@ spec:
       condition: '{{ input "enableReadWriteUser" }}'
     - name: enableMetrics
       type: boolean
-      default: false
+      default: true
       description: Collect Postgres engine metrics such as connections, transaction and tuple rates, cache hit ratio, locks and database size. Provisions a dedicated monitoring role, which can read Postgres statistics only, never your data, and runs a small exporter pod in your cluster that scrapes the database.
       displayName: Enable Metrics
       group: metrics
