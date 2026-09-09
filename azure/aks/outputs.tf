@@ -47,17 +47,12 @@ output "cluster" {
   value = {
     "id"                     = module.aks.aks_id
     "name"                   = module.aks.aks_name
-    "client_certificate"     = module.aks.client_certificate
-    "client_key"             = module.aks.client_key
     "cluster_ca_certificate" = module.aks.cluster_ca_certificate
     "cluster_fqdn"           = module.aks.cluster_fqdn
     "oidc_issuer_url"        = module.aks.oidc_issuer_url
     "location"               = module.aks.location
-
-    "kube_config_raw"       = module.aks.kube_config_raw
-    "kube_admin_config_raw" = module.aks.kube_admin_config_raw
   }
-  description = "A map of AKS cluster attributes: id, name, client_certificate, client_key, cluster_ca_certificate, cluster_fqdn, oidc_issuer_url, location, kube_config_raw, kube_admin_config_raw."
+  description = "A map of AKS cluster attributes: id, name, cluster_ca_certificate, cluster_fqdn, oidc_issuer_url, location. Local accounts are disabled, so no static kubeconfig or client certificate is exported; clients authenticate with Entra tokens."
 }
 
 output "external_dns_identity" {

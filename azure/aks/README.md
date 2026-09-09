@@ -69,6 +69,16 @@ public source address is whatever the network appliance NATs to.
 `outbound_ips`, and the client IDs of the Ryvn agent, external-dns and
 cert-manager identities.
 
+## Provisioner Permissions
+
+The identity that applies this module needs the custom role in
+`permissions/provisioner-role.json` at subscription scope, and nothing broader.
+`permissions/README.md` explains how the role was derived and what each group
+of actions is for. Kubernetes local accounts are disabled on the cluster, so the
+module exports no kubeconfig or client certificate; every client, including the
+provisioner during agent bootstrap, authenticates to the API server with an
+Entra token evaluated by Azure RBAC for Kubernetes.
+
 ## One-Way Decisions
 
 `network_plugin_mode`, the VNet address space and the subnet layout are fixed
