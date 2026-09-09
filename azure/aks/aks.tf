@@ -103,7 +103,7 @@ locals {
 
 module "aks" {
   source  = "Azure/aks/azurerm"
-  version = "~> 11.0"
+  version = "11.7.0"
 
   prefix                    = var.environment_name
   node_resource_group       = local.node_resource_group_name
@@ -153,11 +153,18 @@ module "aks" {
   network_plugin                                  = "azure"
   network_plugin_mode                             = var.network_plugin_mode == "overlay" ? "overlay" : null
   net_profile_pod_cidr                            = var.network_plugin_mode == "overlay" ? var.pod_cidr : null
-  network_policy                                  = "azure"
+  ebpf_data_plane                                 = var.ebpf_data_plane
+  network_policy                                  = var.ebpf_data_plane == "cilium" ? "cilium" : "azure"
   load_balancer_profile_enabled                   = !local.use_udr_egress
   load_balancer_profile_managed_outbound_ip_count = local.use_udr_egress ? null : local.aks_managed_outbound_ip_count
   net_profile_outbound_type                       = local.use_udr_egress ? "userDefinedRouting" : "loadBalancer"
   private_cluster_enabled                         = false
+
+  # ACNS enables FQDN filtering and network observability for managed Cilium.
+  network_profile_advanced_networking = var.ebpf_data_plane == "cilium" ? {
+    security_enabled      = true
+    observability_enabled = true
+  } : null
 
   # Enable workload identity
   oidc_issuer_enabled       = true

@@ -12,6 +12,14 @@ spec:
     description: Log collection, metrics forwarding, and optional log redaction.
     displayName: Observability
   inputs:
+  # Persist false on existing installations before changing the default to true.
+  - name: enableManagedCilium
+    type: boolean
+    default: false
+    displayName: Use Azure CNI Powered by Cilium.
+    description: Cilium data plane and network policies, including FQDN filtering.
+    hidden: true
+    immutable: true
   - name: logs
     type: boolean
     default: true
@@ -39,7 +47,16 @@ spec:
   installations:
   - service: azure-aks
     config: |
-      {{ .ryvn.env.config | toYaml }}
+      {{- range $key, $value := .ryvn.env.config }}
+      {{- if ne $key "ebpf_data_plane" }}
+      {{ dict $key $value | toYaml }}
+      {{- end }}
+      {{- end }}
+      {{- if input "enableManagedCilium" }}
+      ebpf_data_plane: cilium
+      {{- else }}
+      ebpf_data_plane: null
+      {{- end }}
     releaseChannel: stable
   - service: ryvn-admission
     namespace: ryvn-system

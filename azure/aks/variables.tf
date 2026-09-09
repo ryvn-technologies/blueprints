@@ -94,6 +94,30 @@ variable "pod_cidr" {
   default     = "192.168.0.0/16"
 }
 
+variable "ebpf_data_plane" {
+  description = "Set to 'cilium' to enable Azure CNI Powered by Cilium."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.ebpf_data_plane == null || var.ebpf_data_plane == "cilium"
+    error_message = "ebpf_data_plane must be null or 'cilium'."
+  }
+
+  validation {
+    condition     = var.ebpf_data_plane != "cilium" || var.network_plugin_mode == "overlay"
+    error_message = "ebpf_data_plane = 'cilium' requires network_plugin_mode to be 'overlay'."
+  }
+
+  validation {
+    condition = var.ebpf_data_plane != "cilium" || alltrue([
+      for pool in values(var.aks_node_pools) :
+      !startswith(lower(coalesce(pool.os_sku, "Ubuntu")), "windows")
+    ])
+    error_message = "ebpf_data_plane 'cilium' supports Linux node pools only."
+  }
+}
+
 variable "ryvn_system_namespace" {
   type        = string
   default     = "ryvn-system"
@@ -133,4 +157,3 @@ variable "existing_route_table_id" {
     error_message = "existing_route_table_id must be null or a valid Azure Route Table resource ID (e.g., /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/routeTables/<name>)."
   }
 }
-
