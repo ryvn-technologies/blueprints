@@ -195,9 +195,19 @@ variable "terraform_executor_policies" {
 }
 
 variable "cluster_endpoint_public_access_cidrs" {
-  description = "Additional CIDR blocks which can access the Amazon EKS public API server endpoint. The Ryvn control plane's egress IPs are always allowed; if not specified, no other source is."
+  description = "Additional CIDR blocks which can access the Amazon EKS public API server endpoint. The provisioner's egress addresses are always allowed; if not specified, no other source is."
   type        = list(string)
   default     = []
+}
+
+variable "provisioner_egress_cidrs" {
+  description = "Outbound addresses of the provisioner that provisions this environment. It installs and reconciles the agent over the public API server endpoint, so these addresses are always allowed. Defaults to the hosted control plane; a self-hosted one passes its own."
+  type        = list(string)
+  default = [
+    "3.225.179.159/32",
+    "3.85.154.126/32",
+    "54.152.86.243/32"
+  ]
 }
 
 variable "enable_flow_log" {

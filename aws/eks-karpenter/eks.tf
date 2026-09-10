@@ -170,17 +170,14 @@ module "eks" {
   # route node traffic out through the existing inspection path.
   endpoint_private_access = true
 
-  # The public endpoint stays reachable from the Ryvn control plane's static
-  # egress addresses so it can reconcile the cluster, plus whatever the caller
-  # allows. Everything else is denied.
+  # The public endpoint stays reachable from the static egress addresses of the
+  # provisioner that provisions this environment, so it can install and
+  # reconcile the agent, plus whatever the caller allows. Everything else is
+  # denied.
   endpoint_public_access = true
   endpoint_public_access_cidrs = concat(
     var.cluster_endpoint_public_access_cidrs,
-    [
-      "3.225.179.159/32",
-      "3.85.154.126/32",
-      "54.152.86.243/32"
-    ]
+    var.provisioner_egress_cidrs
   )
   enable_irsa = true
 
