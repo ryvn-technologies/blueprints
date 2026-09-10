@@ -1,0 +1,26 @@
+name: Build & Release azure-aks
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "azure/aks/**"
+      - ".github/workflows/ryvn-azure-aks-release.yaml"
+  pull_request:
+    paths:
+      - "azure/aks/**"
+      - ".github/workflows/ryvn-azure-aks-release.yaml"
+
+jobs:
+  release:
+    uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
+    with:
+      service_name: azure-aks
+    permissions:
+      contents: write
+      id-token: write
+    secrets:
+      RYVN_CLIENT_ID: ${{ secrets.RYVN_CLIENT_ID }}
+      RYVN_CLIENT_SECRET: ${{ secrets.RYVN_CLIENT_SECRET }}
