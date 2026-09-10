@@ -85,3 +85,6 @@ Entra token evaluated by Azure RBAC for Kubernetes.
 after creation — switching CNI modes or resizing the carve means replacing the
 cluster. Because the node resource group name is derived from the environment
 name, renaming an environment is also a replacement.
+
+The module is synced to `ryvn-technologies/blueprints` under `azure/aks` on
+every merge to `main`.
