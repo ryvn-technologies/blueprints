@@ -18,6 +18,7 @@ jobs:
     uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
     with:
       service_name: azure-aks
+      tag_prefix: azure-aks@
     permissions:
       contents: write
     secrets:
