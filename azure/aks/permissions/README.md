@@ -6,7 +6,7 @@ environment with this module. The counterparts live in
 
 | File | Purpose |
 |------|---------|
-| `provisioner-role.json` | Custom role `ryvn-aks-provision`, replacing the former `actions: ["*"]` definition |
+| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (50 explicit actions). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
 | `permissions.go` | Embeds the role so the orchestrator can serve it (same layout as `infra/gke-provision/permissions`) |
 
 ## Identity model
@@ -19,8 +19,11 @@ The role is granted at subscription scope to one principal per subscription:
   `api://AzureADTokenExchange`. Terraform authenticates with `ARM_USE_OIDC=true` and the
   hub's Google ID token as the client assertion; no secret exists on either side and no
   Entra application registration is required.
-- **Client secret (AWS-rooted hub, current default).** A service principal created with
-  `az ad sp create-for-rbac --role ryvn-aks-provision --scopes /subscriptions/<id>`.
+- **Client secret (AWS-rooted hub, current default).** A service principal
+  `ryvn-provisioner-<sub8>` created with
+  `az ad sp create-for-rbac --role ryvn-aks-provision-<sub8> --scopes /subscriptions/<id>`.
+  One app per subscription: `create-for-rbac` resets the passwords of an existing app with
+  the same display name, so a shared name would revoke another subscription's secret.
 
 Authorization is identical in both cases: only the way the token is obtained differs, so
 the role is not widened for federation.
@@ -106,34 +109,49 @@ mistakes and against blast radius outside the actions listed. Levers, cheapest f
 
 ## Customer-side one-time setup
 
-Until the orchestrator serves an Azure setup script, by hand:
+The orchestrator renders a setup script from this role for a subscription (Azure panel in
+the environment wizard, `GET .../environments/provisioning/azure-setup?subscriptionId=`,
+or `ryvn get azure-setup-script --subscription <id>`; template in
+`internal/provision/azure_setup.go`). It creates or updates the role, then either a
+managed identity with a federated credential (GCP-rooted hub) or a service principal
+(otherwise), and assigns the role at subscription scope. Everything it does is idempotent.
+
+Custom role names are unique per Entra tenant, so the script names the role
+`ryvn-aks-provision-<first 8 chars of the lowercase subscription ID>`. To do the same by
+hand (the CLI needs a top-level `name` in addition to `roleName`):
 
 ```bash
-SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-sed "s#<subscriptionId>#${SUBSCRIPTION_ID}#" provisioner-role.json > /tmp/ryvn-aks-provision.json
+SUBSCRIPTION_ID=$(az account show --query id -o tsv | tr 'A-Z' 'a-z')
+ROLE_NAME="ryvn-aks-provision-$(printf %.8s "$SUBSCRIPTION_ID")"
+jq --arg n "$ROLE_NAME" --arg s "$SUBSCRIPTION_ID" \
+  '. + {name: $n, roleName: $n, assignableScopes: ["/subscriptions/\($s)"]}' \
+  provisioner-role.json > /tmp/ryvn-aks-provision.json
 az role definition create --role-definition @/tmp/ryvn-aks-provision.json \
   || az role definition update --role-definition @/tmp/ryvn-aks-provision.json
 ```
 
-Then either create the service principal (`az ad sp create-for-rbac --name ryvn-provisioner
---role ryvn-aks-provision --scopes /subscriptions/${SUBSCRIPTION_ID}`) or, for a GCP-rooted
-hub, a managed identity with a federated credential and a role assignment:
+Then either create the service principal (`az ad sp create-for-rbac --name
+"ryvn-provisioner-$(printf %.8s "$SUBSCRIPTION_ID")" --role "$ROLE_NAME" --scopes
+/subscriptions/${SUBSCRIPTION_ID}`) or, for a GCP-rooted hub, a managed identity with a
+federated credential and a role assignment:
 
 ```bash
-az identity create -g <rg> -n ryvn-provisioner -l <location>
-az identity federated-credential create -g <rg> --identity-name ryvn-provisioner -n ryvn-hub \
+az identity create -g ryvn-provisioner -n ryvn-provisioner -l <location>
+az identity federated-credential create -g ryvn-provisioner --identity-name ryvn-provisioner -n ryvn-hub \
   --issuer https://accounts.google.com --subject <hub service account unique id> \
   --audiences api://AzureADTokenExchange
-az role assignment create --role ryvn-aks-provision --scope /subscriptions/${SUBSCRIPTION_ID} \
-  --assignee-object-id "$(az identity show -g <rg> -n ryvn-provisioner --query principalId -o tsv)" \
+az role assignment create --role "$ROLE_NAME" --scope /subscriptions/${SUBSCRIPTION_ID} \
+  --assignee-object-id "$(az identity show -g ryvn-provisioner -n ryvn-provisioner --query principalId -o tsv)" \
   --assignee-principal-type ServicePrincipal
 ```
 
-Subscriptions set up before this role granted `actions: ["*"]` under the same role name;
-`az role definition update` replaces the definition in place, so existing assignments pick
-up the narrower actions without being recreated.
+Subscriptions set up before this role granted `actions: ["*"]` under the plain name
+`ryvn-aks-provision`. The setup script leaves that role and its assignments untouched:
+environments provisioned under it keep using it, new identities get the narrowed role.
+Narrow or delete the legacy role only after every environment in the subscription has been
+re-applied as described below.
 
-### Existing clusters: upgrade the module before narrowing the role
+### Existing clusters: upgrade the module before narrowing the legacy role
 
 A cluster created by an earlier module version still has local accounts enabled. Until an
 apply of this version turns them off, the AzureRM provider reads the admin kubeconfig on

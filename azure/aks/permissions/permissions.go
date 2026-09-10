@@ -13,11 +13,12 @@ import (
 //go:embed provisioner-role.json
 var provisionerRoleJSON []byte
 
-// RoleName is the custom role's display name (`roleName`) in the customer
-// subscription. It is the value `az role assignment create --role` and
-// `az ad sp create-for-rbac --role` resolve, and it matches the name the
-// previous wildcard definition used so `az role definition update` replaces
-// that definition in place.
+// RoleName is the base of the custom role's display name (`roleName`) in the
+// customer subscription. Custom role names are unique per Entra tenant, so
+// the orchestrator suffixes it with the subscription ID's leading GUID group
+// when rendering the setup script. The plain name is what earlier setup
+// instructions had customers create with actions ["*"]; that legacy role is
+// left untouched.
 const RoleName = "ryvn-aks-provision"
 
 // SubscriptionPlaceholder is the token in assignableScopes that the
