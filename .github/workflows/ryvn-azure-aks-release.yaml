@@ -20,7 +20,6 @@ jobs:
       service_name: azure-aks
     permissions:
       contents: write
-      id-token: write
     secrets:
       RYVN_CLIENT_ID: ${{ secrets.RYVN_CLIENT_ID }}
       RYVN_CLIENT_SECRET: ${{ secrets.RYVN_CLIENT_SECRET }}
