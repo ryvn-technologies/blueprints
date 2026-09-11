@@ -137,6 +137,42 @@ variable "egress_target_id" {
   default     = null
 }
 
+variable "create_s3_gateway_endpoint" {
+  description = <<-EOT
+    Whether to create an S3 gateway endpoint on the private route table, so S3 traffic
+    (including every ECR image layer) takes the AWS backbone instead of the NAT gateway.
+    Gateway endpoints are free.
+
+    Null means on for a Ryvn-provisioned VPC and off for a BYO VPC, whose network design and
+    egress path belong to the customer. Set false to opt a Ryvn-provisioned VPC out. Setting
+    true alongside existing_vpc_id is rejected.
+
+    Once the endpoint exists, S3 requests from the environment no longer originate from the NAT
+    gateway's public IP. S3 bucket policies elsewhere that allow this environment by outbound_ips
+    must allow its VPC instead (an aws:SourceVpc condition).
+  EOT
+  type        = bool
+  default     = null
+}
+
+variable "s3_gateway_endpoint_policy" {
+  description = <<-EOT
+    JSON policy document for the S3 gateway endpoint. Null attaches AWS's default, which allows
+    every request. An endpoint policy can only narrow what IAM and bucket policies already
+    permit, so the default leaves authorization exactly where it is today. Set this in accounts
+    that scope every endpoint to their organization (aws:PrincipalOrgID, aws:ResourceOrgID); a
+    scoped policy must still allow the ECR layer buckets
+    (arn:aws:s3:::prod-<region>-starport-layer-bucket/*), or image pulls fail.
+  EOT
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.s3_gateway_endpoint_policy == null || can(jsondecode(var.s3_gateway_endpoint_policy))
+    error_message = "s3_gateway_endpoint_policy must be a JSON policy document."
+  }
+}
+
 variable "byo_workload_subnet_cidrs" {
   description = "Explicit CIDR blocks for the carved workload subnets, one per availability zone. Leave empty to use the standard layout derived from the existing VPC's CIDR. Set this when the head of the VPC range is already occupied, naming free blocks instead."
   type        = list(string)

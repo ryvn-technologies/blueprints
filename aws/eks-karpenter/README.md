@@ -16,7 +16,8 @@ knobs those docs expose.
 ## What's Included
 
 - **Network**: three-AZ VPC with public, private and intra subnets, single NAT
-  gateway, optional flow logs and optional transit gateway landing-pad subnets.
+  gateway, an S3 gateway endpoint on the private route table, optional flow
+  logs and optional transit gateway landing-pad subnets.
 - **Cluster**: EKS with a private endpoint plus a public endpoint restricted to
   the Ryvn control plane and any CIDRs you allow, control-plane logging, IRSA
   and Pod Identity, and envelope encryption with a customer-managed KMS key by
@@ -46,6 +47,21 @@ overlap existing subnets, fall outside the VPC's CIDR associations, miss an AZ
 covered by the transit gateway attachment, or land in subnets without a default
 route.
 
+### S3 gateway endpoint
+
+S3 traffic from the nodes, including every ECR image layer, otherwise leaves
+through the NAT gateway and pays its per-gigabyte fee. A gateway endpoint on the
+private route table sends it over the AWS backbone instead, at no charge.
+`vpc_endpoints.tf` creates one by default in a Ryvn-provisioned VPC, and never
+in a BYO VPC: that network's design and egress path belong to the customer, who
+adds the endpoint themselves from the account that owns it. Set
+`create_s3_gateway_endpoint = false` to opt a Ryvn-provisioned VPC out; setting
+it `true` alongside `existing_vpc_id` fails the plan.
+
+Once the endpoint exists, S3 sees requests from this environment arriving from
+the VPC rather than from `outbound_ips`. Bucket policies elsewhere that allow
+the environment by NAT address must switch to an `aws:SourceVpc` condition.
+
 ## Key Variables
 
 | Name | Description | Default |
@@ -59,6 +75,8 @@ route.
 | `existing_vpc_id` | Provision into an existing VPC | `null` |
 | `existing_workload_subnet_ids` | Run nodes in pre-existing subnets, creating no topology | `[]` |
 | `egress_mode` | `create_nat`, `nat_gateway` or `transit_gateway` | `"create_nat"` |
+| `create_s3_gateway_endpoint` | Create an S3 gateway endpoint on the private route table; `null` means on for a Ryvn-provisioned VPC, off for BYO | `null` |
+| `s3_gateway_endpoint_policy` | Endpoint policy JSON; `null` keeps AWS's allow-all default | `null` |
 | `create_cluster_kms_key` | Use a customer-managed KMS key as the envelope-encryption KEK | `true` |
 | `eks_managed_node_groups` | Node group overrides, merged with the defaults | `{}` |
 | `cluster_addons` | Add-on overrides, merged with the defaults | `{}` |
@@ -75,7 +93,7 @@ overrides used when the head of a VPC's range is already occupied.
 ## Outputs
 
 `cluster_*` (endpoint, CA data, name, OIDC issuer, version, status, region),
-`vpc` (a map of ids, CIDRs, AZs and subnet ids), `karpenter`, `public_domain`,
+`vpc` (a map of ids, CIDRs, AZs, subnet ids and the S3 gateway endpoint id), `karpenter`, `public_domain`,
 `internal_domain`, `outbound_ips` and `outbound_ips_known`, the IAM role ARNs
 for each component, `addons` (per-addon IRSA role ARNs),
 `cluster_secrets_encryption` and `control_plane_logging`.

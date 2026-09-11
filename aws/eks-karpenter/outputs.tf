@@ -126,6 +126,12 @@ output "vpc" {
     public_subnet_ids         = local.public_subnet_ids
     default_security_group_id = local.default_security_group_id
 
+    # ID of the S3 gateway endpoint on the private route table, or null when
+    # none exists (a BYO VPC, or opted out). Absent from the state of
+    # environments provisioned before this output existed, which templates read
+    # the same way as null.
+    s3_gateway_endpoint_id = one(aws_vpc_endpoint.s3[*].id)
+
     # Ryvn-provisioned VPCs only. In BYO the TGW attachment is pre-existing.
     transit_gateway_subnet_ids         = aws_subnet.transit_gateway[*].id
     transit_gateway_subnet_cidr_blocks = aws_subnet.transit_gateway[*].cidr_block
@@ -133,7 +139,7 @@ output "vpc" {
 
     nat_public_ips = local.outbound_ips
   }
-  description = "A map of vpc attributes: name, id, cidr, cidrs, azs, private_subnet_cidr_blocks, private_subnet_ids, subnet_discovery_by_id_required, public_subnet_cidr_blocks, public_subnet_ids, default_security_group_id."
+  description = "A map of vpc attributes: name, id, cidr, cidrs, azs, private_subnet_cidr_blocks, private_subnet_ids, subnet_discovery_by_id_required, public_subnet_cidr_blocks, public_subnet_ids, default_security_group_id, s3_gateway_endpoint_id."
 }
 
 output "outbound_ips" {
