@@ -44,13 +44,13 @@ spec:
   - name: customNodePools
     type: string
     default: ''
-    description: Define custom Karpenter NodePools with specific instance requirements, taints, or labels. Overrides the default node pool when set. Provide as YAML.
+    description: Define custom Karpenter NodePools with specific instance requirements, taints, or labels. Merged with the default application pool; instanceCategories and cpuSizes no longer apply when set. Provide as YAML.
     displayName: Custom Node Pools
     multiline: true
   - name: customNodeClasses
     type: string
     default: ''
-    description: Define custom Karpenter EC2NodeClasses with specific AMIs, block device mappings, or instance store policies. Overrides the default node class when set. Provide as YAML.
+    description: Define custom Karpenter EC2NodeClasses with specific AMIs, block device mappings, or instance store policies. Merged with the default node class; diskSize no longer applies when set. Provide as YAML.
     displayName: Custom Node Classes
     multiline: true
   - name: logs
