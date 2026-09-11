@@ -57,8 +57,10 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = var.kms_key_arn == "" ? "AES256" : "aws:kms"
+      kms_master_key_id = var.kms_key_arn == "" ? null : var.kms_key_arn
     }
+    bucket_key_enabled = var.kms_key_arn == "" ? null : true
   }
 }
 
@@ -69,6 +71,31 @@ resource "aws_s3_bucket_public_access_block" "this" {
   block_public_policy     = !var.public_access
   ignore_public_acls      = !var.public_access
   restrict_public_buckets = !var.public_access
+}
+
+resource "aws_s3_bucket_policy" "this" {
+  bucket = aws_s3_bucket.this.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          aws_s3_bucket.this.arn,
+          "${aws_s3_bucket.this.arn}/*",
+        ]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
+      },
+    ]
+  })
+
+  depends_on = [aws_s3_bucket_public_access_block.this]
 }
 
 resource "aws_s3_bucket_cors_configuration" "this" {

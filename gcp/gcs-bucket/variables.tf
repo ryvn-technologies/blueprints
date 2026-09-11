@@ -1,7 +1,12 @@
-variable "aws_region" {
-  description = "AWS region where the bucket is created"
+variable "project_id" {
+  description = "GCP project that owns the bucket"
   type        = string
-  default     = "us-east-1"
+}
+
+variable "region" {
+  description = "GCP region (bucket location)"
+  type        = string
+  default     = "us-central1"
 }
 
 # Identity
@@ -23,19 +28,19 @@ variable "environment" {
 
 # Security
 variable "versioning" {
-  description = "Enable object versioning. Once enabled, versioning can be suspended but not fully removed."
+  description = "Enable object versioning."
   type        = bool
   default     = false
 }
 
 variable "public_access" {
-  description = "Allow public access to the bucket. When false (default), all four S3 public access block settings are enforced. Not currently exposed by the bucket blueprint — left in place for direct module consumers and for a future cross-cloud publicAccess input."
+  description = "Allow public access to the bucket. When false (default), public access prevention is enforced. Not currently exposed by the bucket blueprint — left in place for direct module consumers and for a future cross-cloud publicAccess input."
   type        = bool
   default     = false
 }
 
 variable "cors_rules" {
-  description = "Browser CORS rules for direct cross-origin bucket requests."
+  description = "Browser CORS rules for direct cross-origin bucket requests. GCS merges allowed_headers and expose_headers into a single response header list."
   type = list(object({
     allowed_origins = list(string)
     allowed_methods = list(string)
@@ -65,10 +70,10 @@ variable "cors_rules" {
     condition = alltrue(flatten([
       for rule in var.cors_rules : [
         for method in rule.allowed_methods :
-        contains(["GET", "PUT", "POST", "DELETE", "HEAD"], upper(trimspace(method)))
+        contains(["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS", "*"], upper(trimspace(method)))
       ]
     ]))
-    error_message = "CORS rule methods must only contain valid S3 CORS methods: GET, PUT, POST, DELETE, HEAD."
+    error_message = "CORS rule methods must only contain valid GCS CORS methods: GET, PUT, POST, DELETE, HEAD, OPTIONS, *."
   }
 
   validation {
@@ -110,39 +115,21 @@ variable "deletion_protection" {
   default     = true
 }
 
-# Pod Identity
-variable "cluster_name" {
-  description = "Name of the EKS cluster where Pod Identity associations will be created"
-  type        = string
-}
-
-variable "pod_identity_namespace" {
-  description = "Kubernetes namespace containing the service accounts that should assume the bucket access role via EKS Pod Identity. Leave empty to create only the role."
-  type        = string
-  default     = ""
-}
-
-variable "pod_identity_service_accounts" {
-  description = "Kubernetes service account names in pod_identity_namespace that should assume the bucket access role via EKS Pod Identity. Leave empty to create only the role."
-  type        = list(string)
-  default     = []
-}
-
 # Encryption
-variable "kms_key_arn" {
-  description = "ARN of a customer-managed KMS key for server-side encryption (SSE-KMS). Leave empty for S3-managed keys (SSE-S3). The key policy must allow this account's IAM principals to use the key; the bucket role and managed policy are granted the matching kms:* actions."
+variable "kms_key_name" {
+  description = "Full resource name of a Cloud KMS key (projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>) used as the bucket's default encryption key. Leave empty for Google-managed keys. The key must be in the bucket's location; the storage service agent is granted cryptoKeyEncrypterDecrypter on it."
   type        = string
   default     = ""
 
   validation {
-    condition     = var.kms_key_arn == "" || can(regex("^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/", var.kms_key_arn))
-    error_message = "kms_key_arn must be empty or a KMS key ARN (arn:aws:kms:<region>:<account>:key/<id>)."
+    condition     = var.kms_key_name == "" || can(regex("^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$", var.kms_key_name))
+    error_message = "kms_key_name must be empty or of the form projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>."
   }
 }
 
-# Tags
-variable "tags" {
-  description = "Tags to apply to all resources"
+# Labels
+variable "labels" {
+  description = "Labels to apply to the bucket"
   type        = map(string)
   default     = {}
 }

@@ -20,13 +20,10 @@ resource "aws_iam_role" "bucket_access" {
   tags = local.all_tags
 }
 
-resource "aws_iam_role_policy" "bucket_access" {
-  name = "bucket-access"
-  role = aws_iam_role.bucket_access.id
-
-  policy = jsonencode({
+locals {
+  bucket_access_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Sid    = "ListBucket"
         Effect = "Allow"
@@ -49,8 +46,35 @@ resource "aws_iam_role_policy" "bucket_access" {
         ]
         Resource = "${aws_s3_bucket.this.arn}/*"
       },
-    ]
+      ], var.kms_key_arn == "" ? [] : [
+      {
+        Sid    = "BucketKeyUsage"
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey",
+          "kms:ReEncrypt*",
+        ]
+        Resource = var.kms_key_arn
+      },
+    ])
   })
+}
+
+resource "aws_iam_role_policy" "bucket_access" {
+  name   = "bucket-access"
+  role   = aws_iam_role.bucket_access.id
+  policy = local.bucket_access_policy
+}
+
+# Standalone grant for the workload identity module (role_groups.<group>.policy_arns).
+resource "aws_iam_policy" "bucket_access" {
+  name        = substr("${local.bucket_name}-access", 0, 128)
+  path        = "/ryvn/buckets/"
+  description = "Read/write access to the ${local.bucket_name} S3 bucket"
+  policy      = local.bucket_access_policy
+
+  tags = local.all_tags
 }
 
 locals {

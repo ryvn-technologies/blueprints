@@ -21,8 +21,9 @@ module "bucket" {
 ## What's Included
 
 - **Bucket**: Unique name (prefix + random suffix), tagged with `Terraform` and `Environment`
-- **Encryption**: SSE-S3 (AES256) always on
-- **Public access**: All four public-access-block settings enforced by default (`public_access = false`). The module accepts a `public_access = true` override for direct consumers, but the bucket blueprint does not currently expose it — a cross-cloud `publicAccess` input is tracked in `docs-internal/bucket-blueprint-multicloud-plan.md` §4.
+- **Encryption**: SSE-S3 (AES256) by default, SSE-KMS with S3 Bucket Keys when `kms_key_arn` is set
+- **Transport**: Bucket policy denies all requests over plaintext HTTP (`aws:SecureTransport = false`)
+- **Public access**: All four public-access-block settings enforced by default (`public_access = false`). The module accepts a `public_access = true` override for direct consumers, but the bucket blueprint does not currently expose it.
 - **CORS**: Optional browser CORS configuration for presigned URL and other direct bucket access flows, modeled as a list of rules so the module can grow to multiple rules without an interface change
 - **Versioning**: Off by default, opt-in via `versioning`
 - **Lifecycle**: Optional current-version expiration and noncurrent-version expiration
@@ -46,6 +47,7 @@ module "bucket" {
 | `expiration_days` | Expire current versions after N days (0 = disabled) | `0` |
 | `noncurrent_version_expiration_days` | Expire noncurrent versions after N days (0 = disabled; requires versioning) | `0` |
 | `deletion_protection` | Single switch. `true` blocks destroy of a non-empty bucket; `false` lets Terraform empty the bucket (all versions) and delete it. | `true` |
+| `kms_key_arn` | Customer-managed KMS key ARN for SSE-KMS (with S3 Bucket Keys). Empty = SSE-S3. The role and managed policy get the matching `kms:*` actions; the key policy must allow this account's principals | `""` |
 | `tags` | Tags for all resources | `{}` |
 
 Each `cors_rules` entry has this shape:
@@ -72,6 +74,9 @@ cors_rules = [
 | `region` | AWS region |
 | `endpoint` | Regional S3 endpoint URL |
 | `role_arn` | IAM role ARN (assumed by pods via Pod Identity) |
+| `policy_arn` | Managed IAM policy ARN with the same bucket permissions; feed to the workload identity module's `role_groups.<group>.policy_arns` |
+| `encryption_key_id` | The `kms_key_arn` in use, or empty |
+| `workload_grants` | `[{ policy_arn }]` — same grant in the cross-cloud list shape every bucket module exposes |
 | `role_name` | IAM role name |
 
 ## One-Way Decisions
@@ -81,7 +86,7 @@ These cannot be changed after creation: bucket name, bucket region. Once version
 ## Future Additions
 
 - Expose additional Pod Identity customization via blueprint input if per-service namespace support is ever needed
-- Unified `publicAccess` mode for hosting public static content (cross-cloud; deferred — see `docs-internal/bucket-blueprint-multicloud-plan.md`)
+- Unified `publicAccess` mode for hosting public static content
 - SSE-KMS with customer-managed keys
 - Lifecycle transitions (to STANDARD_IA, GLACIER, etc.)
 - Object lock / retention

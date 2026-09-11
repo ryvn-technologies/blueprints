@@ -4,9 +4,13 @@ metadata:
   name: bucket
 spec:
   description: |
-    Provisions an S3 object storage bucket on AWS with sensible defaults: server-side encryption always on, all public access blocked, and a dedicated IAM role scoped to just this bucket. Pods get access via EKS Pod Identity -- no static access keys to manage or rotate. Pick a name, decide on versioning and lifecycle rules, and the blueprint handles the rest.
+    Provisions an object storage bucket on AWS (S3), GCP (Cloud Storage), or Azure (Blob Storage) with sensible defaults: server-side encryption always on, public access blocked, and no static access keys. Pick a name, decide on versioning and lifecycle rules, and the blueprint handles the rest.
 
-    Outputs include `bucketName`, `bucketId`, and `connectionUrl`. List the services that should get bucket access under Target Services and the blueprint wires up EKS Pod Identity associations for each one; otherwise just the role is created and you can associate it yourself.
+    Workloads authenticate with their cloud identity, never with keys. On AWS, list the services that should get access under Target Services. On GCP and Azure, access is granted through the workload identity blueprint using this bucket's `workloadGrants` output; until that is wired up, no workload can reach the bucket.
+
+    Use the native client for each cloud: the AWS S3 SDK, the Google Cloud Storage SDK, or the Azure Storage SDK (`endpoint` is the service endpoint for each). GCS also exposes an S3-compatible endpoint, but S3 SDKs against it require HMAC keys, which this blueprint does not create.
+
+    To use your own encryption key, the key must already exist and Ryvn's provisioner must be able to grant the bucket's service identity access to it: on AWS the KMS key policy must allow the account's IAM principals; on GCP the provisioner needs `cloudkms.cryptoKeys.setIamPolicy` on the key; on Azure the provisioner needs role-assignment rights on the Key Vault, which must use RBAC authorization with purge protection enabled.
   displayName: Bucket
   inputGroups:
     - name: naming
@@ -40,6 +44,12 @@ spec:
       description: Keep previous versions of objects. Useful for recovery from accidental overwrites or deletes. Once enabled, versioning can be suspended but not fully removed.
       displayName: Versioning
       group: security
+    - name: encryptionKeyId
+      type: string
+      default: ""
+      description: Customer-managed encryption key for data at rest (KMS key ARN on AWS, Cloud KMS key on GCP, Key Vault key on Azure). Leave blank to use the cloud provider's managed keys.
+      displayName: Encryption Key
+      group: security
     - name: expirationDays
       type: number
       default: 0
@@ -58,6 +68,7 @@ spec:
       description: Installation names of services that should get read/write access to this bucket.
       displayName: Target Service Installations
       group: access
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
     - name: enableCors
       type: boolean
       default: false
@@ -103,7 +114,7 @@ spec:
     - name: deletionProtection
       type: boolean
       default: true
-      description: Protects the bucket from accidental destruction. When enabled, the bucket cannot be destroyed while it contains objects. Disable to let Terraform empty and delete the bucket when tearing down an environment.
+      description: Protects the bucket from accidental destruction. On AWS and GCP the bucket cannot be destroyed while it contains objects. On Azure a CanNotDelete lock on the storage account blocks out-of-band deletes (portal, CLI), but uninstalling this blueprint still removes the account and its data.
       displayName: Deletion Protection
       group: protection
   outputs:
@@ -115,13 +126,63 @@ spec:
     - name: bucketId
       type: string
       from: '{{ (serviceInstallation "bucket").outputs.bucket_id }}'
-      description: Cloud-native identifier for the bucket (an ARN on AWS, a resource ID on GCP or Azure).
+      description: Cloud-native identifier for the bucket (an ARN on AWS, a self link on GCP, the container's Resource Manager ID on Azure).
       displayName: Bucket ID
     - name: connectionUrl
       type: string
-      from: 'https://{{ (serviceInstallation "bucket").outputs.bucket_domain_name }}'
-      description: HTTP connection URL for the bucket (e.g. https://my-bucket.s3.us-east-1.amazonaws.com).
+      from: 'https://{{ (serviceInstallation "bucket").outputs.bucket_domain_name }}{{ if eq EnvironmentProviderType "azure" }}/{{ (serviceInstallation "bucket").outputs.bucket_name }}{{ end }}'
+      description: HTTP connection URL for the bucket (e.g. https://my-bucket.s3.us-east-1.amazonaws.com, https://my-bucket.storage.googleapis.com, https://myaccount.blob.core.windows.net/my-container).
       displayName: Connection URL
+    - name: endpoint
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.endpoint }}'
+      description: Object storage service endpoint for SDK configuration. S3-compatible on AWS (regional S3 endpoint) and GCP (https://storage.googleapis.com, the GCS XML API); the storage account's blob endpoint on Azure (Azure SDK only).
+      displayName: Endpoint
+    - name: region
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.region }}'
+      description: Cloud region or location where the bucket lives.
+      displayName: Region
+    - name: encryptionKeyId
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.encryption_key_id }}'
+      description: Customer-managed key encrypting the bucket, or empty when provider-managed keys are used.
+      displayName: Encryption Key
+    - name: workloadGrants
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.workload_grants | toJson }}'
+      description: JSON list of grants for the workload identity module, in the provider's shape (AWS `[{ policy_arn }]`, GCP `[{ kind, target, role }]`, Azure `[{ scope, role_definition_name }]`).
+      displayName: Workload Grants
+    - name: iamPolicyArn
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.policy_arn }}'
+      description: ARN of the managed IAM policy granting read/write access to this bucket. Attach it to a workload identity role group via `policy_arns`.
+      displayName: IAM Policy ARN
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+    - name: iamRole
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.iam_role }}'
+      description: IAM role to bind on the bucket for workload principals (with `bucketName`) via a workload identity role group's `buckets`.
+      displayName: IAM Role
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+    - name: storageAccountName
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.storage_account_name }}'
+      description: Name of the storage account that holds the container.
+      displayName: Storage Account Name
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+    - name: roleAssignmentScope
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.role_assignment_scope }}'
+      description: Resource Manager ID of the container to use as the scope of a workload identity role assignment.
+      displayName: Role Assignment Scope
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+    - name: roleDefinitionName
+      type: string
+      from: '{{ (serviceInstallation "bucket").outputs.role_definition_name }}'
+      description: Built-in Azure role granting read/write access to blobs in the container.
+      displayName: Role Definition Name
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
   installations:
     - service: s3-bucket
       name: '{{ ParentInstallationName }}'
@@ -138,8 +199,63 @@ spec:
         expiration_days: {{ input "expirationDays" }}
         noncurrent_version_expiration_days: {{ input "noncurrentVersionExpirationDays" }}
         deletion_protection: {{ input "deletionProtection" }}
+        kms_key_arn: '{{ input "encryptionKeyId" }}'
         pod_identity_namespace: '{{ .ryvn.env.defaultNamespace }}'
         pod_identity_service_accounts: {{ input "targetServiceInstallations" | toJson }}
+        {{ if eq (input "enableCors") true }}
+        cors_rules:
+          - allowed_origins: {{ input "corsAllowedOrigins" | toJson }}
+            allowed_methods: {{ input "corsAllowedMethods" | toJson }}
+            allowed_headers: {{ input "corsAllowedHeaders" | toJson }}
+            expose_headers: {{ input "corsExposeHeaders" | toJson }}
+            max_age_seconds: {{ input "corsMaxAgeSeconds" }}
+        {{ else }}
+        cors_rules: []
+        {{ end }}
+      releaseChannel: stable
+    - service: gcs-bucket
+      name: '{{ ParentInstallationName }}'
+      alias: bucket
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        region: '{{ .ryvn.env.state.cluster_region }}'
+        name_prefix: 'bucket'
+        bucket_name: '{{ input "bucketName" }}'
+        environment: '{{ .ryvn.env.name }}'
+        versioning: {{ input "versioning" }}
+        expiration_days: {{ input "expirationDays" }}
+        noncurrent_version_expiration_days: {{ input "noncurrentVersionExpirationDays" }}
+        deletion_protection: {{ input "deletionProtection" }}
+        kms_key_name: '{{ input "encryptionKeyId" }}'
+        {{ if eq (input "enableCors") true }}
+        cors_rules:
+          - allowed_origins: {{ input "corsAllowedOrigins" | toJson }}
+            allowed_methods: {{ input "corsAllowedMethods" | toJson }}
+            allowed_headers: {{ input "corsAllowedHeaders" | toJson }}
+            expose_headers: {{ input "corsExposeHeaders" | toJson }}
+            max_age_seconds: {{ input "corsMaxAgeSeconds" }}
+        {{ else }}
+        cors_rules: []
+        {{ end }}
+      releaseChannel: stable
+    - service: blob-container
+      name: '{{ ParentInstallationName }}'
+      alias: bucket
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        location: '{{ .ryvn.env.state.resource_group.location }}'
+        resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
+        name_prefix: 'bucket'
+        bucket_name: '{{ input "bucketName" }}'
+        environment: '{{ .ryvn.env.name }}'
+        versioning: {{ input "versioning" }}
+        expiration_days: {{ input "expirationDays" }}
+        noncurrent_version_expiration_days: {{ input "noncurrentVersionExpirationDays" }}
+        deletion_protection: {{ input "deletionProtection" }}
+        encryption_key_id: '{{ input "encryptionKeyId" }}'
         {{ if eq (input "enableCors") true }}
         cors_rules:
           - allowed_origins: {{ input "corsAllowedOrigins" | toJson }}

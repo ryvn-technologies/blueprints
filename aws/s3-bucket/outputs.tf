@@ -32,3 +32,18 @@ output "role_name" {
   description = "Name of the IAM role that grants access to the bucket"
   value       = aws_iam_role.bucket_access.name
 }
+
+output "policy_arn" {
+  description = "ARN of a managed IAM policy granting read/write access to this bucket. Pass it to the workload identity module's role_groups.<group>.policy_arns."
+  value       = aws_iam_policy.bucket_access.arn
+}
+
+output "workload_grants" {
+  description = "Grants for the workload identity module. Each entry maps to role_groups.<group>.policy_arns."
+  value       = [{ policy_arn = aws_iam_policy.bucket_access.arn }]
+}
+
+output "encryption_key_id" {
+  description = "Customer-managed KMS key ARN used for encryption, or empty when S3-managed keys are used."
+  value       = var.kms_key_arn
+}
