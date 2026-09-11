@@ -77,6 +77,18 @@ variable "database_password" {
   sensitive   = true
 }
 
+# Encryption
+variable "kms_key_id" {
+  description = "ARN of a customer-managed KMS key for storage encryption (and Performance Insights data when enabled). Leave empty to use the AWS-managed aws/rds key. Cannot be changed after creation; the key policy must allow the provisioning role kms:DescribeKey and kms:CreateGrant."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.kms_key_id == null || trimspace(var.kms_key_id) == "" || can(regex("^arn:aws[a-z-]*:kms:", var.kms_key_id))
+    error_message = "kms_key_id must be a KMS key ARN (arn:aws:kms:...). Key IDs and aliases are not accepted by RDS."
+  }
+}
+
 # Protection
 variable "deletion_protection" {
   description = "Prevent accidental deletion of the database instance"

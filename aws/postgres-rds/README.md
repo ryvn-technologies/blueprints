@@ -19,7 +19,7 @@ module "postgres" {
 
 ## What's Included
 
-- **Storage**: GP3 with autoscaling, encrypted at rest
+- **Storage**: GP3 with autoscaling, encrypted at rest (AWS-managed key by default, or a customer-managed KMS key via `kms_key_id`)
 - **Backups**: Automated daily backups (7-day retention), final snapshot on destroy
 - **Monitoring**: Performance Insights, Enhanced Monitoring (60s), CloudWatch log exports (postgresql, upgrade)
 - **Security**: VPC security group, deletion protection enabled by default
@@ -40,6 +40,7 @@ module "postgres" {
 | `storage_gb` | Initial storage in GiB (can only increase) | `20` |
 | `max_storage_gb` | Max storage for autoscaling (0 to disable) | `100` |
 | `high_availability` | Multi-AZ deployment | `false` |
+| `kms_key_id` | Customer-managed KMS key ARN for storage and Performance Insights encryption | `null` (AWS-managed key) |
 | `deletion_protection` | Prevent accidental deletion | `true` |
 | `database_name` | Default database to create | `null` |
 | `backup_retention_days` | Automated backup retention | `7` |
@@ -66,7 +67,11 @@ module "postgres" {
 
 ## One-Way Decisions
 
-These cannot be changed after creation: VPC/subnets, master username, port, storage encryption, storage type (GP3). Storage can only be increased, never decreased.
+These cannot be changed after creation: VPC/subnets, master username, port, storage encryption, KMS key, storage type (GP3). Storage can only be increased, never decreased.
+
+## Customer-Managed Keys
+
+Set `kms_key_id` to a KMS key ARN to encrypt storage, snapshots, and Performance Insights data with your own key. The key must live in the same region as the instance. Its key policy has to let the provisioning role call `kms:DescribeKey` and `kms:CreateGrant`; RDS creates a grant on the key for the instance. Switching an existing instance to a different key forces replacement.
 
 ## Future Additions
 

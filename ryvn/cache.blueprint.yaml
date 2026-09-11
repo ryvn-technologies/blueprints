@@ -9,6 +9,8 @@ spec:
     Size controls memory allocation: small gives ~1 GB, medium ~2 GB, large ~4 GB (exact specs vary by provider). High availability adds a replica with automatic failover (multi-AZ on AWS, STANDARD_HA tier on GCP, Standard SKU on Azure).
 
     Outputs include `host`, `port`, `connectionUrl`, and `authToken`. Other installations in the same environment can reference these to connect.
+
+    To use your own encryption key, the key must already exist in the environment's region and the cache service must be able to use it: on AWS the KMS key policy must allow the provisioning role `kms:DescribeKey` and `kms:CreateGrant`; on GCP the Memorystore service agent needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key. The key is fixed at creation time and changing it later replaces the cache. Azure Cache for Redis only supports customer-managed keys on the Enterprise tiers, which this blueprint does not provision.
   displayName: Cache
   inputs:
     - name: cacheName
@@ -33,6 +35,13 @@ spec:
       default: false
       description: Enable high availability with automatic failover.
       displayName: High Availability
+    - name: encryptionKeyId
+      type: string
+      default: ""
+      description: Customer-managed encryption key for data at rest (KMS key ARN on AWS, Cloud KMS key on GCP). Leave blank to use the cloud provider's managed keys.
+      displayName: Encryption Key
+      immutable: true
+      condition: '{{ ne EnvironmentProviderType "azure" }}'
   outputs:
     - name: host
       type: string
@@ -74,6 +83,9 @@ spec:
         multi_az_enabled: true
         automatic_failover_enabled: true
         {{- end }}
+        {{- if input "encryptionKeyId" }}
+        kms_key_id: '{{ input "encryptionKeyId" }}'
+        {{- end }}
       releaseChannel: stable
     - service: memorystore-redis
       name: '{{ ParentInstallationName }}'
@@ -88,6 +100,9 @@ spec:
         tier: '{{ if input "highAvailability" }}STANDARD_HA{{ else }}BASIC{{ end }}'
         memory_size_gb: {{ if eq (input "size") "large" }}4{{ else if eq (input "size") "small" }}1{{ else }}2{{ end }}
         authorized_network: '{{ .ryvn.env.state.vpc.self_link }}'
+        {{- if input "encryptionKeyId" }}
+        customer_managed_key: '{{ input "encryptionKeyId" }}'
+        {{- end }}
       releaseChannel: stable
     - service: redis-cache
       name: '{{ ParentInstallationName }}'

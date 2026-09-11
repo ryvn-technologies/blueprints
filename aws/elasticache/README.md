@@ -7,7 +7,7 @@ Terraform module for provisioning AWS ElastiCache with Redis or Valkey engine.
 - Supports both Redis and Valkey engines
 - Configurable replication with read replicas
 - Multi-AZ with automatic failover
-- Encryption at rest and in transit
+- Encryption at rest (AWS-managed or customer-managed KMS key) and in transit
 - AUTH token support
 - Automated snapshots
 - SNS notifications
@@ -96,7 +96,8 @@ module "cache" {
 | `multi_az_enabled` | `false` | Multi-AZ (needs >= 2 nodes) |
 | `automatic_failover_enabled` | `false` | Auto-failover (needs >= 2 nodes) |
 | `at_rest_encryption_enabled` | `true` | Encrypt data at rest |
-| `transit_encryption_enabled` | `false` | Encrypt data in transit (TLS) |
+| `transit_encryption_enabled` | `true` | Encrypt data in transit (TLS) |
+| `kms_key_id` | `null` | Customer-managed KMS key ARN for at-rest encryption (needs `at_rest_encryption_enabled`) |
 | `auth_token` | `null` | AUTH password (needs TLS enabled) |
 | `snapshot_retention_limit` | `7` | Days to keep snapshots (0 = disabled) |
 
@@ -116,7 +117,7 @@ module "cache" {
 
 Cannot be changed after creation:
 - VPC / subnet configuration
-- At-rest encryption
+- At-rest encryption and its KMS key
 - Engine type (redis vs valkey)
 
 ## Modifiable After Creation

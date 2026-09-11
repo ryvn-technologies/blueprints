@@ -106,6 +106,17 @@ variable "transit_encryption_enabled" {
   default     = true
 }
 
+variable "kms_key_id" {
+  description = "ARN of a customer-managed KMS key for at-rest encryption. Leave empty to use the AWS-managed key. Requires at_rest_encryption_enabled. Cannot be changed after creation."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.kms_key_id == null || trimspace(var.kms_key_id) == "" || can(regex("^arn:aws[a-z-]*:kms:", var.kms_key_id))
+    error_message = "kms_key_id must be a KMS key ARN (arn:aws:kms:...)."
+  }
+}
+
 # Authentication
 variable "auth_token" {
   description = "Auth token (password) for Redis/Valkey AUTH. If null and transit_encryption_enabled is true, a token is auto-generated. Must be 16-128 chars if provided manually."

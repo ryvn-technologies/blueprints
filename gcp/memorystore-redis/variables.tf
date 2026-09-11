@@ -92,6 +92,17 @@ variable "transit_encryption_enabled" {
   default     = true
 }
 
+variable "customer_managed_key" {
+  description = "Cloud KMS key for CMEK at-rest encryption, as projects/PROJECT/locations/REGION/keyRings/RING/cryptoKeys/KEY. Leave empty for Google-managed encryption. The key must be in the instance's region and the Memorystore service agent (service-PROJECT_NUMBER@cloud-redis.iam.gserviceaccount.com) needs roles/cloudkms.cryptoKeyEncrypterDecrypter on it before the instance is created. Cannot be changed after creation."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.customer_managed_key == null || trimspace(var.customer_managed_key) == "" || can(regex("^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$", trimspace(var.customer_managed_key)))
+    error_message = "customer_managed_key must be a Cloud KMS key resource name: projects/PROJECT/locations/REGION/keyRings/RING/cryptoKeys/KEY."
+  }
+}
+
 # Redis configuration
 variable "redis_configs" {
   description = "Redis configuration parameters (e.g. maxmemory-policy, notify-keyspace-events)"

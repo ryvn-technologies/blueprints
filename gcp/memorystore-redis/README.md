@@ -7,6 +7,7 @@ Terraform module for provisioning Google Cloud Memorystore for Redis.
 - BASIC and STANDARD_HA tier support
 - AUTH authentication enabled by default
 - In-transit encryption (TLS) enabled by default
+- Optional customer-managed encryption key (CMEK) for data at rest
 - Private-only access via VPC network
 - Configurable Redis parameters
 - Maintenance window scheduling
@@ -88,6 +89,7 @@ module "cache" {
 | `connect_mode` | `"DIRECT_PEERING"` | `"DIRECT_PEERING"` or `"PRIVATE_SERVICE_ACCESS"` |
 | `auth_enabled` | `true` | Enable Redis AUTH |
 | `transit_encryption_enabled` | `true` | Enable TLS |
+| `customer_managed_key` | `null` | Cloud KMS key resource name for CMEK (same region as the instance) |
 | `redis_configs` | `{}` | Redis configuration parameters |
 | `maintenance_day` | `"SUNDAY"` | Maintenance day |
 | `maintenance_hour` | `4` | Maintenance hour (UTC) |
@@ -109,6 +111,7 @@ Cannot be changed after creation:
 - VPC network (authorized_network)
 - Connect mode
 - Region
+- Customer-managed encryption key
 
 ## Modifiable After Creation
 

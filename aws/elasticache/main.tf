@@ -45,6 +45,9 @@ locals {
     var.auth_token != null ? var.auth_token : random_password.auth_token[0].result
   ) : var.auth_token
 
+  # Empty string and null both mean "use the AWS-managed key".
+  kms_key_id = var.kms_key_id == null || trimspace(var.kms_key_id) == "" ? null : trimspace(var.kms_key_id)
+
   all_tags = merge(var.tags, {
     Terraform   = "true"
     Environment = var.environment
@@ -96,6 +99,7 @@ resource "aws_elasticache_replication_group" "this" {
   # Encryption
   at_rest_encryption_enabled = var.at_rest_encryption_enabled
   transit_encryption_enabled = var.transit_encryption_enabled
+  kms_key_id                 = local.kms_key_id
 
   # Authentication
   auth_token = local.auth_token
@@ -148,6 +152,11 @@ resource "aws_elasticache_replication_group" "this" {
     precondition {
       condition     = !var.transit_encryption_enabled || local.auth_token != null
       error_message = "transit_encryption_enabled requires authentication. Provide auth_token or leave it null to auto-generate one."
+    }
+
+    precondition {
+      condition     = local.kms_key_id == null || var.at_rest_encryption_enabled
+      error_message = "kms_key_id requires at_rest_encryption_enabled = true."
     }
   }
 }

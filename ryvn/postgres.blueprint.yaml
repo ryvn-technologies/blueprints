@@ -6,9 +6,11 @@ spec:
   description: |
     Provisions a managed Postgres instance using each cloud's native service -- RDS on AWS, Cloud SQL on GCP, Flexible Server on Azure. The blueprint picks the right Terraform module based on your environment's cloud provider, so your other installations reference the same outputs regardless of where they run.
 
-    Instances get encryption at rest and automated backups. You choose the Postgres version (14--17), instance size (small maps to db.t3.medium on AWS, medium to db.r7g.large, large to db.r7g.xlarge -- with equivalent tiers on GCP and Azure), and backup retention. High availability adds a standby replica with automatic failover.
+    Instances get encryption at rest (with your own KMS or Key Vault key if you supply one) and automated backups. You choose the Postgres version (14--17), instance size (small maps to db.t3.medium on AWS, medium to db.r7g.large, large to db.r7g.xlarge -- with equivalent tiers on GCP and Azure), and backup retention. High availability adds a standby replica with automatic failover.
 
     Outputs include `host`, `port`, `connectionString`, and credentials. Other installations in the same environment can reference these outputs to connect without manual configuration.
+
+    To use your own encryption key, the key must already exist in the environment's region and the database service must be able to use it: on AWS the KMS key policy must allow the provisioning role `kms:DescribeKey` and `kms:CreateGrant`; on GCP the Cloud SQL service agent needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key; on Azure a user-assigned identity with the Key Vault Crypto Service Encryption User role is required. The key is fixed at creation time and changing it later replaces the instance.
   displayName: Postgres
   inputGroups:
     - name: engine
@@ -23,6 +25,9 @@ spec:
     - name: backup
       description: Backup and recovery settings
       displayName: Backup
+    - name: encryption
+      description: Customer-managed encryption key
+      displayName: Encryption
     - name: users
       description: Optional read-only and read-write application users
       displayName: Application Users
@@ -106,6 +111,21 @@ spec:
       description: Protects the database from accidental destruction. Disable before tearing down an environment.
       displayName: Deletion Protection
       group: backup
+    - name: encryptionKeyId
+      type: string
+      default: ""
+      description: Customer-managed encryption key for data at rest (KMS key ARN on AWS, Cloud KMS key on GCP, Key Vault key on Azure). Leave blank to use the cloud provider's managed keys.
+      displayName: Encryption Key
+      group: encryption
+      immutable: true
+    - name: encryptionKeyIdentityId
+      type: string
+      default: ""
+      description: User-assigned managed identity the server uses to access the Key Vault key. Required with an encryption key on Azure.
+      displayName: Encryption Key Identity
+      group: encryption
+      immutable: true
+      condition: '{{ and (eq EnvironmentProviderType "azure") (ne (input "encryptionKeyId") "") }}'
     - name: enableReadOnlyUser
       type: boolean
       default: false
@@ -286,6 +306,9 @@ spec:
         database_password: '{{ k8sSecretValue "database-password" "database_password" }}'
         backup_retention_days: {{ input "backupRetentionDays" }}
         deletion_protection: {{ input "deletionProtection" }}
+        {{- if input "encryptionKeyId" }}
+        kms_key_id: '{{ input "encryptionKeyId" }}'
+        {{- end }}
       secrets:
         - name: database-password
           values:
@@ -322,6 +345,9 @@ spec:
         {{- end }}
         backup_retention_days: {{ input "backupRetentionDays" }}
         deletion_protection: {{ input "deletionProtection" }}
+        {{- if input "encryptionKeyId" }}
+        encryption_key_name: '{{ input "encryptionKeyId" }}'
+        {{- end }}
       secrets:
         - name: database-password
           values:
@@ -356,6 +382,10 @@ spec:
         database_password: '{{ k8sSecretValue "database-password" "database_password" }}'
         backup_retention_days: {{ input "backupRetentionDays" }}
         deletion_protection: {{ input "deletionProtection" }}
+        {{- if input "encryptionKeyId" }}
+        customer_managed_key_id: '{{ input "encryptionKeyId" }}'
+        customer_managed_key_identity_id: '{{ input "encryptionKeyIdentityId" }}'
+        {{- end }}
       secrets:
         - name: database-password
           values:

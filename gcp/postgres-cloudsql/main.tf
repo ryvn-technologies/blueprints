@@ -34,6 +34,9 @@ locals {
 
   transaction_log_retention_days = local.backups_enabled ? min(var.backup_retention_days, 7) : null
 
+  # Empty string and null both mean "use Google-managed encryption".
+  encryption_key_name = var.encryption_key_name == null || trimspace(var.encryption_key_name) == "" ? null : trimspace(var.encryption_key_name)
+
   all_labels = merge(var.labels, {
     terraform   = "true"
     environment = var.environment
@@ -72,6 +75,9 @@ resource "google_sql_database_instance" "this" {
 
   # Set the root (postgres) user password
   root_password = var.database_password
+
+  # Customer-managed encryption key (CMEK). Create-time only.
+  encryption_key_name = local.encryption_key_name
 
   settings {
     # Compute
@@ -157,6 +163,11 @@ resource "google_sql_database_instance" "this" {
     precondition {
       condition     = var.private_network != null || var.publicly_accessible
       error_message = "At least one of private_network or publicly_accessible must be set. The instance would otherwise be unreachable."
+    }
+
+    precondition {
+      condition     = local.encryption_key_name == null || split("/", local.encryption_key_name)[3] == var.region
+      error_message = "encryption_key_name must be a key in the instance region (${var.region}); Cloud SQL rejects keys from other locations."
     }
   }
 }

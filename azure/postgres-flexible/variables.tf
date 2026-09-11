@@ -82,6 +82,24 @@ variable "database_password" {
   sensitive   = true
 }
 
+# Encryption
+variable "customer_managed_key_id" {
+  description = "Key Vault key ID (https://VAULT.vault.azure.net/keys/KEY or a versioned variant) for customer-managed data encryption. Leave empty for service-managed encryption. Requires customer_managed_key_identity_id. Cannot be changed after creation."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.customer_managed_key_id == null || trimspace(var.customer_managed_key_id) == "" || can(regex("^https://[^/]+/keys/[^/]+(/[^/]+)?$", trimspace(var.customer_managed_key_id)))
+    error_message = "customer_managed_key_id must be a Key Vault key identifier such as https://my-vault.vault.azure.net/keys/my-key."
+  }
+}
+
+variable "customer_managed_key_identity_id" {
+  description = "Resource ID of a user-assigned managed identity that has get, wrapKey, and unwrapKey on the Key Vault key (the Key Vault Crypto Service Encryption User role). Required with customer_managed_key_id."
+  type        = string
+  default     = null
+}
+
 # Protection
 variable "deletion_protection" {
   description = "Prevent accidental deletion using an Azure management lock"

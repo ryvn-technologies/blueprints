@@ -29,6 +29,9 @@ locals {
   major_version    = split(".", var.engine_version)[0]
   family           = "postgres${local.major_version}"
 
+  # Empty string and null both mean "use the AWS-managed key".
+  kms_key_id = var.kms_key_id == null || trimspace(var.kms_key_id) == "" ? null : trimspace(var.kms_key_id)
+
   all_tags = merge(var.tags, {
     Terraform   = "true"
     Environment = var.environment
@@ -87,6 +90,7 @@ resource "aws_db_instance" "this" {
   max_allocated_storage = var.max_storage_gb > 0 ? var.max_storage_gb : null
   storage_type          = "gp3"
   storage_encrypted     = true
+  kms_key_id            = local.kms_key_id
 
   # Database
   db_name  = local.creates_database ? var.database_name : null
@@ -117,6 +121,7 @@ resource "aws_db_instance" "this" {
   # Monitoring
   performance_insights_enabled          = var.performance_insights_enabled
   performance_insights_retention_period = var.performance_insights_enabled ? var.performance_insights_retention_period : null
+  performance_insights_kms_key_id       = var.performance_insights_enabled ? local.kms_key_id : null
   monitoring_interval                   = var.monitoring_interval
   monitoring_role_arn                   = var.monitoring_interval > 0 ? aws_iam_role.rds_monitoring[0].arn : null
   enabled_cloudwatch_logs_exports       = var.enabled_cloudwatch_logs_exports

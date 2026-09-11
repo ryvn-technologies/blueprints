@@ -34,6 +34,11 @@ locals {
   private_access   = local.delegated_subnet_id != "" || local.private_dns_zone_id != ""
   storage_limit_gb = max(var.storage_gb, 32)
 
+  # Empty string and null both mean "use service-managed encryption".
+  customer_managed_key_id          = var.customer_managed_key_id == null ? "" : trimspace(var.customer_managed_key_id)
+  customer_managed_key_identity_id = var.customer_managed_key_identity_id == null ? "" : trimspace(var.customer_managed_key_identity_id)
+  customer_managed_key_enabled     = local.customer_managed_key_id != ""
+
   all_tags = merge(var.tags, {
     Terraform   = "true"
     Environment = var.environment
@@ -76,6 +81,24 @@ resource "azurerm_postgresql_flexible_server" "this" {
     }
   }
 
+  # Customer-managed key. The server authenticates to Key Vault with the
+  # user-assigned identity, so both blocks are required together.
+  dynamic "identity" {
+    for_each = local.customer_managed_key_enabled ? [1] : []
+    content {
+      type         = "UserAssigned"
+      identity_ids = [local.customer_managed_key_identity_id]
+    }
+  }
+
+  dynamic "customer_managed_key" {
+    for_each = local.customer_managed_key_enabled ? [1] : []
+    content {
+      key_vault_key_id                  = local.customer_managed_key_id
+      primary_user_assigned_identity_id = local.customer_managed_key_identity_id
+    }
+  }
+
   tags = local.all_tags
 
   lifecycle {
@@ -88,6 +111,16 @@ resource "azurerm_postgresql_flexible_server" "this" {
     precondition {
       condition     = (local.delegated_subnet_id == "") == (local.private_dns_zone_id == "")
       error_message = "Private PostgreSQL requires both delegated_subnet_id and private_dns_zone_id."
+    }
+
+    precondition {
+      condition     = local.customer_managed_key_enabled == (local.customer_managed_key_identity_id != "")
+      error_message = "customer_managed_key_id and customer_managed_key_identity_id must be set together."
+    }
+
+    precondition {
+      condition     = !(local.customer_managed_key_enabled && var.geo_redundant_backup_enabled)
+      error_message = "Customer-managed keys with geo-redundant backups need a second key and identity in the paired region, which this module does not support. Disable geo_redundant_backup_enabled."
     }
   }
 }

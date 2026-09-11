@@ -34,6 +34,9 @@ locals {
   }
   redis_version = local.redis_version_map[var.redis_version]
 
+  # Empty string and null both mean "use Google-managed encryption".
+  customer_managed_key = var.customer_managed_key == null || trimspace(var.customer_managed_key) == "" ? null : trimspace(var.customer_managed_key)
+
   all_labels = merge(var.labels, {
     terraform   = "true"
     environment = var.environment
@@ -63,6 +66,7 @@ resource "google_redis_instance" "this" {
 
   # Encryption
   transit_encryption_mode = var.transit_encryption_enabled ? "SERVER_AUTHENTICATION" : "DISABLED"
+  customer_managed_key    = local.customer_managed_key
 
   # Redis configuration
   redis_configs = var.redis_configs
@@ -84,4 +88,11 @@ resource "google_redis_instance" "this" {
   }
 
   labels = local.all_labels
+
+  lifecycle {
+    precondition {
+      condition     = local.customer_managed_key == null || split("/", local.customer_managed_key)[3] == var.region
+      error_message = "customer_managed_key must be a key in the instance region (${var.region}); Memorystore rejects keys from other locations."
+    }
+  }
 }

@@ -126,6 +126,18 @@ variable "database_password" {
   sensitive   = true
 }
 
+# Encryption
+variable "encryption_key_name" {
+  description = "Cloud KMS key for CMEK disk encryption, as projects/PROJECT/locations/REGION/keyRings/RING/cryptoKeys/KEY. Leave empty for Google-managed encryption. The key must be in the instance's region and the Cloud SQL service agent (service-PROJECT_NUMBER@gcp-sa-cloud-sql.iam.gserviceaccount.com) needs roles/cloudkms.cryptoKeyEncrypterDecrypter on it before the instance is created. Cannot be changed after creation."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.encryption_key_name == null || trimspace(var.encryption_key_name) == "" || can(regex("^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$", trimspace(var.encryption_key_name)))
+    error_message = "encryption_key_name must be a Cloud KMS key resource name: projects/PROJECT/locations/REGION/keyRings/RING/cryptoKeys/KEY."
+  }
+}
+
 # Protection
 variable "deletion_protection" {
   description = "Prevent accidental deletion of the database instance (applies at both Terraform and GCP API level)"
