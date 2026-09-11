@@ -1,0 +1,26 @@
+name: Build & Release gcs-bucket
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "gcp/gcs-bucket/**"
+      - ".github/workflows/ryvn-gcs-bucket-release.yaml"
+  pull_request:
+    paths:
+      - "gcp/gcs-bucket/**"
+      - ".github/workflows/ryvn-gcs-bucket-release.yaml"
+
+jobs:
+  release:
+    uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
+    with:
+      service_name: gcs-bucket
+    permissions:
+      contents: write
+      id-token: write
+    secrets:
+      RYVN_CLIENT_ID: ${{ secrets.RYVN_CLIENT_ID }}
+      RYVN_CLIENT_SECRET: ${{ secrets.RYVN_CLIENT_SECRET }}
