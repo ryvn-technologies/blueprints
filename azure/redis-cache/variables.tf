@@ -11,7 +11,7 @@ variable "resource_group_name" {
 
 # Identity
 variable "installation_name" {
-  description = "Prefix for the Redis cache name. A stable random suffix is appended automatically."
+  description = "Prefix for the Managed Redis name. A stable random suffix is appended automatically."
   type        = string
 }
 
@@ -22,37 +22,73 @@ variable "environment" {
 
 # SKU
 variable "sku_name" {
-  description = "Redis cache tier: Basic (no replication/SLA), Standard (replicated, 99.9% SLA), Premium (clustering, VNet, persistence)"
+  description = "Managed Redis SKU: Balanced_B (general purpose, e.g. B0 0.5GB, B1 1GB, B3 3GB, B5 6GB, B10 12GB), ComputeOptimized_X, MemoryOptimized_M, or FlashOptimized_A followed by the size number. See the module README for the full list."
   type        = string
-  default     = "Standard"
+  default     = "Balanced_B1"
 
   validation {
-    condition     = contains(["Basic", "Standard", "Premium"], var.sku_name)
-    error_message = "sku_name must be Basic, Standard, or Premium."
+    condition     = contains(["Balanced_B0", "Balanced_B1", "Balanced_B3", "Balanced_B5", "Balanced_B10", "Balanced_B20", "Balanced_B50", "Balanced_B100", "Balanced_B150", "Balanced_B250", "Balanced_B350", "Balanced_B500", "Balanced_B700", "Balanced_B1000", "ComputeOptimized_X3", "ComputeOptimized_X5", "ComputeOptimized_X10", "ComputeOptimized_X20", "ComputeOptimized_X50", "ComputeOptimized_X100", "ComputeOptimized_X150", "ComputeOptimized_X250", "ComputeOptimized_X350", "ComputeOptimized_X500", "ComputeOptimized_X700", "MemoryOptimized_M10", "MemoryOptimized_M20", "MemoryOptimized_M50", "MemoryOptimized_M100", "MemoryOptimized_M150", "MemoryOptimized_M250", "MemoryOptimized_M350", "MemoryOptimized_M500", "MemoryOptimized_M700", "MemoryOptimized_M1000", "MemoryOptimized_M1500", "MemoryOptimized_M2000", "FlashOptimized_A250", "FlashOptimized_A500", "FlashOptimized_A700", "FlashOptimized_A1000", "FlashOptimized_A1500", "FlashOptimized_A2000", "FlashOptimized_A4500"], var.sku_name)
+    error_message = "sku_name must be a supported Azure Managed Redis SKU (see module README)."
   }
 }
 
-variable "capacity" {
-  description = "Cache size: 0-6 for Basic/Standard (250MB-53GB), 1-5 for Premium (6GB-120GB)"
-  type        = number
-  default     = 1
+# High availability
+variable "high_availability_enabled" {
+  description = "Enable a two-node replicated deployment with a 99.999% SLA. Disable for dev environments. Cannot be changed after creation."
+  type        = bool
+  default     = true
+}
+
+# Database
+variable "clustering_policy" {
+  description = "Clustering policy for the default database. EnterpriseCluster gives a single endpoint compatible with non-cluster-aware clients; OSSCluster requires cluster-aware clients but scales better; NoCluster disables clustering. Changing this recreates the database and loses data."
+  type        = string
+  default     = "EnterpriseCluster"
 
   validation {
-    condition     = var.capacity >= 0 && var.capacity <= 6
-    error_message = "capacity must be between 0 and 6."
+    condition     = contains(["EnterpriseCluster", "OSSCluster", "NoCluster"], var.clustering_policy)
+    error_message = "clustering_policy must be EnterpriseCluster, OSSCluster, or NoCluster."
   }
 }
 
-# Engine
-variable "redis_version" {
-  description = "Redis major version"
+variable "eviction_policy" {
+  description = "Eviction policy when the memory limit is reached."
   type        = string
-  default     = "6"
+  default     = "VolatileLRU"
 
   validation {
-    condition     = contains(["4", "6"], var.redis_version)
-    error_message = "Supported Redis versions are 4 and 6."
+    condition     = contains(["AllKeysLFU", "AllKeysLRU", "AllKeysRandom", "VolatileLRU", "VolatileLFU", "VolatileTTL", "VolatileRandom", "NoEviction"], var.eviction_policy)
+    error_message = "eviction_policy must be one of AllKeysLFU, AllKeysLRU, AllKeysRandom, VolatileLRU, VolatileLFU, VolatileTTL, VolatileRandom, NoEviction."
   }
+}
+
+variable "rdb_backup_frequency" {
+  description = "RDB persistence backup frequency for the default database. Null disables persistence."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.rdb_backup_frequency == null || contains(["1h", "6h", "12h"], var.rdb_backup_frequency)
+    error_message = "rdb_backup_frequency must be 1h, 6h, 12h, or null."
+  }
+}
+
+# Encryption
+variable "customer_managed_key_id" {
+  description = "Versioned Key Vault key ID (https://VAULT.vault.azure.net/keys/KEY/VERSION) for customer-managed data encryption. Leave empty for service-managed encryption. Requires customer_managed_key_identity_id. Cannot be changed after creation."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.customer_managed_key_id == null || trimspace(var.customer_managed_key_id) == "" || can(regex("^https://[^/]+/keys/[^/]+/[^/]+$", trimspace(var.customer_managed_key_id)))
+    error_message = "customer_managed_key_id must be a versioned Key Vault key identifier such as https://my-vault.vault.azure.net/keys/my-key/0123456789abcdef0123456789abcdef."
+  }
+}
+
+variable "customer_managed_key_identity_id" {
+  description = "Resource ID of a user-assigned managed identity that has get, wrapKey, and unwrapKey on the Key Vault key (the Key Vault Crypto Service Encryption User role). Required with customer_managed_key_id."
+  type        = string
+  default     = null
 }
 
 # Network
@@ -63,64 +99,9 @@ variable "private_endpoint_subnet_id" {
 }
 
 variable "private_dns_zone_id" {
-  description = "Private DNS zone ID for Azure Cache for Redis Private Link. Expected zone name is privatelink.redis.cache.windows.net."
+  description = "Private DNS zone ID for Azure Managed Redis Private Link. Expected zone name is privatelink.redis.azure.net."
   type        = string
   default     = null
-}
-
-variable "allowed_cidr_blocks" {
-  description = "CIDR blocks allowed to access the cache (public access mode only). Single IPs are also accepted (treated as /32)."
-  type        = list(string)
-  default     = []
-}
-
-# Replication (Premium only)
-variable "replicas_per_primary" {
-  description = "Number of replicas per primary node (Premium SKU only, 0-3)"
-  type        = number
-  default     = 0
-
-  validation {
-    condition     = var.replicas_per_primary >= 0 && var.replicas_per_primary <= 3
-    error_message = "replicas_per_primary must be between 0 and 3."
-  }
-}
-
-variable "shard_count" {
-  description = "Number of shards for Redis cluster (Premium SKU only, 0-10). Set to 0 to disable clustering."
-  type        = number
-  default     = 0
-
-  validation {
-    condition     = var.shard_count >= 0 && var.shard_count <= 10
-    error_message = "shard_count must be between 0 and 10."
-  }
-}
-
-variable "zones" {
-  description = "Availability zones for the cache (Premium SKU only)"
-  type        = list(string)
-  default     = []
-}
-
-# Redis configuration
-variable "maxmemory_policy" {
-  description = "Eviction policy when memory limit is reached. Common values: volatile-lru, allkeys-lru, noeviction"
-  type        = string
-  default     = "volatile-lru"
-}
-
-# Maintenance
-variable "patch_day" {
-  description = "Day of week for maintenance patches (e.g. Monday, Sunday). Leave null to use Azure defaults."
-  type        = string
-  default     = "Sunday"
-}
-
-variable "patch_hour" {
-  description = "Start hour (UTC, 0-23) for the maintenance window"
-  type        = number
-  default     = 4
 }
 
 # Tags

@@ -17,7 +17,7 @@ resource "azurerm_private_dns_zone" "postgres" {
 }
 
 resource "azurerm_private_dns_zone" "redis" {
-  name                = "privatelink.redis.cache.windows.net"
+  name                = "privatelink.redis.azure.net"
   resource_group_name = azurerm_resource_group.rg.name
   tags                = local.tags
 }

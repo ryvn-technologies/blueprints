@@ -4,13 +4,13 @@ metadata:
   name: cache
 spec:
   description: |
-    Provisions a managed Redis instance using each cloud's native service -- ElastiCache on AWS, Memorystore on GCP, Azure Cache for Redis on Azure. The blueprint selects the right Terraform module based on your environment's cloud provider.
+    Provisions a managed Redis instance using each cloud's native service -- ElastiCache on AWS, Memorystore on GCP, Azure Managed Redis on Azure. The blueprint selects the right Terraform module based on your environment's cloud provider.
 
-    Size controls memory allocation: small gives ~1 GB, medium ~2 GB, large ~4 GB (exact specs vary by provider). High availability adds a replica with automatic failover (multi-AZ on AWS, STANDARD_HA tier on GCP, Standard SKU on Azure).
+    Size controls memory allocation: small gives ~1 GB, medium ~2 GB, large ~4 GB (exact specs vary by provider). High availability adds a replica with automatic failover (multi-AZ on AWS, STANDARD_HA tier on GCP, a two-node replicated deployment on Azure).
 
     Outputs include `host`, `port`, `connectionUrl`, and `authToken`. Other installations in the same environment can reference these to connect.
 
-    To use your own encryption key, the key must already exist in the environment's region and the cache service must be able to use it: on AWS the KMS key policy must allow the provisioning role `kms:DescribeKey` and `kms:CreateGrant`; on GCP the Memorystore service agent needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key. The key is fixed at creation time and changing it later replaces the cache. Azure Cache for Redis only supports customer-managed keys on the Enterprise tiers, which this blueprint does not provision.
+    To use your own encryption key, the key must already exist in the environment's region and the cache service must be able to use it: on AWS the KMS key policy must allow the provisioning role `kms:DescribeKey` and `kms:CreateGrant`; on GCP the Memorystore service agent needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key; on Azure a user-assigned identity with the Key Vault Crypto Service Encryption User role is required. The key is fixed at creation time and changing it later replaces the cache.
   displayName: Cache
   inputs:
     - name: cacheName
@@ -38,10 +38,16 @@ spec:
     - name: encryptionKeyId
       type: string
       default: ""
-      description: Customer-managed encryption key for data at rest (KMS key ARN on AWS, Cloud KMS key on GCP). Leave blank to use the cloud provider's managed keys.
+      description: Customer-managed encryption key for data at rest (KMS key ARN on AWS, Cloud KMS key on GCP, versioned Key Vault key ID on Azure). Leave blank to use the cloud provider's managed keys.
       displayName: Encryption Key
       immutable: true
-      condition: '{{ ne EnvironmentProviderType "azure" }}'
+    - name: encryptionKeyIdentityId
+      type: string
+      default: ""
+      description: User-assigned managed identity the cache uses to access the Key Vault key. Required with an encryption key on Azure.
+      displayName: Encryption Key Identity
+      immutable: true
+      condition: '{{ and (eq EnvironmentProviderType "azure") (ne (input "encryptionKeyId") "") }}'
   outputs:
     - name: host
       type: string
@@ -51,7 +57,7 @@ spec:
     - name: port
       type: number
       from: '{{ (serviceInstallation "cache").outputs.port }}'
-      description: Port number for Redis connections (typically 6379).
+      description: Port number for Redis connections (6379 on AWS and GCP, TLS port 10000 for Azure Managed Redis).
       displayName: Port
     - name: connectionUrl
       type: string
@@ -114,9 +120,13 @@ spec:
         resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
         installation_name: 'cache'
         environment: '{{ .ryvn.env.name }}'
-        sku_name: '{{ if input "highAvailability" }}Standard{{ else }}Basic{{ end }}'
-        capacity: {{ if eq (input "size") "large" }}2{{ else if eq (input "size") "small" }}0{{ else }}1{{ end }}
+        sku_name: '{{ if eq (input "size") "large" }}Balanced_B5{{ else if eq (input "size") "small" }}Balanced_B1{{ else }}Balanced_B3{{ end }}'
+        high_availability_enabled: {{ if input "highAvailability" }}true{{ else }}false{{ end }}
         private_endpoint_subnet_id: '{{ .ryvn.env.state.vnet.private_endpoint_subnet.id }}'
         private_dns_zone_id: '{{ .ryvn.env.state.vnet.redis_private_dns_zone.id }}'
+        {{- if input "encryptionKeyId" }}
+        customer_managed_key_id: '{{ input "encryptionKeyId" }}'
+        customer_managed_key_identity_id: '{{ input "encryptionKeyIdentityId" }}'
+        {{- end }}
       releaseChannel: stable
   distribution: marketplace-managed
