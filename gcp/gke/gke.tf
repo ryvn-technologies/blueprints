@@ -204,6 +204,7 @@ locals {
     "iam.serviceAccounts.list",
     "iam.serviceAccounts.setIamPolicy",
     "iam.serviceAccounts.update",
+    "resourcemanager.projects.get",
     "resourcemanager.projects.getIamPolicy",
     "resourcemanager.projects.setIamPolicy",
 
