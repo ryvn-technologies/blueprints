@@ -145,13 +145,24 @@ variable "deletion_protection" {
 
 # Encryption
 variable "encryption_key_id" {
-  description = "Azure Resource Manager ID of a Key Vault key (/subscriptions/<s>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<v>/keys/<k>) used as the storage account's customer-managed key. Leave empty for Microsoft-managed keys. The vault must use RBAC authorization with soft delete and purge protection enabled; the account's system-assigned identity is granted Key Vault Crypto Service Encryption User on the vault. The versionless key is bound so rotation is picked up automatically."
+  description = "Azure Resource Manager ID of a Key Vault key (/subscriptions/<s>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<v>/keys/<k>) used as the storage account's customer-managed key. Leave empty for Microsoft-managed keys. The vault must use RBAC authorization with soft delete and purge protection enabled. Requires encryption_key_identity_id. The versionless key is bound so rotation is picked up automatically."
   type        = string
   default     = ""
 
   validation {
     condition     = var.encryption_key_id == "" || can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.KeyVault/vaults/[^/]+/keys/[^/]+$", var.encryption_key_id))
     error_message = "encryption_key_id must be empty or a Key Vault key resource ID (/subscriptions/<s>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<v>/keys/<k>)."
+  }
+}
+
+variable "encryption_key_identity_id" {
+  description = "Resource ID of a user-assigned managed identity the storage account uses to reach the Key Vault key. It must already hold Key Vault Crypto Service Encryption User on the vault; this module does not grant it. Required with encryption_key_id, must be empty otherwise."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.encryption_key_identity_id == "" || can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.ManagedIdentity/userAssignedIdentities/[^/]+$", var.encryption_key_identity_id))
+    error_message = "encryption_key_identity_id must be empty or a user-assigned identity resource ID (/subscriptions/<s>/resourceGroups/<rg>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/<n>)."
   }
 }
 

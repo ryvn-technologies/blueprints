@@ -51,7 +51,7 @@ module "workload_identity" {
 | `expiration_days` | Expire current versions after N days (0 = disabled) | `0` |
 | `noncurrent_version_expiration_days` | Expire noncurrent versions after N days (0 = disabled; requires versioning) | `0` |
 | `deletion_protection` | `true` blocks destroy of a non-empty bucket; `false` lets Terraform empty the bucket and delete it. | `true` |
-| `kms_key_name` | Cloud KMS key (`projects/.../cryptoKeys/...`, same location as the bucket) used as the default encryption key. Empty = Google-managed. The project's GCS service agent is granted `cryptoKeyEncrypterDecrypter` on it | `""` |
+| `kms_key_name` | Cloud KMS key (`projects/.../cryptoKeys/...`, same location as the bucket) used as the default encryption key. Empty = Google-managed. The project's GCS service agent must already hold `roles/cloudkms.cryptoKeyEncrypterDecrypter` on it | `""` |
 | `labels` | Labels for the bucket | `{}` |
 
 `cors_rules` has the same shape as the AWS module.
@@ -72,6 +72,7 @@ module "workload_identity" {
 ## Prerequisites
 
 - The identity running Terraform can create buckets. Bucket IAM bindings are written by the workload identity module, which needs `storage.buckets.getIamPolicy` and `storage.buckets.setIamPolicy`.
+- With `kms_key_name`, the project's GCS service agent (`service-<PROJECT_NUMBER>@gs-project-accounts.iam.gserviceaccount.com`) must already hold `roles/cloudkms.cryptoKeyEncrypterDecrypter` on it. This module does not grant it.
 
 ## One-Way Decisions
 

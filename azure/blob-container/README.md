@@ -38,7 +38,7 @@ module "workload_identity" {
 
 - **Storage account**: `StorageV2`, Standard tier, `LRS` by default, TLS 1.2 minimum, HTTPS only. Name is `bucket_name`/`name_prefix` stripped to `[a-z0-9]`, truncated to 16 chars, plus an 8-char random suffix (24-char account limit)
 - **Container**: Named from the same prefix (non-alphanumeric runs collapsed to single hyphens, no leading/trailing hyphen, `bucket` fallback) plus the random suffix. This is the blueprint's `bucketName`
-- **Encryption**: Microsoft-managed keys (always on)
+- **Encryption**: Microsoft-managed keys by default; a customer-managed Key Vault key when `encryption_key_id` and `encryption_key_identity_id` are set
 - **Access control**: Container `private`, `allow_nested_items_to_be_public = false` by default (`public_access = false`). Account keys are disabled (`shared_access_key_enabled = false`, `default_to_oauth_authentication = true`), so the only access path is Entra ID / RBAC on the container scope; presigned URLs must use user-delegation SAS. The provisioning principal therefore needs a data-plane role (e.g. `Storage Blob Data Owner`) on the account, and the provider runs with `storage_use_azuread = true`. The module accepts `public_access = true` for direct consumers, but the bucket blueprint does not expose it.
 - **Networking**: `public_network_access = true` by default (workloads egress over public IPs); no network rules or private endpoints
 - **CORS**: Optional blob-service CORS rules (Azure allows at most 5)
@@ -64,7 +64,8 @@ module "workload_identity" {
 | `expiration_days` | Delete current blobs N days after last modification (0 = disabled) | `0` |
 | `noncurrent_version_expiration_days` | Delete previous versions N days after creation (0 = disabled; requires versioning) | `0` |
 | `deletion_protection` | Add a `CanNotDelete` lock on the account. Guards against portal/CLI deletes, not against destroying this module | `true` |
-| `encryption_key_id` | Key Vault key resource ID (`.../Microsoft.KeyVault/vaults/<v>/keys/<k>`) bound versionless as the account's customer-managed key. Empty = Microsoft-managed. Requires an RBAC vault with purge protection; the account's system-assigned identity gets `Key Vault Crypto Service Encryption User` on the vault | `""` |
+| `encryption_key_id` | Key Vault key resource ID (`.../Microsoft.KeyVault/vaults/<v>/keys/<k>`) bound versionless as the account's customer-managed key. Empty = Microsoft-managed. Requires an RBAC vault with purge protection and `encryption_key_identity_id` | `""` |
+| `encryption_key_identity_id` | User-assigned managed identity resource ID the account uses for Key Vault access. Must already hold `Key Vault Crypto Service Encryption User` on the vault; required with `encryption_key_id` | `""` |
 | `tags` | Tags for all resources | `{}` |
 
 `cors_rules` has the same shape as the AWS module.
@@ -88,6 +89,7 @@ module "workload_identity" {
 ## Prerequisites
 
 - The identity running Terraform can create storage accounts and management locks in the resource group. Role assignments are written by the workload identity module, which needs `Microsoft.Authorization/roleAssignments/write` on the container scope (e.g. `User Access Administrator` or `Owner` on the resource group).
+- With `encryption_key_id`, the customer-supplied user-assigned identity must already hold `Key Vault Crypto Service Encryption User` on the vault, and the identity running Terraform must be able to read the key (`Key Vault Reader` or equivalent). This module creates no role assignments on the vault.
 
 ## One-Way Decisions
 
@@ -96,7 +98,6 @@ These cannot be changed after creation: storage account name, container name, ac
 ## Future Additions
 
 - Unified `publicAccess` mode for hosting public static content (cross-cloud; deferred)
-- Customer-managed keys (Key Vault)
 - Access-tier transitions (Cool, Cold, Archive) in the lifecycle policy
 - Immutability policies / legal holds
 - Private endpoints and `public_network_access_enabled = false`

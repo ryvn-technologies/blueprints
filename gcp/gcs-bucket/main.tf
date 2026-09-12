@@ -107,20 +107,4 @@ resource "google_storage_bucket" "this" {
   }
 
   labels = local.all_labels
-
-  depends_on = [google_kms_crypto_key_iam_member.storage_agent]
-}
-
-# GCS encrypts with the project's storage service agent, which must be able to
-# use the key before the bucket is created with it.
-data "google_storage_project_service_account" "this" {
-  count   = var.kms_key_name == "" ? 0 : 1
-  project = var.project_id
-}
-
-resource "google_kms_crypto_key_iam_member" "storage_agent" {
-  count         = var.kms_key_name == "" ? 0 : 1
-  crypto_key_id = var.kms_key_name
-  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
-  member        = "serviceAccount:${data.google_storage_project_service_account.this[0].email_address}"
 }

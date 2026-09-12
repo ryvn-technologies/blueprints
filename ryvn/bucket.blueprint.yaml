@@ -10,7 +10,7 @@ spec:
 
     Use the native client for each cloud: the AWS S3 SDK, the Google Cloud Storage SDK, or the Azure Storage SDK (`endpoint` is the service endpoint for each). GCS also exposes an S3-compatible endpoint, but S3 SDKs against it require HMAC keys, which this blueprint does not create.
 
-    To use your own encryption key, the key must already exist and Ryvn's provisioner must be able to grant the bucket's service identity access to it: on AWS the KMS key policy must allow the account's IAM principals; on GCP the provisioner needs `cloudkms.cryptoKeys.setIamPolicy` on the key; on Azure the provisioner needs role-assignment rights on the Key Vault, which must use RBAC authorization with purge protection enabled.
+    To use your own encryption key, the key must already exist and the bucket's service identity must be able to use it: on AWS the KMS key policy must allow the account's IAM principals; on GCP the project's Cloud Storage service agent needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key; on Azure you supply a user-assigned managed identity that already holds `Key Vault Crypto Service Encryption User` on the vault, which must use RBAC authorization with purge protection enabled. Ryvn never grants itself or the bucket access to your key.
   displayName: Bucket
   inputGroups:
     - name: naming
@@ -50,6 +50,13 @@ spec:
       description: Customer-managed encryption key for data at rest (KMS key ARN on AWS, Cloud KMS key on GCP, Key Vault key on Azure). Leave blank to use the cloud provider's managed keys.
       displayName: Encryption Key
       group: security
+    - name: encryptionKeyIdentityId
+      type: string
+      default: ""
+      description: User-assigned managed identity the storage account uses to access the Key Vault key. It must already have Key Vault Crypto Service Encryption User on the vault. Required with an encryption key on Azure.
+      displayName: Encryption Key Identity
+      group: security
+      condition: '{{ and (eq EnvironmentProviderType "azure") (ne (input "encryptionKeyId") "") }}'
     - name: expirationDays
       type: number
       default: 0
@@ -256,6 +263,7 @@ spec:
         noncurrent_version_expiration_days: {{ input "noncurrentVersionExpirationDays" }}
         deletion_protection: {{ input "deletionProtection" }}
         encryption_key_id: '{{ input "encryptionKeyId" }}'
+        encryption_key_identity_id: '{{ input "encryptionKeyIdentityId" }}'
         {{ if eq (input "enableCors") true }}
         cors_rules:
           - allowed_origins: {{ input "corsAllowedOrigins" | toJson }}

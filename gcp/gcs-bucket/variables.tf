@@ -117,7 +117,7 @@ variable "deletion_protection" {
 
 # Encryption
 variable "kms_key_name" {
-  description = "Full resource name of a Cloud KMS key (projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>) used as the bucket's default encryption key. Leave empty for Google-managed keys. The key must be in the bucket's location; the storage service agent is granted cryptoKeyEncrypterDecrypter on it."
+  description = "Full resource name of a Cloud KMS key (projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>) used as the bucket's default encryption key. Leave empty for Google-managed keys. The key must be in the bucket's location and the project's GCS service agent (service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com) needs roles/cloudkms.cryptoKeyEncrypterDecrypter on it before the bucket is created."
   type        = string
   default     = ""
 
