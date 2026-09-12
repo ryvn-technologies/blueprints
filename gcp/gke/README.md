@@ -59,9 +59,41 @@ knobs those docs expose.
 | `create_cluster_kms_key` / `existing_cluster_kms_key_name` | Cloud KMS key for Secrets encryption: created here, or bring your own | `true` / `null` |
 | `datapath_provider` | `ADVANCED_DATAPATH` for Dataplane V2; only applied at creation | `"DATAPATH_PROVIDER_UNSPECIFIED"` |
 | `deletion_protection` | Block Terraform from destroying the cluster and DNS zones | `false` |
-| `terraform_executor_policies` | Replace the Ryvn agent's permissions with roles *or* permissions | `{}` |
+| `terraform_executor_policies` | Replace the Ryvn agent's default grants with `roles`, `permissions`, and/or conditional `bindings` | `{}` |
 | `cluster_bootstrap_perms` | Grant the Terraform identity cluster admin for bootstrap | `false` |
 | `skip_dns_provisioning` | Skip both Cloud DNS zones | `false` |
+
+### Overriding the agent's permissions
+
+Empty, the agent gets the default custom role plus a Cloud SQL role scoped to
+instances tagged `ryvn-managed-<env>`. Supplying anything in
+`terraform_executor_policies` replaces that whole set, the same way the AWS
+module treats caller-supplied policy statements: only the grants listed are
+bound, and the Cloud SQL scoping is dropped. The `ryvn-managed-<env>` tag
+stays and the agent keeps attaching it, so an override can restate the scoping
+with a binding conditioned on `resource.matchTag('<project>/ryvn-managed-<env>',
+'true')`. `roles` binds predefined roles, `permissions` builds one custom role
+(`ryvn_agent_role_<env>`), and `bindings` binds a predefined role or a custom
+role built from `permissions` (created as `ryvn_agent_<env>_<name>`), optionally
+under an IAM condition in the same shape `gcloud --condition` takes:
+
+```hcl
+terraform_executor_policies = {
+  roles = ["roles/compute.admin"]
+  bindings = [{
+    name = "kms"
+    role = "roles/cloudkms.admin"
+    condition = {
+      title      = "Ryvn key rings only"
+      expression = "resource.name.startsWith(\"projects/my-project/locations/us-central1/keyRings/my-env-\")"
+    }
+  }]
+}
+```
+
+Create permissions are authorized on the parent (the location for key rings,
+the project for most resources), so a `resource.name` condition scopes the
+operations on existing resources but not their creation.
 
 ## Outputs
 

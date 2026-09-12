@@ -178,19 +178,47 @@ variable "cluster_bootstrap_perms" {
 }
 
 variable "terraform_executor_policies" {
-  description = "Additional IAM policies to be added to the Ryvn Agent role. Can specify either predefined roles or custom permissions. If custom permissions are specified, they will override the default permissions."
+  description = "IAM grants for the Ryvn agent (the identity that runs installation Terraform). Empty keeps the default custom role and the tag-scoped Cloud SQL grant. Anything supplied replaces that default set outright: `roles` binds predefined roles, `permissions` builds one custom role, and `bindings` binds a role or custom permissions under an optional IAM condition."
   type = object({
     # Optional list of predefined GCP roles to attach
     roles = optional(list(string), [])
-    # Optional list of custom permissions to add. If specified, these will override the default permissions.
+    # Optional permissions for the agent's custom role in place of the defaults.
     permissions = optional(list(string), [])
+    # Optional role bindings for the agent, each with an optional IAM condition.
+    bindings = optional(list(object({
+      # Stable key for the binding; also suffixes the custom role id (ryvn_agent_<env>_<name>) when permissions are given.
+      name = string
+      # Predefined or existing custom role to bind, e.g. roles/cloudkms.admin.
+      role = optional(string)
+      # Permissions for a custom role created for this binding. Exactly one of role or permissions.
+      permissions = optional(list(string), [])
+      # IAM condition on the binding, in the same shape as gcloud --condition.
+      condition = optional(object({
+        title       = string
+        description = optional(string)
+        expression  = string
+      }))
+    })), [])
   })
   default = {
     roles       = []
     permissions = []
+    bindings    = []
   }
   validation {
-    condition     = length(var.terraform_executor_policies.roles) == 0 || length(var.terraform_executor_policies.permissions) == 0
-    error_message = "Cannot specify both roles and permissions in terraform_executor_policies."
+    condition = alltrue([
+      for b in var.terraform_executor_policies.bindings : (b.role != null) != (length(b.permissions) > 0)
+    ])
+    error_message = "Each terraform_executor_policies.bindings entry must set exactly one of role or permissions."
+  }
+  validation {
+    condition = alltrue([
+      for b in var.terraform_executor_policies.bindings : can(regex("^[a-z0-9]([a-z0-9-]{0,10}[a-z0-9])?$", b.name))
+    ])
+    error_message = "terraform_executor_policies.bindings[*].name must be 1-12 lowercase alphanumeric characters or hyphens, not starting or ending with a hyphen."
+  }
+  validation {
+    condition     = length(distinct([for b in var.terraform_executor_policies.bindings : b.name])) == length(var.terraform_executor_policies.bindings)
+    error_message = "terraform_executor_policies.bindings[*].name must be unique."
   }
 }

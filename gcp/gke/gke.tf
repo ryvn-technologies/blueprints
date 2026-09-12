@@ -395,9 +395,14 @@ locals {
     "cloudsql.backupRuns.delete",
   ]
 
-  # A caller-supplied permission list replaces the defaults outright, including
-  # the tag-scoped Cloud SQL role below.
-  scope_cloudsql = length(var.terraform_executor_policies.permissions) == 0
+  # Any caller-supplied grant replaces the default role set outright, including
+  # the tag-scoped Cloud SQL role below. Only the supplied grants are bound.
+  executor_override = (
+    length(var.terraform_executor_policies.roles) > 0 ||
+    length(var.terraform_executor_policies.permissions) > 0 ||
+    length(var.terraform_executor_policies.bindings) > 0
+  )
+  scope_cloudsql = !local.executor_override
 }
 
 # IAM member for cluster bootstrap
@@ -451,28 +456,32 @@ resource "google_service_account_iam_binding" "ryvn_agent_workload_identity" {
   depends_on = [module.gke]
 }
 
-# Grant necessary IAM permissions to the service account
+# The agent's custom role: the defaults, or the caller-supplied permissions.
+# Absent when the override consists only of roles and bindings.
 resource "google_project_iam_custom_role" "ryvn_agent_role" {
+  count = !local.executor_override || length(var.terraform_executor_policies.permissions) > 0 ? 1 : 0
+
   role_id     = "ryvn_agent_role_${replace(lower(var.environment), "-", "_")}"
   title       = "Ryvn Agent Role ${var.environment}"
-  description = length(var.terraform_executor_policies.permissions) > 0 ? "Custom role for Ryvn Agent with specified permissions" : "Custom role for Ryvn Agent with broad permissions except sensitive data access"
-  permissions = length(var.terraform_executor_policies.permissions) > 0 ? var.terraform_executor_policies.permissions : local.default_permissions
+  description = local.executor_override ? "Custom role for Ryvn Agent with specified permissions" : "Custom role for Ryvn Agent with broad permissions except sensitive data access"
+  permissions = local.executor_override ? var.terraform_executor_policies.permissions : local.default_permissions
   project     = var.project_id
+}
+
+moved {
+  from = google_project_iam_custom_role.ryvn_agent_role
+  to   = google_project_iam_custom_role.ryvn_agent_role[0]
 }
 
 # Tag marking the Cloud SQL instances this environment's agent provisioned.
 resource "google_tags_tag_key" "cloudsql_managed" {
-  count = local.scope_cloudsql ? 1 : 0
-
   parent      = "projects/${var.project_id}"
   short_name  = "ryvn-managed-${replace(lower(var.environment), "_", "-")}"
   description = "Marks resources provisioned by the Ryvn agent in ${var.environment}"
 }
 
 resource "google_tags_tag_value" "cloudsql_managed" {
-  count = local.scope_cloudsql ? 1 : 0
-
-  parent      = google_tags_tag_key.cloudsql_managed[0].id
+  parent      = google_tags_tag_key.cloudsql_managed.id
   short_name  = "true"
   description = "Provisioned by the Ryvn agent in ${var.environment}"
 }
@@ -497,13 +506,13 @@ resource "google_project_iam_member" "ryvn_agent_cloudsql_role_binding" {
   condition {
     title       = "Ryvn-managed resources only"
     description = "Applies only to resources tagged ryvn-managed for ${var.environment}"
-    expression  = "resource.matchTagId('${google_tags_tag_key.cloudsql_managed[0].id}', '${google_tags_tag_value.cloudsql_managed[0].id}')"
+    expression  = "resource.matchTagId('${google_tags_tag_key.cloudsql_managed.id}', '${google_tags_tag_value.cloudsql_managed.id}')"
   }
 }
 
 output "cloudsql_managed_tag_value" {
-  description = "Permanent ID of the tag value the Ryvn agent must attach to Cloud SQL instances it provisions. Empty when Cloud SQL permissions are not tag-scoped."
-  value       = local.scope_cloudsql ? google_tags_tag_value.cloudsql_managed[0].id : ""
+  description = "Permanent ID of the tag value the Ryvn agent attaches to Cloud SQL instances it provisions. Always set, so caller-supplied executor policies can scope Cloud SQL grants on the tag."
+  value       = google_tags_tag_value.cloudsql_managed.id
 }
 
 # Attach predefined roles if specified
@@ -516,12 +525,51 @@ resource "google_project_iam_member" "ryvn_agent_roles" {
 
 # Attach the custom role to the service account
 resource "google_project_iam_binding" "ryvn_agent_role_binding" {
+  count = length(google_project_iam_custom_role.ryvn_agent_role)
+
   project = var.project_id
-  role    = google_project_iam_custom_role.ryvn_agent_role.id
+  role    = google_project_iam_custom_role.ryvn_agent_role[0].id
 
   members = [
     "serviceAccount:${google_service_account.ryvn_agent.email}"
   ]
+}
+
+moved {
+  from = google_project_iam_binding.ryvn_agent_role_binding
+  to   = google_project_iam_binding.ryvn_agent_role_binding[0]
+}
+
+# Caller-supplied bindings for the agent, each optionally scoped by an IAM condition.
+locals {
+  executor_bindings = { for b in var.terraform_executor_policies.bindings : b.name => b }
+}
+
+resource "google_project_iam_custom_role" "ryvn_agent_binding_role" {
+  for_each = { for k, b in local.executor_bindings : k => b if b.role == null }
+
+  role_id     = "ryvn_agent_${replace(lower(var.environment), "-", "_")}_${replace(each.key, "-", "_")}"
+  title       = "Ryvn Agent Role ${var.environment} ${each.key}"
+  description = "Custom role for the Ryvn Agent binding ${each.key} in ${var.environment}"
+  permissions = each.value.permissions
+  project     = var.project_id
+}
+
+resource "google_project_iam_member" "ryvn_agent_bindings" {
+  for_each = local.executor_bindings
+
+  project = var.project_id
+  role    = each.value.role != null ? each.value.role : google_project_iam_custom_role.ryvn_agent_binding_role[each.key].id
+  member  = "serviceAccount:${google_service_account.ryvn_agent.email}"
+
+  dynamic "condition" {
+    for_each = each.value.condition == null ? [] : [each.value.condition]
+    content {
+      title       = condition.value.title
+      description = condition.value.description
+      expression  = condition.value.expression
+    }
+  }
 }
 
 # Create a GCP service account for external-dns
