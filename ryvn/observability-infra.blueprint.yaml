@@ -1,0 +1,455 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: observability-infra
+spec:
+  description: |
+    Ryvn's observability stack (Loki, Grafana, Mimir behind the tenant auth-proxy) packaged as one installation for a Ryvn hub, so a BYOC hub can run the same stack Ryvn hosts centrally.
+
+    This release provisions the durable layer and the two telemetry backends: one object storage bucket each for Loki and Mimir (chunks, blocks, ruler and alertmanager state live under prefixes in the same bucket), workload access bindings for the `loki` and `mimir` ServiceAccounts, a dedicated Postgres database for Grafana unless you bring your own, and the Loki and Mimir services themselves (distributed mode, sized by `profile`, retention enforced by their compactors rather than by bucket lifecycle rules, which cannot tell telemetry apart from the ruler and alertmanager state sharing the bucket). Grafana and the tenant auth-proxy land in follow-up releases and attach to what is created here.
+
+    Supported on GCP (GCS + Workload Identity) and AWS (S3 + EKS Pod Identity). On other providers the buckets are still created but the Loki and Mimir services are not deployed.
+
+    The collector (`ryvn-collector`) is deployed separately in each workload environment and points at this installation through the platform blueprint's Loki and Mimir URL inputs.
+  displayName: LGTM Stack
+  inputGroups:
+    - name: endpoint
+      description: Public hostname and hub wiring
+      displayName: Endpoint
+    - name: capacity
+      description: Sizing profile
+      displayName: Capacity
+    - name: retention
+      description: How long logs and metrics are kept
+      displayName: Retention
+    - name: grafana
+      description: Grafana database and admin credentials
+      displayName: Grafana
+    - name: protection
+      description: Safeguards against accidental data loss
+      displayName: Protection
+  inputs:
+    - name: domain
+      type: string
+      displayName: Domain
+      description: Root hostname for the stack, without a scheme. Loki, Mimir and Grafana are exposed as `loki.`, `mimir.` and `grafana.` under it.
+      group: endpoint
+      immutable: true
+    - name: hubUrl
+      type: string
+      displayName: Hub API URL
+      description: Base URL of the Ryvn hub API (for example `https://api.<hub-domain>`) the auth-proxy authorizes tenant requests against.
+      group: endpoint
+    - name: zitadelInstallation
+      type: string
+      default: zitadel
+      displayName: Zitadel Installation
+      description: Name of the `zitadel` blueprint installation in this environment that Grafana uses for single sign-on.
+      group: endpoint
+    - name: profile
+      type: string
+      default: small
+      displayName: Profile
+      description: Sizing profile for the Loki, Mimir and Grafana services. Small suits a hub with a handful of workload environments; medium is sized for production hubs.
+      group: capacity
+      options:
+        - label: Small
+          value: small
+        - label: Medium
+          value: medium
+    - name: nodeGroup
+      type: string
+      default: ""
+      displayName: Node Group
+      description: Value of the `ryvn.app/node-group-name` label of the node pool that runs Loki and Mimir (for example `observability`). Leave blank to schedule on any node.
+      group: capacity
+    - name: storageClassName
+      type: string
+      default: ""
+      displayName: Storage Class
+      description: Storage class for the Loki and Mimir persistent volumes (ingester write-ahead logs, compactor and store-gateway scratch, alertmanager state; durable data lives in the buckets). Grafana recommends SSD-backed disks for ingesters. Empty uses the cluster default. Changing it later recreates those volumes.
+      group: capacity
+    - name: lokiRetentionDays
+      type: number
+      default: 30
+      displayName: Log Retention (Days)
+      description: Days the Loki compactor keeps log chunks before deleting them.
+      group: retention
+    - name: mimirBlockRetentionDays
+      type: number
+      default: 160
+      displayName: Metrics Retention (Days)
+      description: Days the Mimir compactor keeps metric blocks before deleting them.
+      group: retention
+    - name: useExternalGrafanaDatabase
+      type: boolean
+      default: false
+      displayName: Use External Grafana Database
+      description: Point Grafana at a Postgres database you manage instead of provisioning a dedicated one with this installation.
+      group: grafana
+    - name: grafanaDatabaseUrl
+      type: string
+      isSecret: true
+      displayName: Grafana Database URL
+      description: Postgres connection URL (`postgres://user:password@host:5432/grafana?sslmode=require`) for Grafana when using an external database.
+      group: grafana
+      condition: '{{ input "useExternalGrafanaDatabase" }}'
+    - name: grafanaAdminPassword
+      type: string
+      isSecret: true
+      hidden: true
+      generated:
+        type: random-string
+        length: 24
+      displayName: Grafana Admin Password
+      description: Generated once for the built-in Grafana `admin` user and retained across upgrades.
+      group: grafana
+    - name: deletionProtection
+      type: boolean
+      default: true
+      displayName: Deletion Protection
+      description: Protects the buckets and the Grafana database from accidental destruction. Disable before tearing down the stack.
+      group: protection
+  outputs:
+    - name: lokiBucketName
+      type: string
+      from: '{{ (blueprintInstallation "loki-bucket").outputs.bucketName }}'
+      description: Object storage bucket holding Loki chunks and ruler state.
+      displayName: Loki Bucket
+    - name: mimirBucketName
+      type: string
+      from: '{{ (blueprintInstallation "mimir-bucket").outputs.bucketName }}'
+      description: Object storage bucket holding Mimir blocks, ruler and alertmanager state.
+      displayName: Mimir Bucket
+    - name: grafanaAdminPassword
+      type: string
+      from: '{{ input "grafanaAdminPassword" }}'
+      description: Password for the built-in Grafana `admin` user.
+      displayName: Grafana Admin Password
+      isSecret: true
+  installations:
+    - blueprint: bucket
+      name: '{{ ParentInstallationName }}-loki'
+      alias: loki-bucket
+      inputs:
+        - name: bucketName
+          value: observability-loki
+        - name: noncurrentVersionExpirationDays
+          value: 7
+        - name: deletionProtection
+          valueFromInput:
+            name: deletionProtection
+    - blueprint: bucket
+      name: '{{ ParentInstallationName }}-mimir'
+      alias: mimir-bucket
+      inputs:
+        - name: bucketName
+          value: observability-mimir
+        - name: noncurrentVersionExpirationDays
+          value: 7
+        - name: deletionProtection
+          valueFromInput:
+            name: deletionProtection
+    - service: gcp-workload-access
+      name: '{{ ParentInstallationName }}-loki-access'
+      alias: loki-access
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        namespace: observability
+        service_accounts: ['loki']
+        grants: {{ (blueprintInstallation "loki-bucket").outputs.workloadGrants }}
+    - service: gcp-workload-access
+      name: '{{ ParentInstallationName }}-mimir-access'
+      alias: mimir-access
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        namespace: observability
+        service_accounts: ['mimir']
+        grants: {{ (blueprintInstallation "mimir-bucket").outputs.workloadGrants }}
+    - service: loki
+      name: '{{ ParentInstallationName }}-loki-svc'
+      alias: loki-svc
+      namespace: observability
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        deploymentMode: Distributed
+        loki:
+          auth_enabled: true
+          {{- if eq EnvironmentProviderType "gcp" }}
+          # Referencing the access binding orders this install after the bucket IAM binding has applied.
+          podAnnotations:
+            ryvn.app/workload-access-project-number: '{{ (serviceInstallation "loki-access").outputs.project_number }}'
+          {{- end }}
+          storage:
+            {{- if eq EnvironmentProviderType "gcp" }}
+            type: gcs
+            gcs:
+              chunkBufferSize: 0
+              requestTimeout: "0s"
+              enableHttp2: true
+            {{- else }}
+            type: s3
+            s3:
+              region: '{{ .ryvn.env.state.cluster_region }}'
+              s3ForcePathStyle: false
+            {{- end }}
+            bucketNames:
+              chunks: '{{ (blueprintInstallation "loki-bucket").outputs.bucketName }}'
+              ruler: '{{ (blueprintInstallation "loki-bucket").outputs.bucketName }}'
+              admin: '{{ (blueprintInstallation "loki-bucket").outputs.bucketName }}'
+          schemaConfig:
+            configs:
+              - from: "2024-04-01"
+                store: tsdb
+                object_store: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else }}s3{{ end }}
+                schema: v13
+                index:
+                  prefix: loki_index_
+                  period: 24h
+          storage_config:
+            tsdb_shipper:
+              active_index_directory: /var/loki/tsdb-index
+              cache_location: /var/loki/tsdb-cache
+          ingester:
+            chunk_encoding: snappy
+          pattern_ingester:
+            enabled: true
+          limits_config:
+            allow_structured_metadata: true
+            volume_enabled: true
+            retention_period: '{{ input "lokiRetentionDays" }}d'
+            ingestion_rate_mb: 16
+          compactor:
+            retention_enabled: true
+            delete_request_store: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else }}s3{{ end }}
+          ruler:
+            enable_api: true
+            alertmanager_url: 'http://{{ ParentInstallationName }}-mimir-svc-alertmanager-headless.observability.svc.cluster.local:8080'
+          server:
+            grpc_server_max_recv_msg_size: 52428800
+            grpc_server_max_send_msg_size: 52428800
+          querier:
+            max_concurrent: 4
+        serviceAccount:
+          create: true
+          name: loki
+        test:
+          enabled: false
+        lokiCanary:
+          enabled: false
+        bloomPlanner:
+          replicas: 0
+        bloomBuilder:
+          replicas: 0
+        bloomGateway:
+          replicas: 0
+        backend:
+          replicas: 0
+        read:
+          replicas: 0
+        write:
+          replicas: 0
+        singleBinary:
+          replicas: 0
+        minio:
+          enabled: false
+        ingester:
+          replicas: 3
+          persistence:
+            enabled: true
+            claims:
+              - name: data
+                size: 30Gi
+                storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        distributor:
+          replicas: {{ if eq (input "profile") "medium" }}3{{ else }}1{{ end }}
+          maxUnavailable: 1
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        querier:
+          replicas: {{ if eq (input "profile") "medium" }}3{{ else }}1{{ end }}
+          maxUnavailable: 1
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        queryFrontend:
+          replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+          maxUnavailable: 1
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        queryScheduler:
+          replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+          maxUnavailable: 1
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        compactor:
+          replicas: 1
+          persistence:
+            enabled: true
+            claims:
+              - name: data
+                size: 10Gi
+                storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        indexGateway:
+          replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+          maxUnavailable: 1
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        ruler:
+          replicas: 1
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        patternIngester:
+          replicas: {{ if eq (input "profile") "medium" }}3{{ else }}1{{ end }}
+          maxUnavailable: 1
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        gateway:
+          enabled: true
+          replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+          ingress:
+            enabled: false
+          service:
+            type: ClusterIP
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+    - service: mimir
+      name: '{{ ParentInstallationName }}-mimir-svc'
+      alias: mimir-svc
+      namespace: observability
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        serviceAccount:
+          create: true
+          name: mimir
+        {{- if eq EnvironmentProviderType "gcp" }}
+        global:
+          # Referencing the access binding orders this install after the bucket IAM binding has applied.
+          podAnnotations:
+            ryvn.app/workload-access-project-number: '{{ (serviceInstallation "mimir-access").outputs.project_number }}'
+        {{- end }}
+        mimir:
+          structuredConfig:
+            multitenancy_enabled: true
+            limits:
+              compactor_blocks_retention_period: '{{ input "mimirBlockRetentionDays" }}d'
+              ingestion_rate: 200000
+              max_global_series_per_user: 2000000
+              out_of_order_time_window: 10m
+            common:
+              storage:
+                {{- if eq EnvironmentProviderType "gcp" }}
+                backend: gcs
+                gcs:
+                  bucket_name: '{{ (blueprintInstallation "mimir-bucket").outputs.bucketName }}'
+                {{- else }}
+                backend: s3
+                s3:
+                  endpoint: 's3.{{ .ryvn.env.state.cluster_region }}.amazonaws.com'
+                  region: '{{ .ryvn.env.state.cluster_region }}'
+                  bucket_name: '{{ (blueprintInstallation "mimir-bucket").outputs.bucketName }}'
+                {{- end }}
+            blocks_storage:
+              storage_prefix: blocks
+            ruler_storage:
+              storage_prefix: ruler
+            alertmanager_storage:
+              storage_prefix: alertmanager
+        minio:
+          enabled: false
+        nginx:
+          enabled: false
+        {{- if ne (input "profile") "medium" }}
+        chunks-cache:
+          enabled: false
+        index-cache:
+          enabled: false
+        metadata-cache:
+          enabled: false
+        results-cache:
+          enabled: false
+        {{- else }}
+        chunks-cache:
+          enabled: true
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        index-cache:
+          enabled: true
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        metadata-cache:
+          enabled: true
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        results-cache:
+          enabled: true
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        {{- end }}
+        distributor:
+          replicas: {{ if eq (input "profile") "medium" }}4{{ else }}1{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        ingester:
+          replicas: 3
+          zoneAwareReplication:
+            enabled: false
+          persistentVolume:
+            size: 50Gi
+            storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        store_gateway:
+          replicas: {{ if eq (input "profile") "medium" }}3{{ else }}1{{ end }}
+          zoneAwareReplication:
+            enabled: false
+          persistentVolume:
+            storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        alertmanager:
+          replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+          persistentVolume:
+            enabled: true
+            storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        compactor:
+          replicas: 1
+          persistentVolume:
+            size: 20Gi
+            storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        querier:
+          replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        query_frontend:
+          replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        query_scheduler:
+          replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        ruler:
+          replicas: 1
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        overrides_exporter:
+          replicas: 1
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        rollout_operator:
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        gateway:
+          enabledNonEnterprise: true
+          replicas: 1
+          ingress:
+            enabled: false
+          service:
+            type: ClusterIP
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+    - blueprint: postgres
+      name: '{{ ParentInstallationName }}-db'
+      alias: grafana-db
+      condition: '{{ not (input "useExternalGrafanaDatabase") }}'
+      inputs:
+        - name: databaseName
+          value: grafana
+        - name: username
+          value: grafana
+        - name: size
+          value: small
+        - name: enableReadOnlyUser
+          value: false
+        - name: enableMetrics
+          value: false
+        - name: deletionProtection
+          valueFromInput:
+            name: deletionProtection
+  distribution: internal-managed
