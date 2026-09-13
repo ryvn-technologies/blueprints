@@ -5,6 +5,17 @@ mock_provider "google" {
     }
   }
 
+  mock_data "google_container_engine_versions" {
+    defaults = {
+      release_channel_default_version = {
+        REGULAR = "1.36.3-gke.1640000"
+      }
+      release_channel_latest_version = {
+        REGULAR = "1.36.3-gke.1767000"
+      }
+    }
+  }
+
   # Mocked strings fail the provider's IAM member validation on apply.
   mock_resource "google_service_account" {
     defaults = {

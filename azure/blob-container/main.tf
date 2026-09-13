@@ -70,8 +70,7 @@ resource "azurerm_storage_account" "this" {
   dynamic "identity" {
     for_each = local.cmk_enabled ? [1] : []
     content {
-      type         = "UserAssigned"
-      identity_ids = [var.encryption_key_identity_id]
+      type = "SystemAssigned"
     }
   }
 
@@ -91,18 +90,11 @@ resource "azurerm_storage_account" "this" {
   }
 
   tags = local.all_tags
-
-  lifecycle {
-    precondition {
-      condition     = local.cmk_enabled == (var.encryption_key_identity_id != "")
-      error_message = "encryption_key_id and encryption_key_identity_id must be set together."
-    }
-  }
 }
 
-# Customer-managed key. The account authenticates to Key Vault with the
-# customer's user-assigned identity, which must already hold Key Vault Crypto
-# Service Encryption User on the vault; this module grants nothing.
+# Customer-managed key: the account's system-assigned identity must be able to
+# wrap/unwrap with the key before encryption is switched over to it, so the
+# key binding is a separate resource applied after the role assignment.
 locals {
   cmk_enabled      = var.encryption_key_id != ""
   cmk_key_vault_id = local.cmk_enabled ? regex("^(.*/providers/Microsoft\\.KeyVault/vaults/[^/]+)/keys/[^/]+$", var.encryption_key_id)[0] : ""
@@ -115,11 +107,19 @@ data "azurerm_key_vault_key" "cmk" {
   key_vault_id = local.cmk_key_vault_id
 }
 
+resource "azurerm_role_assignment" "cmk" {
+  count                = local.cmk_enabled ? 1 : 0
+  scope                = local.cmk_key_vault_id
+  role_definition_name = "Key Vault Crypto Service Encryption User"
+  principal_id         = azurerm_storage_account.this.identity[0].principal_id
+}
+
 resource "azurerm_storage_account_customer_managed_key" "this" {
-  count                     = local.cmk_enabled ? 1 : 0
-  storage_account_id        = azurerm_storage_account.this.id
-  key_vault_key_id          = data.azurerm_key_vault_key.cmk[0].versionless_id
-  user_assigned_identity_id = var.encryption_key_identity_id
+  count              = local.cmk_enabled ? 1 : 0
+  storage_account_id = azurerm_storage_account.this.id
+  key_vault_key_id   = data.azurerm_key_vault_key.cmk[0].versionless_id
+
+  depends_on = [azurerm_role_assignment.cmk]
 }
 
 resource "azurerm_storage_container" "this" {
