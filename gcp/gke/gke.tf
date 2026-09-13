@@ -80,6 +80,15 @@ locals {
   )
 }
 
+data "google_container_engine_versions" "gke" {
+  project  = var.project_id
+  location = var.region
+}
+
+locals {
+  regular_default_minor = tonumber(split(".", data.google_container_engine_versions.gke.release_channel_default_version["REGULAR"])[1])
+}
+
 # GKE cluster
 module "gke" {
   source = "terraform-google-modules/kubernetes-engine/google//modules/beta-private-cluster"
@@ -95,6 +104,16 @@ module "gke" {
   ip_range_pods       = local.pods_range_name
   ip_range_services   = local.svc_range_name
   deletion_protection = var.deletion_protection
+
+  # Backend-service load balancers need GKE 1.36+ with the HTTP add-on off.
+  # Pick the latest Regular version while its default is below 1.36.
+  # Once the default reaches 1.36+, "latest" lets GKE manage versions.
+  kubernetes_version = (
+    local.regular_default_minor >= 36
+    ? "latest"
+    : data.google_container_engine_versions.gke.release_channel_latest_version["REGULAR"]
+  )
+  release_channel = "REGULAR"
 
   # Private cluster configuration
   enable_private_nodes = true
@@ -120,7 +139,7 @@ module "gke" {
 
   # Already the default; set explicitly because Workload Identity requires it
   node_metadata = "GKE_METADATA"
-  # Disable HTTP load balancing add-on since we're using NGINX Ingress
+  # We run an Istio ingress gateway.
   http_load_balancing = false
 
   logging_enabled_components    = ["SYSTEM_COMPONENTS", "APISERVER", "CONTROLLER_MANAGER", "SCHEDULER"]
