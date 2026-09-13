@@ -77,6 +77,34 @@ spec:
     description: Collect and forward Prometheus metrics from your cluster to Ryvn's observability backend.
     displayName: Enable Metrics Collection
     group: observability
+  - name: lokiUrl
+    type: string
+    default: ""
+    description: Base URL of the Loki ingest gateway the collector pushes logs to. Leave empty to use Ryvn's hosted stack.
+    displayName: Loki URL
+    group: observability
+    hidden: true
+  - name: mimirUrl
+    type: string
+    default: ""
+    description: Base URL of the Mimir ingest gateway the collector pushes metrics to. Leave empty to use Ryvn's hosted stack.
+    displayName: Mimir URL
+    group: observability
+    hidden: true
+  - name: tokenUrl
+    type: string
+    default: ""
+    description: OAuth2 token endpoint the collector authenticates against before pushing telemetry. Leave empty to use Ryvn's hosted identity provider.
+    displayName: Token URL
+    group: observability
+    hidden: true
+  - name: projectId
+    type: string
+    default: ""
+    description: Identity-provider project ID the collector requests its token audience for. Leave empty to use Ryvn's hosted identity provider.
+    displayName: Identity Project ID
+    group: observability
+    hidden: true
   installations:
   - service: aws-eks-karpenter
     condition: '{{ not (input "legacy") }}'
@@ -209,6 +237,24 @@ spec:
       {{- input "redactionPatterns" | toYaml | nindent 6 }}
         metrics:
           enabled: {{ input "metrics" }}
+      {{- if or (input "lokiUrl" | trim) (input "mimirUrl" | trim) }}
+      endpoints:
+        {{- if input "lokiUrl" | trim }}
+        loki: {{ input "lokiUrl" | trim | toJson }}
+        {{- end }}
+        {{- if input "mimirUrl" | trim }}
+        mimir: {{ input "mimirUrl" | trim | toJson }}
+        {{- end }}
+      {{- end }}
+      {{- if or (input "tokenUrl" | trim) (input "projectId" | trim) }}
+      auth:
+        {{- if input "tokenUrl" | trim }}
+        tokenUrl: {{ input "tokenUrl" | trim | toJson }}
+        {{- end }}
+        {{- if input "projectId" | trim }}
+        projectId: {{ input "projectId" | trim | toJson }}
+        {{- end }}
+      {{- end }}
     releaseChannel: stable
     serviceUser:
       credentialType: client-secret
