@@ -8,7 +8,7 @@ spec:
 
     It provisions the durable layer, the two telemetry backends, Grafana and their public entry points: one object storage bucket each for Loki and Mimir (chunks, blocks, ruler and alertmanager state live under prefixes in the same bucket), workload access bindings for the `loki` and `mimir` ServiceAccounts, a dedicated Postgres database for Grafana unless you bring your own, the Loki and Mimir services themselves (distributed mode, sized by `profile`, retention enforced by their compactors rather than by bucket lifecycle rules, which cannot tell telemetry apart from the ruler and alertmanager state sharing the bucket), the tenant auth-proxy that fronts the Loki and Mimir gateways at `loki.<domain>` and `mimir.<domain>`, and Grafana at `grafana.<domain>`, all with TLS from cert-manager.
 
-    Grafana signs users in through the environment's `zitadel` blueprint installation (client id and secret come from that installation's `grafanaClientId` / `grafanaClientSecret` outputs) and maps each user into the Grafana organizations matching their hub organization memberships via the auth-proxy's `/userinfo` endpoint. The zitadel installation's `grafanaUrl` input must equal `https://grafana.<domain>`, otherwise the OAuth redirect is rejected. Loki and Mimir datasources for the operator's own hub organization are provisioned when `hubOrgId` is set; per-customer datasources are created by the orchestrator.
+    Grafana signs users in through the environment's `zitadel` blueprint installation (client id and secret come from that installation's `grafanaClientId` / `grafanaClientSecret` outputs) and maps each user into the Grafana organizations matching their hub organization memberships via the auth-proxy's `/userinfo` endpoint. The zitadel installation's `grafanaUrl` input must equal `https://grafana.<domain>`, otherwise the OAuth redirect is rejected. The hub's orchestrator creates a Grafana organization with Loki and Mimir datasources for every hub organization; `hubOrgs` maps hub organization ids to those Grafana organization ids so sign-ins land in the right one.
 
     The auth-proxy validates bearer tokens against the environment's `zitadel` blueprint installation and asks the hub API at `hubUrl` whether the caller may read or write the tenant named in `X-Scope-OrgID` / `X-Scope-EnvironmentName`. It authenticates to the hub with the `authProxyServiceAccountJson` machine account published by the zitadel blueprint; that account (the zitadel installation's `authProxyServiceUserId` output) must be bound to the `authz-gateway` role on the hub organization before ingest and queries succeed.
 
@@ -43,6 +43,15 @@ spec:
       type: string
       displayName: Hub API URL
       description: Base URL of the Ryvn hub API (for example `https://api.<hub-domain>`) the auth-proxy authorizes tenant requests against.
+      group: endpoint
+    - name: hubOrgs
+      type: map
+      default: {}
+      displayName: Grafana Organization Mapping
+      description: |
+        Hub (Zitadel) organization id → Grafana organization id. Members of a hub organization sign in to Grafana as Editors of the mapped Grafana organization. The Grafana organizations and their Loki/Mimir datasources are created by the hub's orchestrator; look up the ids under Server admin → Organizations.
+
+        Example: `"298765826054437928": "2"`.
       group: endpoint
     - name: ingressClassName
       type: string
@@ -668,37 +677,11 @@ spec:
             token_url: "$__env{ZITADEL_ISSUER_URL}/oauth/v2/token"
             api_url: "http://{{ ParentInstallationName }}-auth-proxy.observability.svc.cluster.local:9545/userinfo"
             org_attribute_path: ryvn_orgs
-            {{- if input "hubOrgId" }}
-            # Hub operators land in Grafana's default organization (id 1), where the hub
-            # datasources below live. Per-customer organizations are mapped by the orchestrator.
-            org_mapping: '{{ input "hubOrgId" }}:1:Editor'
+            {{- if input "hubOrgs" }}
+            org_mapping: '{{ range $hubOrgId, $grafanaOrgId := input "hubOrgs" }}{{ $hubOrgId }}:{{ $grafanaOrgId }}:Editor {{ end }}'
             {{- end }}
             use_pkce: true
             use_refresh_token: true
-        {{- if input "hubOrgId" }}
-        datasources:
-          datasources.yaml:
-            apiVersion: 1
-            datasources:
-              - name: Loki
-                type: loki
-                access: proxy
-                url: http://{{ ParentInstallationName }}-loki-svc-gateway.observability.svc.cluster.local:80
-                jsonData:
-                  oauthPassThru: true
-                  httpHeaderName1: X-Scope-OrgID
-                secureJsonData:
-                  httpHeaderValue1: '{{ input "hubOrgId" }}'
-              - name: Mimir
-                type: prometheus
-                access: proxy
-                url: http://{{ ParentInstallationName }}-mimir-svc-gateway.observability.svc.cluster.local:80/prometheus
-                jsonData:
-                  oauthPassThru: true
-                  httpHeaderName1: X-Scope-OrgID
-                secureJsonData:
-                  httpHeaderValue1: '{{ input "hubOrgId" }}'
-        {{- end }}
         ingress:
           enabled: true
           ingressClassName: '{{ input "ingressClassName" }}'
