@@ -531,6 +531,8 @@ spec:
         # Hub API mode: authorization decisions come from the hub at hubUrl, never from a
         # database connection, so this child never receives RYVN_DATABASE_URL.
         env:
+          - name: AUTHORIZATION_MODE
+            value: hub
           - name: RYVN_HUB_URL
             value: '{{ input "hubUrl" }}'
           - name: RYVN_HUB_SERVICE_ACCOUNT_FILE
