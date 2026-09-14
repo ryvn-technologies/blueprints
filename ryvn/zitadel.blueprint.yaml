@@ -103,6 +103,11 @@ spec:
       description: Generated once and retained across upgrades.
       immutable: true
   outputs:
+    - name: domain
+      type: string
+      from: '{{ input "domain" }}'
+      displayName: Domain
+      description: Public hostname of the ZITADEL instance, without a scheme.
     - name: issuerUrl
       type: string
       from: '{{ (serviceInstallation "zitadel-terraform").outputs.issuer_url }}'
@@ -183,6 +188,17 @@ spec:
       from: '{{ (serviceInstallation "zitadel-terraform").outputs.auth_proxy_key_details }}'
       displayName: Auth Proxy Application Account
       description: Complete JSON key document used by auth-proxy.
+      isSecret: true
+    - name: authProxyServiceUserId
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_auth_proxy_svc_user_id }}'
+      displayName: Auth Proxy Service User ID
+      description: User ID of the auth-proxy machine account; bind it to the `authz-gateway` role on the hub organization so the observability auth-proxy can call the hub authorization API.
+    - name: authProxyServiceAccountJson
+      type: string
+      from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_auth_proxy_svc_key_details }}'
+      displayName: Auth Proxy Service Account
+      description: Complete JSON key document the observability auth-proxy authenticates to the hub authorization API with.
       isSecret: true
     - name: idpCallbackUrl
       type: string

@@ -6,9 +6,13 @@ spec:
   description: |
     Ryvn's observability stack (Loki, Grafana, Mimir behind the tenant auth-proxy) packaged as one installation for a Ryvn hub, so a BYOC hub can run the same stack Ryvn hosts centrally.
 
-    This release provisions the durable layer and the two telemetry backends: one object storage bucket each for Loki and Mimir (chunks, blocks, ruler and alertmanager state live under prefixes in the same bucket), workload access bindings for the `loki` and `mimir` ServiceAccounts, a dedicated Postgres database for Grafana unless you bring your own, and the Loki and Mimir services themselves (distributed mode, sized by `profile`, retention enforced by their compactors rather than by bucket lifecycle rules, which cannot tell telemetry apart from the ruler and alertmanager state sharing the bucket). Grafana and the tenant auth-proxy land in follow-up releases and attach to what is created here.
+    It provisions the durable layer, the two telemetry backends, Grafana and their public entry points: one object storage bucket each for Loki and Mimir (chunks, blocks, ruler and alertmanager state live under prefixes in the same bucket), workload access bindings for the `loki` and `mimir` ServiceAccounts, a dedicated Postgres database for Grafana unless you bring your own, the Loki and Mimir services themselves (distributed mode, sized by `profile`, retention enforced by their compactors rather than by bucket lifecycle rules, which cannot tell telemetry apart from the ruler and alertmanager state sharing the bucket), the tenant auth-proxy that fronts the Loki and Mimir gateways at `loki.<domain>` and `mimir.<domain>`, and Grafana at `grafana.<domain>`, all with TLS from cert-manager.
 
-    Supported on GCP (GCS + Workload Identity) and AWS (S3 + EKS Pod Identity). On other providers the buckets are still created but the Loki and Mimir services are not deployed.
+    Grafana signs users in through the environment's `zitadel` blueprint installation (client id and secret come from that installation's `grafanaClientId` / `grafanaClientSecret` outputs) and maps each user into the Grafana organizations matching their hub organization memberships via the auth-proxy's `/userinfo` endpoint. The zitadel installation's `grafanaUrl` input must equal `https://grafana.<domain>`, otherwise the OAuth redirect is rejected. Loki and Mimir datasources for the operator's own hub organization are provisioned when `hubOrgId` is set; per-customer datasources are created by the orchestrator.
+
+    The auth-proxy validates bearer tokens against the environment's `zitadel` blueprint installation and asks the hub API at `hubUrl` whether the caller may read or write the tenant named in `X-Scope-OrgID` / `X-Scope-EnvironmentName`. It authenticates to the hub with the `authProxyServiceAccountJson` machine account published by the zitadel blueprint; that account (the zitadel installation's `authProxyServiceUserId` output) must be bound to the `authz-gateway` role on the hub organization before ingest and queries succeed.
+
+    Supported on GCP (GCS + Workload Identity). On other providers the buckets and the Grafana database are still created, but Loki, Mimir and the auth-proxy are not deployed and the public URL outputs are not published.
 
     The collector (`ryvn-collector`) is deployed separately in each workload environment and points at this installation through the platform blueprint's Loki and Mimir URL inputs.
   displayName: LGTM Stack
@@ -40,11 +44,17 @@ spec:
       displayName: Hub API URL
       description: Base URL of the Ryvn hub API (for example `https://api.<hub-domain>`) the auth-proxy authorizes tenant requests against.
       group: endpoint
-    - name: zitadelInstallation
+    - name: ingressClassName
       type: string
-      default: zitadel
-      displayName: Zitadel Installation
-      description: Name of the `zitadel` blueprint installation in this environment that Grafana uses for single sign-on.
+      default: external-nginx
+      displayName: Ingress Class
+      description: IngressClass that publishes the Loki, Mimir and Grafana hostnames. The default matches the internet-facing ingress-nginx installed by the platform blueprints.
+      group: endpoint
+    - name: clusterIssuer
+      type: string
+      default: external-issuer
+      displayName: Certificate Issuer
+      description: cert-manager ClusterIssuer that signs the TLS certificates for the public hostnames. The default matches the issuer installed by the platform blueprints.
       group: endpoint
     - name: profile
       type: string
@@ -111,6 +121,24 @@ spec:
       description: Protects the buckets and the Grafana database from accidental destruction. Disable before tearing down the stack.
       group: protection
   outputs:
+    - name: lokiUrl
+      type: string
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      from: 'https://loki.{{ input "domain" }}'
+      description: Public Loki endpoint behind the auth-proxy. Set it as the platform blueprint's `lokiUrl` input in each workload environment whose collector should ship here.
+      displayName: Loki URL
+    - name: mimirUrl
+      type: string
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      from: 'https://mimir.{{ input "domain" }}'
+      description: Public Mimir endpoint behind the auth-proxy. Set it as the platform blueprint's `mimirUrl` input in each workload environment whose collector should ship here.
+      displayName: Mimir URL
+    - name: grafanaUrl
+      type: string
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      from: 'https://grafana.{{ input "domain" }}'
+      description: Public Grafana URL. Must match the `grafanaUrl` input of the zitadel installation so the OAuth redirect is accepted.
+      displayName: Grafana URL
     - name: lokiBucketName
       type: string
       from: '{{ (blueprintInstallation "loki-bucket").outputs.bucketName }}'
@@ -305,10 +333,34 @@ spec:
         gateway:
           enabled: true
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
-          ingress:
-            enabled: false
           service:
             type: ClusterIP
+          ingress:
+            enabled: true
+            ingressClassName: '{{ input "ingressClassName" }}'
+            annotations:
+              cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
+              nginx.ingress.kubernetes.io/proxy-body-size: "0"
+            hosts:
+              - host: 'loki.{{ input "domain" }}'
+                paths:
+                  - path: /
+                    pathType: Prefix
+            tls:
+              - secretName: '{{ ParentInstallationName }}-loki-gateway-tls'
+                hosts:
+                  - 'loki.{{ input "domain" }}'
+          nginxConfig:
+            serverSnippet: |
+              location = /auth {
+                internal;
+                proxy_pass http://{{ ParentInstallationName }}-auth-proxy.observability.svc.cluster.local:9545/auth;
+                proxy_pass_request_body off;
+                proxy_set_header Content-Length "";
+                proxy_set_header X-Original-URI $request_uri;
+              }
+
+              auth_request /auth;
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
     - service: mimir
       name: '{{ ParentInstallationName }}-mimir-svc'
@@ -428,12 +480,211 @@ spec:
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
         gateway:
           enabledNonEnterprise: true
-          replicas: 1
-          ingress:
-            enabled: false
+          replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
           service:
             type: ClusterIP
+          ingress:
+            enabled: true
+            ingressClassName: '{{ input "ingressClassName" }}'
+            annotations:
+              cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
+              nginx.ingress.kubernetes.io/proxy-body-size: "0"
+            hosts:
+              - host: 'mimir.{{ input "domain" }}'
+                paths:
+                  - path: /
+                    pathType: Prefix
+            tls:
+              - secretName: '{{ ParentInstallationName }}-mimir-gateway-tls'
+                hosts:
+                  - 'mimir.{{ input "domain" }}'
+          nginx:
+            config:
+              serverSnippet: |
+                location = /auth {
+                  internal;
+                  proxy_pass http://{{ ParentInstallationName }}-auth-proxy.observability.svc.cluster.local:9545/auth;
+                  proxy_pass_request_body off;
+                  proxy_set_header Content-Length "";
+                  proxy_set_header X-Original-URI $request_uri;
+                }
+
+                auth_request /auth;
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+    - service: auth-proxy
+      name: '{{ ParentInstallationName }}-auth-proxy'
+      alias: auth-proxy
+      namespace: observability
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        replicaCount: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+        nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        # Hub API mode: authorization decisions come from the hub at hubUrl, never from a
+        # database connection, so this child never receives RYVN_DATABASE_URL.
+        env:
+          - name: RYVN_HUB_URL
+            value: '{{ input "hubUrl" }}'
+          - name: RYVN_HUB_SERVICE_ACCOUNT_FILE
+            value: /app/conf/hub/service-account.json
+          - name: ZITADEL_APPLICATION_ACCOUNT_FILE
+            value: /app/conf/zitadel/application-account.json
+          - name: AUTH_NEGATIVE_CACHE_TTL_SECONDS
+            value: "30"
+          - name: ZITADEL_DOMAIN
+            valueFrom:
+              secretKeyRef:
+                name: '{{ (blueprintInstallation "zitadel").outputsSecret }}'
+                key: domain
+          - name: ZITADEL_RYVN_PROJECT_ID
+            valueFrom:
+              secretKeyRef:
+                name: '{{ (blueprintInstallation "zitadel").outputsSecret }}'
+                key: projectId
+        volumeMounts:
+          - name: zitadel-application-account
+            mountPath: /app/conf/zitadel
+            readOnly: true
+          - name: hub-service-account
+            mountPath: /app/conf/hub
+            readOnly: true
+        volumes:
+          # Token introspection uses the ZITADEL application account; hub authorization
+          # calls use a separate machine account bound to the hub's authz-gateway role.
+          - name: zitadel-application-account
+            secret:
+              secretName: '{{ (blueprintInstallation "zitadel").outputsSecret }}'
+              items:
+                - key: authProxyApplicationAccountJson
+                  path: application-account.json
+          - name: hub-service-account
+            secret:
+              secretName: '{{ (blueprintInstallation "zitadel").outputsSecret }}'
+              items:
+                - key: authProxyServiceAccountJson
+                  path: service-account.json
+    - service: grafana
+      name: '{{ ParentInstallationName }}-grafana'
+      alias: grafana
+      namespace: observability
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      secrets:
+        - name: grafana-admin
+          values:
+            - key: admin-password
+              valueFromInput: grafanaAdminPassword
+        # Only materialized when useExternalGrafanaDatabase is on: keys whose input is
+        # disabled are dropped, and a secret with no keys is not created.
+        - name: grafana-database
+          values:
+            - key: url
+              valueFromInput: grafanaDatabaseUrl
+      config: |
+        replicas: 1
+        nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        resources:
+          requests:
+            cpu: {{ if eq (input "profile") "medium" }}500m{{ else }}100m{{ end }}
+            memory: {{ if eq (input "profile") "medium" }}1Gi{{ else }}256Mi{{ end }}
+          limits:
+            memory: {{ if eq (input "profile") "medium" }}2Gi{{ else }}512Mi{{ end }}
+        persistence:
+          enabled: false
+        env:
+          GF_SECURITY_ADMIN_USER: admin
+        admin:
+          existingSecret: '{{ k8sSecretName "grafana-admin" }}'
+          passwordKey: admin-password
+        # Credentials never appear in grafana.ini: the chart's assertNoLeakedSecrets guard
+        # rejects them there, and the ZITADEL values only exist as Kubernetes secrets.
+        envValueFrom:
+          GF_DATABASE_URL:
+            secretKeyRef:
+              {{- if input "useExternalGrafanaDatabase" }}
+              name: '{{ k8sSecretName "grafana-database" }}'
+              key: url
+              {{- else }}
+              name: '{{ (blueprintInstallation "grafana-db").outputsSecret }}'
+              key: connectionString
+              {{- end }}
+          GF_AUTH_GENERIC_OAUTH_CLIENT_ID:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "zitadel").outputsSecret }}'
+              key: grafanaClientId
+          GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "zitadel").outputsSecret }}'
+              key: grafanaClientSecret
+          ZITADEL_ISSUER_URL:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "zitadel").outputsSecret }}'
+              key: issuerUrl
+        grafana.ini:
+          server:
+            root_url: https://grafana.{{ input "domain" }}
+          database:
+            type: postgres
+            ssl_mode: require
+          users:
+            allow_sign_up: false
+            allow_org_create: true
+            auto_assign_org: false
+          auth.generic_oauth:
+            enabled: true
+            name: Ryvn
+            allow_sign_up: true
+            scopes: "openid email profile offline_access roles"
+            email_attribute_name: "email"
+            login_attribute_path: "preferred_username"
+            name_attribute_path: "name"
+            tls_skip_verify_insecure: false
+            auth_url: "$__env{ZITADEL_ISSUER_URL}/oauth/v2/authorize"
+            token_url: "$__env{ZITADEL_ISSUER_URL}/oauth/v2/token"
+            api_url: "http://{{ ParentInstallationName }}-auth-proxy.observability.svc.cluster.local:9545/userinfo"
+            org_attribute_path: ryvn_orgs
+            {{- if input "hubOrgId" }}
+            # Hub operators land in Grafana's default organization (id 1), where the hub
+            # datasources below live. Per-customer organizations are mapped by the orchestrator.
+            org_mapping: '{{ input "hubOrgId" }}:1:Editor'
+            {{- end }}
+            use_pkce: true
+            use_refresh_token: true
+        {{- if input "hubOrgId" }}
+        datasources:
+          datasources.yaml:
+            apiVersion: 1
+            datasources:
+              - name: Loki
+                type: loki
+                access: proxy
+                url: http://{{ ParentInstallationName }}-loki-svc-gateway.observability.svc.cluster.local:80
+                jsonData:
+                  oauthPassThru: true
+                  httpHeaderName1: X-Scope-OrgID
+                secureJsonData:
+                  httpHeaderValue1: '{{ input "hubOrgId" }}'
+              - name: Mimir
+                type: prometheus
+                access: proxy
+                url: http://{{ ParentInstallationName }}-mimir-svc-gateway.observability.svc.cluster.local:80/prometheus
+                jsonData:
+                  oauthPassThru: true
+                  httpHeaderName1: X-Scope-OrgID
+                secureJsonData:
+                  httpHeaderValue1: '{{ input "hubOrgId" }}'
+        {{- end }}
+        ingress:
+          enabled: true
+          ingressClassName: '{{ input "ingressClassName" }}'
+          annotations:
+            cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+            nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+          hosts:
+            - grafana.{{ input "domain" }}
+          tls:
+            - secretName: '{{ ParentInstallationName }}-grafana-tls'
+              hosts:
+                - grafana.{{ input "domain" }}
     - blueprint: postgres
       name: '{{ ParentInstallationName }}-db'
       alias: grafana-db
