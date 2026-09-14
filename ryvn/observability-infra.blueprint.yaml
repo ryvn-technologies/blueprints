@@ -73,6 +73,12 @@ spec:
       displayName: Node Group
       description: Value of the `ryvn.app/node-group-name` label of the node pool that runs Loki and Mimir (for example `observability`). Leave blank to schedule on any node.
       group: capacity
+    - name: authProxyImagePullSecret
+      type: string
+      default: ryvn-registry-credentials
+      displayName: Auth-Proxy Image Pull Secret
+      description: Kubernetes secret holding credentials for the private Ryvn registry that publishes the auth-proxy image. The ryvn-agent writes the registry's credentials into every managed namespace under this name; leave blank if the image is pullable anonymously.
+      group: capacity
     - name: storageClassName
       type: string
       default: ""
@@ -399,10 +405,12 @@ spec:
                   bucket_name: '{{ (blueprintInstallation "mimir-bucket").outputs.bucketName }}'
                 {{- end }}
             blocks_storage:
+              backend: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else }}s3{{ end }}
               storage_prefix: blocks
             ruler_storage:
               storage_prefix: ruler
             alertmanager_storage:
+              backend: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else }}s3{{ end }}
               storage_prefix: alertmanager
         minio:
           enabled: false
@@ -519,6 +527,7 @@ spec:
       config: |
         replicaCount: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        imagePullSecrets: {{ if input "authProxyImagePullSecret" }}[{name: '{{ input "authProxyImagePullSecret" }}'}]{{ else }}[]{{ end }}
         # Hub API mode: authorization decisions come from the hub at hubUrl, never from a
         # database connection, so this child never receives RYVN_DATABASE_URL.
         env:
@@ -597,15 +606,31 @@ spec:
         # Credentials never appear in grafana.ini: the chart's assertNoLeakedSecrets guard
         # rejects them there, and the ZITADEL values only exist as Kubernetes secrets.
         envValueFrom:
+          {{- if input "useExternalGrafanaDatabase" }}
           GF_DATABASE_URL:
             secretKeyRef:
-              {{- if input "useExternalGrafanaDatabase" }}
               name: '{{ k8sSecretName "grafana-database" }}'
               key: url
-              {{- else }}
+          {{- else }}
+          # Grafana only accepts postgres:// URLs, while the postgres blueprint emits
+          # postgresql://, so the discrete database settings are used instead.
+          GF_DATABASE_HOST:
+            secretKeyRef:
               name: '{{ (blueprintInstallation "grafana-db").outputsSecret }}'
-              key: connectionString
-              {{- end }}
+              key: endpoint
+          GF_DATABASE_NAME:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "grafana-db").outputsSecret }}'
+              key: databaseName
+          GF_DATABASE_USER:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "grafana-db").outputsSecret }}'
+              key: username
+          GF_DATABASE_PASSWORD:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "grafana-db").outputsSecret }}'
+              key: password
+          {{- end }}
           GF_AUTH_GENERIC_OAUTH_CLIENT_ID:
             secretKeyRef:
               name: '{{ (blueprintInstallation "zitadel").outputsSecret }}'
