@@ -193,7 +193,7 @@ spec:
       type: string
       from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_auth_proxy_svc_user_id }}'
       displayName: Auth Proxy Service User ID
-      description: User ID of the auth-proxy machine account; bind it to the `authz-gateway` role on the hub organization so the observability auth-proxy can call the hub authorization API.
+      description: User ID of the auth-proxy machine account; set the orchestrator's `hub.authzGatewaySvcUserId` to this value so boot binds it to the `authz-gateway` role on the hub organization and the observability auth-proxy can call the hub authorization API.
     - name: authProxyServiceAccountJson
       type: string
       from: '{{ (serviceInstallation "zitadel-terraform").outputs.ryvn_auth_proxy_svc_key_details }}'
