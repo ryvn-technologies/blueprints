@@ -263,6 +263,16 @@ locals {
     "redis.operations.get",
     "redis.operations.list",
 
+    # Allow Artifact Registry repository lifecycle and repository-level IAM
+    # for the registry mirror blueprint (no artifact read or write access).
+    "artifactregistry.repositories.create",
+    "artifactregistry.repositories.delete",
+    "artifactregistry.repositories.get",
+    "artifactregistry.repositories.list",
+    "artifactregistry.repositories.update",
+    "artifactregistry.repositories.getIamPolicy",
+    "artifactregistry.repositories.setIamPolicy",
+
     # Allow compute operations except sensitive ones
     "compute.addresses.create",
     "compute.addresses.delete",
@@ -354,6 +364,7 @@ locals {
     "serviceusage.services.disable",
     "serviceusage.services.get",
     "serviceusage.services.list",
+    "serviceusage.operations.get",
 
     # Allow load balancing operations
     "compute.backendServices.create",

@@ -1,0 +1,279 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: registry
+spec:
+  description: |
+    Provisions a cloud-managed container registry (ECR on AWS, Artifact Registry on GCP, Azure Container Registry on Azure) that mirrors the Ryvn-built container images and OCI Helm charts your environment deploys. Artifacts are copied into the mirror before a deployment rolls out, so workloads pull from a registry inside your cloud account instead of reaching Ryvn's registry at runtime.
+
+    The blueprint is standalone: install it into any environment without changing the platform blueprint. It provisions only the registry and least-privilege identities. Nothing is a static credential: the artifact copier authenticates with the cluster's workload identity (EKS Pod Identity, GKE Workload Identity, Azure Workload Identity) and nodes pull with their node identity. Secrets never appear in outputs.
+
+    Ryvn-provisioned clusters are wired automatically. For attached clusters, list the node identities (IAM role names, node service account emails, or kubelet identity object ids) under Access so nodes can pull; on AWS also provide the EKS cluster name and on Azure the cluster OIDC issuer URL so the copier's service account can be bound to its push identity.
+
+    Copied artifacts are kept by default; nothing is expired or garbage-collected.
+  displayName: Registry
+  inputGroups:
+    - name: naming
+      description: Registry identity
+      displayName: Naming
+    - name: sources
+      description: Which upstream registries this registry mirrors
+      displayName: Sources
+    - name: access
+      description: Identities that copy into and pull from the registry
+      displayName: Access
+    - name: sync
+      description: How the artifact sync worker reaches Ryvn and which repositories it may copy
+      displayName: Sync
+    - name: azure
+      description: Azure Container Registry options
+      displayName: Azure
+  inputs:
+    - name: registryName
+      type: string
+      default: ''
+      description: Base name for the registry. A random suffix is appended to keep it unique. Leave empty to derive it from the installation name.
+      displayName: Registry Name
+      group: naming
+    - name: sourceRegistry
+      type: string
+      default: registry.ryvn.app
+      description: Upstream registry host whose Ryvn-built artifacts are mirrored here. Image references matching this host are rewritten to pull from this registry. Must be the host of the registry record named by sourceRegistryName, since the sync worker authenticates source pulls with that single record's credentials.
+      displayName: Source Registry
+      group: sources
+    - name: sourceRegistryName
+      type: string
+      default: ryvn-registry
+      description: Name of the Ryvn registry record for sourceRegistry. The sync worker fetches that registry's pull credentials from the hub using its own service user (registry.pull on this environment).
+      displayName: Source Registry Record
+      group: sources
+      hidden: true
+    - name: nodeIdentities
+      type: array
+      default: []
+      description: 'Node identities that must be able to pull from the registry: IAM role names on AWS, node service account emails on GCP, kubelet identity object ids on Azure. Merged with what Ryvn discovers from the cluster; required for attached clusters.'
+      displayName: Node Identities
+      group: access
+    - name: requireNodePullAccess
+      type: boolean
+      default: true
+      description: Fail provisioning when no node identity could be resolved for pull access. Disable only when nodes already have registry access by other means.
+      displayName: Require Node Pull Access
+      group: access
+    - name: clusterName
+      type: string
+      default: ''
+      description: Name of the EKS cluster running the artifact copier. Discovered automatically for Ryvn-provisioned clusters; required for attached EKS clusters so the copier's service account can be bound to its push role with EKS Pod Identity.
+      displayName: EKS Cluster Name
+      group: access
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+    - name: hubPrincipalArn
+      type: string
+      default: ''
+      description: ARN of the Ryvn hub principal allowed to assume a read-only role for this registry. When set the registry is registered as ECR with assume-role credentials; otherwise nodes pull with their instance role.
+      displayName: Hub Principal ARN
+      group: access
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+    - name: oidcIssuerUrl
+      type: string
+      default: ''
+      description: OIDC issuer URL of the cluster, used to federate the copier's service account. Discovered automatically for Ryvn-provisioned AKS clusters; required for attached clusters.
+      displayName: Cluster OIDC Issuer URL
+      group: access
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+    - name: hubUrl
+      type: string
+      default: https://api.ryvn.app
+      description: Ryvn API the artifact sync worker polls for copy tasks.
+      displayName: Hub URL
+      group: sync
+      hidden: true
+    - name: hubIssuer
+      type: string
+      default: https://auth.ryvn.app
+      description: OAuth2 issuer the artifact sync worker mints its hub access tokens from.
+      displayName: Hub Issuer
+      group: sync
+      hidden: true
+    - name: hubProjectId
+      type: string
+      default: '298766811497774120'
+      description: Identity-provider project ID the artifact sync worker requests its token audience for.
+      displayName: Hub Identity Project ID
+      group: sync
+      hidden: true
+    - name: sku
+      type: string
+      default: Standard
+      description: 'Azure Container Registry SKU: Basic, Standard, or Premium.'
+      displayName: SKU
+      group: azure
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      options:
+        - value: Basic
+        - value: Standard
+        - value: Premium
+  outputs:
+    - name: registryHost
+      type: string
+      from: '{{ (serviceInstallation "registry").outputs.registry_host }}'
+      description: Registry endpoint host (e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com, us-central1-docker.pkg.dev, myregistry.azurecr.io).
+      displayName: Registry Host
+    - name: destinationBase
+      type: string
+      from: '{{ (serviceInstallation "registry").outputs.destination_base }}'
+      description: Base image reference under which mirrored artifacts are pushed. The copier appends the source repository path to it.
+      displayName: Destination Base
+    - name: region
+      type: string
+      from: '{{ (serviceInstallation "registry").outputs.region }}'
+      description: Cloud region or location of the registry.
+      displayName: Region
+    - name: registryDefinition
+      type: string
+      from: '{{ (serviceInstallation "registry").outputs.registry_definition | toJson }}'
+      description: JSON registry definition in the shape of the Ryvn registry API (`elasticContainerRegistry`, `googleArtifactRegistry`, or `genericContainerRegistry`). Contains no secrets; credentials are identity references only.
+      displayName: Registry Definition
+    - name: sourceMirrors
+      type: string
+      from: '{{ $prefix := (serviceInstallation "registry").outputs.path_prefix }}{{ $host := input "sourceRegistry" }}[{{ if $prefix }}{{ dict "host" $host "pathPrefix" $prefix | toJson }}{{ else }}{{ dict "host" $host | toJson }}{{ end }}]'
+      description: JSON list of `{ host, pathPrefix }` mirror entries matching the registry API's `mirrors` field. Image references from this host are rewritten to this registry, with `pathPrefix` (the ECR repository prefix or the Artifact Registry `<project>/<repository>`) prepended to the source path; ACR keeps paths as-is.
+      displayName: Source Mirrors
+    - name: environment
+      type: string
+      from: '{{ .ryvn.env.name }}'
+      description: Environment this registry belongs to. The registry is only available in this environment.
+      displayName: Environment
+    - name: pushIdentity
+      type: string
+      from: '{{ (serviceInstallation "registry").outputs.push_identity | toJson }}'
+      description: JSON description of the workload identity the artifact copier uses to push (method, namespace, service accounts, role or identity reference). No secrets.
+      displayName: Push Identity
+    - name: pullIdentity
+      type: string
+      from: '{{ (serviceInstallation "registry").outputs.pull_identity | toJson }}'
+      description: JSON description of the node identities granted pull access and how they were resolved. No secrets.
+      displayName: Pull Identity
+    - name: copyExecution
+      type: string
+      from: '{{ $push := (serviceInstallation "registry").outputs.push_identity }}{{ dict "namespace" $push.namespace "serviceAccounts" $push.serviceAccounts "destinationBase" (serviceInstallation "registry").outputs.destination_base "preserveArtifacts" true | toJson }}'
+      description: JSON configuration for running the artifact copier in this environment (namespace, service accounts, destination base, retention). Consumed by the artifact sync scheduler.
+      displayName: Copy Execution
+  installations:
+    - service: ecr-registry
+      name: '{{ ParentInstallationName }}'
+      alias: registry
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+      config: |
+        aws_region: '{{ .ryvn.env.state.cluster_region }}'
+        cluster_name: '{{ if input "clusterName" }}{{ input "clusterName" }}{{ else }}{{ .ryvn.env.state.cluster_name | default "" }}{{ end }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        registry_name: '{{ input "registryName" }}'
+        environment: '{{ .ryvn.env.name }}'
+        push_namespace: '{{ .ryvn.env.defaultNamespace }}'
+        push_service_accounts:
+          - '{{ ParentInstallationName }}-sync'
+        node_role_names:
+          {{- if .ryvn.env.state.cluster_name }}
+          - '{{ .ryvn.env.state.cluster_name }}'
+          {{- end }}
+          {{- range $identity := input "nodeIdentities" }}
+          - '{{ $identity }}'
+          {{- end }}
+        require_node_pull_grant: {{ input "requireNodePullAccess" }}
+        hub_principal_arn: '{{ input "hubPrincipalArn" }}'
+      releaseChannel: stable
+    - service: artifact-registry
+      name: '{{ ParentInstallationName }}'
+      alias: registry
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        region: '{{ .ryvn.env.state.cluster_region }}'
+        cluster_name: '{{ with .ryvn.env.state.cluster_name }}{{ . }}{{ end }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        registry_name: '{{ input "registryName" }}'
+        environment: '{{ .ryvn.env.name }}'
+        push_namespace: '{{ .ryvn.env.defaultNamespace }}'
+        push_service_accounts:
+          - '{{ ParentInstallationName }}-sync'
+        node_service_accounts:
+          {{- range $identity := input "nodeIdentities" }}
+          - '{{ $identity }}'
+          {{- end }}
+        require_node_pull_grant: {{ input "requireNodePullAccess" }}
+      releaseChannel: stable
+    - service: azure-container-registry
+      name: '{{ ParentInstallationName }}'
+      alias: registry
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        location: '{{ .ryvn.env.state.resource_group.location }}'
+        resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
+        cluster_name: '{{ with .ryvn.env.state.cluster }}{{ .name }}{{ end }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        registry_name: '{{ input "registryName" }}'
+        environment: '{{ .ryvn.env.name }}'
+        sku: '{{ input "sku" }}'
+        push_namespace: '{{ .ryvn.env.defaultNamespace }}'
+        push_service_accounts:
+          - '{{ ParentInstallationName }}-sync'
+        node_principal_ids:
+          {{- range $identity := input "nodeIdentities" }}
+          - '{{ $identity }}'
+          {{- end }}
+        oidc_issuer_url: '{{ input "oidcIssuerUrl" }}'
+        require_node_pull_grant: {{ input "requireNodePullAccess" }}
+      releaseChannel: stable
+    - service: registry-sync
+      name: '{{ ParentInstallationName }}-sync'
+      alias: sync
+      namespace: '{{ .ryvn.env.defaultNamespace }}'
+      config: |
+        {{- $push := (serviceInstallation "registry").outputs.push_identity }}
+        {{- $prefix := (serviceInstallation "registry").outputs.path_prefix }}
+        serviceAccount:
+          create: true
+          name: '{{ ParentInstallationName }}-sync'
+          {{- if eq EnvironmentProviderType "azure" }}
+          annotations:
+            azure.workload.identity/client-id: '{{ $push.clientId }}'
+          {{- end }}
+        {{- if eq EnvironmentProviderType "azure" }}
+        podLabels:
+          azure.workload.identity/use: "true"
+        {{- end }}
+        hub:
+          url: '{{ input "hubUrl" }}'
+          auth:
+            issuer: '{{ input "hubIssuer" }}'
+            projectId: '{{ input "hubProjectId" }}'
+            clientCredentialsSecret:
+              name: '{{ k8sSecretName "ryvn-registry-sync-client-creds" }}'
+        expectedAssignment:
+          orgId: '{{ .ryvn.env.orgId }}'
+          environmentName: '{{ .ryvn.env.name }}'
+        # Mirror every repository users pull from the source registry. A single
+        # host is allowed because sourceCredentials resolves one registry record.
+        allowedSources:
+          - registry: '{{ input "sourceRegistry" }}'
+            repositoryPrefix: ''
+        allowedDestinations:
+          - registry: '{{ (serviceInstallation "registry").outputs.registry_host }}'
+            repositoryPrefix: '{{ $prefix }}'
+        sourceCredentials:
+          hubRegistry: '{{ input "sourceRegistryName" }}'
+        destinationCredentials:
+          anonymous: false
+          cloudIdentity: '{{ EnvironmentProviderType }}'
+      serviceUser:
+        credentialType: client-secret
+        enabled: true
+        secretName: ryvn-registry-sync-client-creds
+        # Env-scoped: poll, claim and report artifact-sync tasks. The registry
+        # reconciler additionally binds this role at the mirror Registry record.
+        role: registry-sync
+      releaseChannel: stable
