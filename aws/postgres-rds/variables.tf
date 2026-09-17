@@ -72,9 +72,51 @@ variable "database_username" {
 }
 
 variable "database_password" {
-  description = "Master password. Minimum 8 characters."
+  description = "Master password. Must be null when manage_master_user_password is enabled, and provided otherwise."
   type        = string
+  default     = null
   sensitive   = true
+
+  validation {
+    condition     = var.manage_master_user_password ? var.database_password == null : var.database_password != null
+    error_message = "database_password must be null when manage_master_user_password is enabled, and must be provided when it is disabled."
+  }
+}
+
+variable "manage_master_user_password" {
+  description = "Let RDS generate and manage the master password in Secrets Manager, independently of IAM authentication."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+# IAM authentication
+variable "iam_database_authentication_enabled" {
+  description = "Enable RDS IAM authentication and publish per-user connect policies for the workload identity module. Switch SQL users back to passwords before disabling."
+  type        = bool
+  default     = false
+}
+
+variable "iam_read_only_username" {
+  description = "Read-only application login to publish an IAM connect policy for, or null when the user is disabled."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.iam_read_only_username == null ? true : can(regex("^[A-Za-z_][A-Za-z0-9_]{0,62}$", var.iam_read_only_username))
+    error_message = "iam_read_only_username must be null or 1-63 letters, digits or underscores, starting with a letter or underscore."
+  }
+}
+
+variable "iam_read_write_username" {
+  description = "Read-write application login to publish an IAM connect policy for, or null when the user is disabled."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.iam_read_write_username == null ? true : can(regex("^[A-Za-z_][A-Za-z0-9_]{0,62}$", var.iam_read_write_username))
+    error_message = "iam_read_write_username must be null or 1-63 letters, digits or underscores, starting with a letter or underscore."
+  }
 }
 
 # Encryption

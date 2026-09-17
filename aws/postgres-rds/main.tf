@@ -9,7 +9,7 @@ terraform {
       version = "~> 3.0"
     }
   }
-  required_version = ">= 1.0.0"
+  required_version = ">= 1.9.0"
 
   backend "kubernetes" {}
 }
@@ -93,10 +93,13 @@ resource "aws_db_instance" "this" {
   kms_key_id            = local.kms_key_id
 
   # Database
-  db_name  = local.creates_database ? var.database_name : null
-  username = var.database_username
-  password = var.database_password
-  port     = 5432
+  db_name                     = local.creates_database ? var.database_name : null
+  username                    = var.database_username
+  password                    = var.database_password
+  manage_master_user_password = var.manage_master_user_password ? true : null
+  port                        = 5432
+
+  iam_database_authentication_enabled = var.iam_database_authentication_enabled
 
   # Network
   db_subnet_group_name   = aws_db_subnet_group.this.name

@@ -34,7 +34,11 @@ module "postgres" {
 | `vpc_id` | VPC ID | required |
 | `subnet_ids` | Comma-separated subnet IDs | required |
 | `database_username` | Master username (immutable after creation) | required |
-| `database_password` | Master password (min 8 chars) | required |
+| `database_password` | Master password, required unless `manage_master_user_password` is enabled; must be null when enabled | `null` |
+| `manage_master_user_password` | Let RDS generate and manage the master password in Secrets Manager | `false` |
+| `iam_database_authentication_enabled` | Enable IAM authentication and create separate database-login policies | `false` |
+| `iam_read_only_username` | Existing or separately provisioned read-only login to authorize | `null` |
+| `iam_read_write_username` | Existing or separately provisioned read-write login to authorize | `null` |
 | `engine_version` | PostgreSQL version (13-17) | `"16"` |
 | `instance_class` | RDS instance class | `"db.t3.medium"` |
 | `storage_gb` | Initial storage in GiB (can only increase) | `20` |
@@ -61,9 +65,236 @@ module "postgres" {
 | `port` | Database port |
 | `database_name` | Default database name |
 | `username` | Master username |
+| `password` | Caller-provided master password; null when RDS manages the password |
+| `connection_string` | Password-based connection string; null when IAM or RDS-managed passwords are enabled |
+| `master_user_secret_arn` | RDS-managed master password secret ARN; null when password management is disabled |
+| `master_secret_read_policy_arn` | Managed policy allowing retrieval of the master password secret; empty when password management is disabled |
 | `arn` | RDS instance ARN |
 | `id` | RDS instance identifier |
 | `name` | Generated instance name |
+| `resource_id` | Immutable RDS resource ID used in IAM database-login ARNs |
+| `region` | AWS region for signing database authentication tokens |
+| `master_iam_policy_arn` | Managed policy granting access as the master login; empty when IAM is disabled |
+| `read_only_iam_policy_arn` | Managed policy granting access as `iam_read_only_username`; empty when IAM or that login is disabled |
+| `read_write_iam_policy_arn` | Managed policy granting access as `iam_read_write_username`; empty when IAM or that login is disabled |
+
+## Managed master password
+
+Set `manage_master_user_password = true` and `database_password = null` to let RDS
+generate and manage the master password in Secrets Manager. This setting is
+independent of IAM authentication. When it is false, supply `database_password`.
+
+The module exposes `master_user_secret_arn` without reading the secret value into
+Terraform state. The `password` and `connection_string` outputs are null when RDS
+manages the password. Consumers that use password authentication must retrieve it
+from Secrets Manager. Switching an existing instance to Secrets Manager does not
+remove old passwords from prior state versions.
+
+It also creates `master_secret_read_policy_arn`, granting only
+`secretsmanager:GetSecretValue` on that secret. Attach it to an administrator or
+bootstrap identity through the workload identity module. This policy exists
+whenever password management is enabled, independently of IAM database login.
+
+## Advanced IAM authentication
+
+IAM is disabled by default. Enabling it prepares the RDS instance and publishes
+managed IAM policies. It does not create PostgreSQL users, change their SQL
+privileges or authentication method, create workload identities, or attach policies
+to roles. The Postgres blueprint and user-provisioning job continue to use passwords.
+
+For IAM with an RDS-managed master password, add these inputs:
+
+```hcl
+iam_database_authentication_enabled = true
+manage_master_user_password         = true
+database_password                   = null
+iam_read_only_username              = "app_ro"
+iam_read_write_username             = "app_rw"
+```
+
+IAM also works with a caller-provided master password. Leave
+`manage_master_user_password = false` and supply `database_password` in that case.
+
+The master policy is created whenever IAM is enabled. Application policies are
+created only for the supplied usernames; leave a username null to omit its policy.
+Each policy allows only `rds-db:connect` on one login:
+
+```text
+arn:<partition>:rds-db:<region>:<account>:dbuser:<resource_id>/<username>
+```
+
+The usernames must be distinct and use 1-63 letters, digits or underscores,
+starting with a letter or underscore. Read-only and read-write describe the
+intended SQL users. The IAM policies themselves only authorize login; PostgreSQL
+grants determine what each user can do. No monitoring-user IAM policy is created.
+
+### Attach policies through workload identity
+
+Pass the appropriate output to the workload identity module's
+`role_groups.<group>.policy_arns` map. For example, this role group grants a service
+and its pre-deploy job access as `app_rw`:
+
+```hcl
+role_groups = {
+  app = {
+    associations = {
+      api = {
+        namespace          = "production"
+        service_account    = "api"
+        include_pre_deploy = true
+      }
+    }
+    policy_arns = {
+      database = module.postgres.read_write_iam_policy_arn
+    }
+  }
+}
+```
+
+Use `read_only_iam_policy_arn` for read-only workloads. Attach
+`master_iam_policy_arn` only to identities that should have the master user's SQL
+privileges. The workload identity module owns the IAM roles and EKS Pod Identity
+associations, so a workload can combine database and other resource policies.
+
+### Bootstrap the master login
+
+For a user-owned bootstrap job, enable both IAM authentication and managed
+passwords, then give its identity access to the initial password and the master
+IAM login:
+
+```hcl
+role_groups = {
+  postgres_admin = {
+    associations = {
+      bootstrap = {
+        namespace       = "production"
+        service_account = "postgres-bootstrap"
+      }
+    }
+    policy_arns = {
+      bootstrap_password = module.postgres.master_secret_read_policy_arn
+      database_login     = module.postgres.master_iam_policy_arn
+    }
+  }
+}
+```
+
+Create the Kubernetes service account and configure the job with
+`serviceAccountName: postgres-bootstrap` in the `production` namespace. The job
+needs AWS CLI, `jq`, `psql`, and network access to RDS and the AWS APIs. Mount the
+[RDS CA bundle](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html)
+and supply these environment variables from the module outputs:
+
+| Job environment variable | Value |
+|--------------------------|-------|
+| `AWS_REGION` | `module.postgres.region` |
+| `PGHOST` | `module.postgres.host` |
+| `PGPORT` | `module.postgres.port` |
+| `PGDATABASE` | `module.postgres.database_name` |
+| `PGUSER` | `module.postgres.username` |
+| `MASTER_SECRET_ARN` | `module.postgres.master_user_secret_arn` |
+| `PGSSLROOTCERT` | Path to the mounted RDS CA bundle |
+
+Once the RDS settings and identity permissions have taken effect, run this Bash
+snippet once to convert the master login. It reads the password at runtime,
+grants `rds_iam`, then opens a fresh connection using an IAM token:
+
+```bash
+(
+  set -euo pipefail
+  set +x
+  : "${AWS_REGION:?}" "${PGHOST:?}" "${PGPORT:?}" "${PGDATABASE:?}" \
+    "${PGUSER:?}" "${MASTER_SECRET_ARN:?}" "${PGSSLROOTCERT:?}"
+  export PGSSLMODE=verify-full
+
+  PGPASSWORD="$(aws secretsmanager get-secret-value \
+    --region "$AWS_REGION" --secret-id "$MASTER_SECRET_ARN" \
+    --query SecretString --output text | jq -er '.password')"
+  export PGPASSWORD
+  psql -X --no-password --set=ON_ERROR_STOP=1 \
+    --set=master_username="$PGUSER" <<'SQL'
+GRANT rds_iam TO :"master_username";
+SQL
+
+  PGPASSWORD="$(aws rds generate-db-auth-token \
+    --hostname "$PGHOST" --port "$PGPORT" \
+    --region "$AWS_REGION" --username "$PGUSER")"
+  psql -X --no-password --set=ON_ERROR_STOP=1 \
+    --command='SELECT current_user;'
+)
+```
+
+After the grant succeeds, new connections for this login require IAM. If the
+token connection fails, fix the IAM permissions or client configuration and retry
+only the token connection. Repeating the initial password step will fail. An
+already-converted master should skip the password and grant steps entirely.
+
+After verifying IAM access, remove `bootstrap_password` from the role group's
+policy attachments. Keep `database_login` for subsequent administration through
+IAM. Application identities should receive only their own database-login policy.
+Creating application users and assigning SQL privileges remains part of your
+provisioning workflow.
+
+### Configure PostgreSQL and clients
+
+After the RDS setting has taken effect, connect as an administrator and grant
+`rds_iam` to the intended logins. Create any missing users and apply their SQL
+database, schema, table, and default privileges separately. For existing users:
+
+```sql
+GRANT rds_iam TO app_ro, app_rw;
+```
+
+For the initial administrator connection, use the caller-provided password or,
+when `manage_master_user_password` is enabled, retrieve the RDS-managed secret
+identified by `master_user_secret_arn`. Reading it requires
+`secretsmanager:GetSecretValue`.
+
+The master can also use IAM by granting `rds_iam` to `database_username`, for
+example `GRANT rds_iam TO postgres`. Configure and verify an authorized administrator
+identity first. IAM takes precedence over passwords for any user with `rds_iam`.
+In particular, converting the master used by the current Postgres blueprint breaks
+its password-based user-provisioning job. Advanced callers must provide their own
+IAM-capable provisioning workflow before converting that account.
+
+Clients must obtain AWS credentials and sign a token using the actual RDS `host`,
+`port`, `region`, and exact database username. Supply it as the connection password
+over TLS with certificate verification, such as `sslmode=verify-full` and the RDS
+CA bundle. Tokens expire after 15 minutes; obtain a valid token for every new
+physical connection, including pool reconnects. Existing sessions are unaffected
+by token expiry. Network access to the database is still required.
+
+The `connection_string` output is null when IAM is enabled. The `password` output
+follows `manage_master_user_password` and can still expose a caller-provided
+password, but that password cannot authenticate a login switched to IAM. Keep
+tokens out of Terraform state and durable application configuration.
+
+To return to passwords, use an authorized database session to revoke `rds_iam`.
+For an RDS-managed master password, use the current value from Secrets Manager;
+set passwords for other converted logins as needed. Verify password access, then
+detach the policies through the workload identity configuration before disabling
+this module's IAM setting. Disabling IAM deletes the managed policies, and AWS rejects
+deleting policies that are still attached. Detach an application policy before
+setting its username to null for the same reason. Monitoring can continue using
+its existing password throughout.
+
+Disabling IAM does not change password management. If you separately disable
+`manage_master_user_password`, supply `database_password`; RDS stops managing the
+master password and deletes its managed secret. Detach `master_secret_read_policy_arn`
+from all identities before disabling password management, because this also
+deletes the secret-read policy.
+
+See the AWS documentation for [database users](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.DBAccounts.html),
+[IAM policies](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.IAMPolicy.html),
+[PostgreSQL connections](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.Connecting.AWSCLI.PostgreSQL.html),
+and [retrieving secrets](https://docs.aws.amazon.com/secretsmanager/latest/userguide/retrieving-secrets_cli.html).
+
+### Validation
+
+Run `terraform init -backend=false`, `terraform validate`, and `terraform test`
+from this directory. The module requires Terraform 1.9 or later for input
+validation across variables. The tests require Terraform 1.11 or later and use
+mock providers; they do not connect to AWS or validate live RDS authentication.
 
 ## One-Way Decisions
 
@@ -75,8 +306,6 @@ Set `kms_key_id` to a KMS key ARN to encrypt storage, snapshots, and Performance
 
 ## Future Additions
 
-- Secrets Manager integration (`manage_master_user_password`) to remove passwords from Terraform state
-- IAM database authentication
 - Read replica support
 - Restore from snapshot / point-in-time recovery
 - Provisioned IOPS and throughput tuning
