@@ -119,17 +119,6 @@ spec:
     releaseChannel: stable
   - service: ryvn-admission
     namespace: ryvn-system
-  - service: access-operator
-    # Native access RBAC projector (docs-internal/access-naming.md). The child
-    # name and every chart identity value come from immutable database rows
-    # resolved server-side, never from inputs, environment config or Helm
-    # values; ordinary release/channel resolution selects the released chart.
-    name: '{{ printf "access-%s" EnvironmentID }}'
-    namespace: ryvn-system
-    config: |
-      organizationId: '{{ .ryvn.env.organizationId }}'
-      environmentId: '{{ .ryvn.env.id }}'
-      installationId: '{{ .ryvn.installation.id }}'
   - service: karpenter-crd
     namespace: kube-system
     releaseChannel: stable
