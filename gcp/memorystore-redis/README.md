@@ -5,7 +5,7 @@ Terraform module for provisioning Google Cloud Memorystore for Redis.
 ## Features
 
 - BASIC and STANDARD_HA tier support
-- AUTH authentication enabled by default
+- AUTH authentication enabled by default (no IAM data-plane auth on this product, see below)
 - In-transit encryption (TLS) enabled by default
 - Optional customer-managed encryption key (CMEK) for data at rest
 - Private-only access via VPC network
@@ -70,6 +70,23 @@ module "cache" {
   }
 }
 ```
+
+## IAM Authentication (not available)
+
+Memorystore for Redis (`google_redis_instance`, which this module provisions)
+has no data-plane IAM authentication: IAM roles such as `roles/redis.editor`
+only govern the control plane (creating and managing instances), not Redis
+connections. The only client authentication is the instance AUTH string, so
+this module keeps `auth_enabled = true` by default and exposes `auth_string`.
+Workload identity gives pods a Google service account, but that identity
+cannot be used to `AUTH` to the instance.
+
+Passwordless IAM authentication (`roles/redis.dbConnectionUser`, token in the
+AUTH position) exists only for Memorystore for Redis Cluster and Memorystore
+for Valkey, which are different products (`google_redis_cluster` /
+`google_memorystore_instance`) with different networking (Private Service
+Connect) and no BASIC tier. Adopting IAM on GCP means moving this module to
+one of those resources, which recreates the instance.
 
 ## Required Variables
 

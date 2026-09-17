@@ -125,6 +125,48 @@ variable "auth_token" {
   sensitive   = true
 }
 
+variable "iam_authentication_enabled" {
+  description = "Replace the cluster AUTH token with IAM authentication. Creates admin, read-only, and read-write ElastiCache users that authenticate with short-lived SigV4 tokens, plus an elasticache:Connect policy per user for the workload identity module. Requires TLS and Redis 7.0+ or Valkey 7.2+; auth_token must be null."
+  type        = bool
+  default     = false
+}
+
+variable "iam_admin_username" {
+  description = "Username (and ElastiCache user ID) of the full-access IAM login. Defaults to <name>-admin."
+  type        = string
+  default     = null
+}
+
+variable "iam_read_only_username" {
+  description = "Username (and ElastiCache user ID) of the read-only IAM login. Defaults to <name>-ro."
+  type        = string
+  default     = null
+}
+
+variable "iam_read_write_username" {
+  description = "Username (and ElastiCache user ID) of the read-write IAM login. Defaults to <name>-rw."
+  type        = string
+  default     = null
+}
+
+variable "iam_admin_access_string" {
+  description = "ElastiCache RBAC access string for the admin IAM login"
+  type        = string
+  default     = "on ~* &* +@all"
+}
+
+variable "iam_read_only_access_string" {
+  description = "ElastiCache RBAC access string for the read-only IAM login"
+  type        = string
+  default     = "on ~* &* -@all +@read +@connection +info"
+}
+
+variable "iam_read_write_access_string" {
+  description = "ElastiCache RBAC access string for the read-write IAM login. Excludes administrative and dangerous commands (FLUSHALL, KEYS, CONFIG, ...) while keeping INFO and CLIENT for client libraries."
+  type        = string
+  default     = "on ~* &* +@all -@admin -@dangerous +info +client"
+}
+
 # Maintenance
 variable "maintenance_window" {
   description = "Weekly maintenance window (e.g., 'sun:04:00-sun:05:00')"

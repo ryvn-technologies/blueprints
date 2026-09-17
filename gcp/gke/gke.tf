@@ -320,14 +320,11 @@ locals {
     "container.operations.get",
     "container.operations.list",
 
-    # Allow storage bucket operations and bucket-level IAM bindings for
-    # workload identity (but not object access)
+    # Allow storage bucket operations (but not object access)
     "storage.buckets.create",
     "storage.buckets.delete",
     "storage.buckets.get",
-    "storage.buckets.getIamPolicy",
     "storage.buckets.list",
-    "storage.buckets.setIamPolicy",
     "storage.buckets.update",
 
     # Allow monitoring operations

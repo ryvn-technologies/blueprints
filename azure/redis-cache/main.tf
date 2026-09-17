@@ -58,7 +58,7 @@ resource "azurerm_managed_redis" "this" {
   public_network_access = local.private_link_enabled ? "Disabled" : "Enabled"
 
   default_database {
-    access_keys_authentication_enabled = true
+    access_keys_authentication_enabled = var.access_keys_authentication_enabled
     client_protocol                    = "Encrypted"
     clustering_policy                  = var.clustering_policy
     eviction_policy                    = var.eviction_policy
@@ -95,6 +95,10 @@ resource "azurerm_managed_redis" "this" {
     precondition {
       condition     = local.customer_managed_key_enabled == (local.customer_managed_key_identity_id != "")
       error_message = "customer_managed_key_id and customer_managed_key_identity_id must be set together."
+    }
+    precondition {
+      condition     = var.access_keys_authentication_enabled || length(var.entra_principals) > 0
+      error_message = "Disabling access_keys_authentication_enabled requires at least one entry in entra_principals, otherwise nothing can connect to the cache."
     }
   }
 }
