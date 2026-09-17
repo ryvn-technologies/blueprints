@@ -73,6 +73,26 @@ variable "rdb_backup_frequency" {
   }
 }
 
+# Authentication
+variable "access_keys_authentication_enabled" {
+  description = "Keep access-key (password) authentication enabled on the default database. Set to false for Entra-only, passwordless access; requires at least one entra_principals entry. Toggling this drops all client connections."
+  type        = bool
+  default     = true
+}
+
+variable "entra_principals" {
+  description = "Microsoft Entra principals (managed identities, service principals, users) granted the default access policy on the cache, keyed by caller alias. Use principal IDs from the workload identity module's principals output. Clients authenticate with the object ID as the Redis username and an Entra token as the password."
+  type = map(object({
+    object_id = string
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for principal in var.entra_principals : can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", principal.object_id))])
+    error_message = "entra_principals object_id values must be Entra object ID GUIDs."
+  }
+}
+
 # Encryption
 variable "customer_managed_key_id" {
   description = "Versioned Key Vault key ID (https://VAULT.vault.azure.net/keys/KEY/VERSION) for customer-managed data encryption. Leave empty for service-managed encryption. Requires customer_managed_key_identity_id. Cannot be changed after creation."

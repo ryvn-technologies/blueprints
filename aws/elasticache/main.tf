@@ -40,10 +40,13 @@ locals {
   }
   parameter_group_name = coalesce(var.parameter_group_name, local.default_parameter_groups[var.engine])
 
-  # Auto-generate auth token when TLS is enabled and no token is provided
-  auth_token = var.transit_encryption_enabled ? (
-    var.auth_token != null ? var.auth_token : random_password.auth_token[0].result
-  ) : var.auth_token
+  # Auto-generate auth token when TLS is enabled and no token is provided.
+  # IAM authentication replaces the cluster-wide token with per-user RBAC.
+  auth_token = var.iam_authentication_enabled ? null : (
+    var.transit_encryption_enabled ? (
+      var.auth_token != null ? var.auth_token : random_password.auth_token[0].result
+    ) : var.auth_token
+  )
 
   # Empty string and null both mean "use the AWS-managed key".
   kms_key_id = var.kms_key_id == null || trimspace(var.kms_key_id) == "" ? null : trimspace(var.kms_key_id)
@@ -55,7 +58,7 @@ locals {
 }
 
 resource "random_password" "auth_token" {
-  count   = var.transit_encryption_enabled && var.auth_token == null ? 1 : 0
+  count   = var.transit_encryption_enabled && var.auth_token == null && !var.iam_authentication_enabled ? 1 : 0
   length  = 64
   special = false
 }
@@ -102,7 +105,8 @@ resource "aws_elasticache_replication_group" "this" {
   kms_key_id                 = local.kms_key_id
 
   # Authentication
-  auth_token = local.auth_token
+  auth_token     = local.auth_token
+  user_group_ids = var.iam_authentication_enabled ? [aws_elasticache_user_group.this[0].id] : null
 
   # Maintenance & Snapshots
   maintenance_window       = var.maintenance_window
@@ -150,8 +154,20 @@ resource "aws_elasticache_replication_group" "this" {
       error_message = "auth_token requires transit_encryption_enabled = true."
     }
     precondition {
-      condition     = !var.transit_encryption_enabled || local.auth_token != null
-      error_message = "transit_encryption_enabled requires authentication. Provide auth_token or leave it null to auto-generate one."
+      condition     = !var.transit_encryption_enabled || local.auth_token != null || var.iam_authentication_enabled
+      error_message = "transit_encryption_enabled requires authentication. Provide auth_token, leave it null to auto-generate one, or enable iam_authentication_enabled."
+    }
+    precondition {
+      condition     = !var.iam_authentication_enabled || var.transit_encryption_enabled
+      error_message = "iam_authentication_enabled requires transit_encryption_enabled = true."
+    }
+    precondition {
+      condition     = !var.iam_authentication_enabled || var.auth_token == null
+      error_message = "auth_token cannot be combined with iam_authentication_enabled; ElastiCache rejects a cluster AUTH token alongside a user group."
+    }
+    precondition {
+      condition     = !var.iam_authentication_enabled || var.engine == "valkey" || tonumber(local.major_version) >= 7
+      error_message = "iam_authentication_enabled requires Redis 7.0+ or Valkey 7.2+."
     }
 
     precondition {
