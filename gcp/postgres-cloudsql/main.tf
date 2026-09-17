@@ -29,6 +29,8 @@ locals {
   backups_enabled       = var.backup_retention_days > 0
   database_username     = trimspace(var.database_username)
   uses_builtin_postgres = local.database_username == "postgres"
+  # Only password presence is public; the credential itself remains sensitive.
+  has_database_password = nonsensitive(var.database_password != null)
   # Cloud SQL ships with a built-in postgres database; creating it again fails.
   creates_database = var.database_name != null && var.database_name != "postgres"
 
@@ -50,7 +52,9 @@ locals {
     { name = "cron.database_name", value = "postgres" },
   ] : []
 
-  database_flags = local.pg_cron_flags
+  database_flags = concat(local.pg_cron_flags, var.iam_database_authentication_enabled ? [
+    { name = "cloudsql.iam_authentication", value = "on" },
+  ] : [])
 }
 
 # sqladmin.googleapis.com is a project prerequisite, not something Terraform
@@ -73,7 +77,7 @@ resource "google_sql_database_instance" "this" {
   # Terraform-level deletion protection
   deletion_protection = var.deletion_protection
 
-  # Set the root (postgres) user password
+  # Null leaves postgres without a password on a new instance.
   root_password = var.database_password
 
   # Customer-managed encryption key (CMEK). Create-time only.
@@ -140,7 +144,7 @@ resource "google_sql_database_instance" "this" {
       query_plans_per_minute  = 5
     }
 
-    # Database flags (pg_cron when database_name is set)
+    # Database flags (pg_cron and optional IAM authentication)
     dynamic "database_flags" {
       for_each = local.database_flags
       content {
@@ -168,6 +172,26 @@ resource "google_sql_database_instance" "this" {
     precondition {
       condition     = local.encryption_key_name == null || split("/", local.encryption_key_name)[3] == var.region
       error_message = "encryption_key_name must be a key in the instance region (${var.region}); Cloud SQL rejects keys from other locations."
+    }
+
+    precondition {
+      condition     = local.has_database_password || (var.iam_database_authentication_enabled && local.uses_builtin_postgres)
+      error_message = "database_password is required unless IAM authentication is enabled and database_username is postgres. Custom password usernames always require a password; declare IAM identities in iam_database_users."
+    }
+
+    precondition {
+      condition     = var.iam_database_authentication_enabled || length(var.iam_database_users) == 0
+      error_message = "iam_database_authentication_enabled must be true when iam_database_users is nonempty. Remove the IAM database users before disabling IAM."
+    }
+
+    precondition {
+      condition     = length(distinct([for user in local.iam_database_users : user.username])) == length(local.iam_database_users)
+      error_message = "IAM database users must have distinct SQL usernames after removing service-account email suffixes."
+    }
+
+    precondition {
+      condition     = alltrue([for user in local.iam_database_users : user.username != local.database_username])
+      error_message = "IAM database users must not share a SQL username with the built-in application user."
     }
   }
 }

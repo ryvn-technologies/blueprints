@@ -110,7 +110,7 @@ variable "database_name" {
 }
 
 variable "database_username" {
-  description = "Database username to expose for application access. Uses the built-in postgres user when set to postgres."
+  description = "Password database username. Uses the built-in postgres user when set to postgres. A custom name creates an application user and requires database_password, even when IAM is enabled."
   type        = string
   default     = "postgres"
 
@@ -121,9 +121,66 @@ variable "database_username" {
 }
 
 variable "database_password" {
-  description = "Password for the built-in postgres user and any managed application user. Minimum 8 characters."
+  description = "Optional password for the built-in postgres user and any managed application user. Null requires IAM authentication and database_username set to postgres. Omitting a previously configured password does not guarantee revocation of existing postgres access."
   type        = string
+  default     = null
   sensitive   = true
+
+  validation {
+    condition     = var.database_password == null ? true : length(var.database_password) > 0
+    error_message = "database_password must be nonempty when provided. To omit password credentials, use null with IAM authentication enabled and database_username set to postgres."
+  }
+}
+
+# IAM authentication
+variable "iam_database_authentication_enabled" {
+  description = "Enable Cloud SQL IAM database authentication. Password authentication also remains available when a password is supplied. Remove managed IAM database users and supply a password before disabling."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "iam_database_users" {
+  description = "Existing Google identities to register as database accounts, keyed by stable caller-defined labels. Supply full lowercase emails and CLOUD_IAM_USER, CLOUD_IAM_SERVICE_ACCOUNT, or CLOUD_IAM_GROUP. IAM bindings and SQL privileges are managed separately."
+  type = map(object({
+    email = string
+    type  = string
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for user in var.iam_database_users : try(contains([
+        "CLOUD_IAM_USER", "CLOUD_IAM_SERVICE_ACCOUNT", "CLOUD_IAM_GROUP",
+      ], user.type), false)
+    ])
+    error_message = "Each IAM database user must specify CLOUD_IAM_USER, CLOUD_IAM_SERVICE_ACCOUNT, or CLOUD_IAM_GROUP. Cloud SQL manages group-member account types automatically."
+  }
+
+  validation {
+    condition = alltrue([
+      for user in var.iam_database_users : can(regex("^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$", user.email))
+    ])
+    error_message = "Each IAM database user must have a full lowercase email address without whitespace."
+  }
+
+  validation {
+    condition = alltrue([
+      for user in var.iam_database_users : try(
+        (user.type == "CLOUD_IAM_SERVICE_ACCOUNT") == endswith(user.email, ".gserviceaccount.com"),
+        false,
+      )
+    ])
+    error_message = "Service accounts must use CLOUD_IAM_SERVICE_ACCOUNT and their full email ending in .gserviceaccount.com."
+  }
+
+  validation {
+    condition = alltrue([
+      for user in var.iam_database_users : try(length(user.type == "CLOUD_IAM_SERVICE_ACCOUNT" ? trimsuffix(user.email, ".gserviceaccount.com") : user.email) <= 63, false)
+    ])
+    error_message = "IAM SQL usernames must be at most 63 characters after removing the service-account .gserviceaccount.com suffix."
+  }
 }
 
 # Encryption

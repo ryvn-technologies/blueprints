@@ -29,7 +29,7 @@ output "public_ip_address" {
 }
 
 output "password" {
-  description = "The database password"
+  description = "The built-in database password, or null when none is supplied"
   value       = var.database_password
   sensitive   = true
 }
@@ -45,17 +45,39 @@ output "database_name" {
 }
 
 output "username" {
-  description = "The database username"
-  value       = trimspace(var.database_username)
+  description = "The built-in password database username, or null when no password is supplied"
+  value       = local.has_database_password ? local.database_username : null
 }
 
 output "connection_string" {
-  description = "Full PostgreSQL connection string"
-  value       = "postgresql://${replace(urlencode(trimspace(var.database_username)), "+", "%20")}:${replace(urlencode(var.database_password), "+", "%20")}@${var.private_network != null ? google_sql_database_instance.this.private_ip_address : google_sql_database_instance.this.public_ip_address}:5432/${coalesce(var.database_name, "postgres")}?sslmode=require"
+  description = "Full PostgreSQL password connection string, or null when no password is supplied"
+  value       = local.has_database_password ? "postgresql://${replace(urlencode(local.database_username), "+", "%20")}:${replace(urlencode(var.database_password), "+", "%20")}@${var.private_network != null ? google_sql_database_instance.this.private_ip_address : google_sql_database_instance.this.public_ip_address}:5432/${coalesce(var.database_name, "postgres")}?sslmode=require" : null
   sensitive   = true
 }
 
 output "id" {
   description = "The Cloud SQL instance self_link"
   value       = google_sql_database_instance.this.self_link
+}
+
+output "project_id" {
+  description = "Project containing the Cloud SQL instance, used for caller-managed IAM bindings"
+  value       = var.project_id
+}
+
+output "instance_resource_name" {
+  description = "Cloud SQL resource name for IAM conditions; distinct from the proxy connection_name"
+  value       = "projects/${var.project_id}/instances/${google_sql_database_instance.this.name}"
+}
+
+output "iam_database_users" {
+  description = "Registered IAM accounts by input key: SQL username, full principal email, IAM member identifier, and account type. Empty when no accounts are managed."
+  value = {
+    for key, user in google_sql_user.iam : key => {
+      username = user.name
+      email    = local.iam_database_users[key].email
+      member   = local.iam_database_users[key].member
+      type     = user.type
+    }
+  }
 }
