@@ -10,6 +10,7 @@ Terraform module for provisioning Azure Managed Redis.
 - Optional Private Link access via `privatelink.redis.azure.net`
 - Optional customer-managed key encryption with a user-assigned identity
 - Optional RDB persistence
+- Microsoft Entra (passwordless) authentication via access policy assignments, with optional access-key disable
 
 ## Usage
 
@@ -78,6 +79,57 @@ module "cache" {
 The user-assigned identity needs get, wrapKey, and unwrapKey on the Key Vault
 key (the Key Vault Crypto Service Encryption User role).
 
+### Entra Authentication (passwordless)
+
+```hcl
+module "workload_identity" {
+  source = "./infra/ryvn-workload-identity/azure"
+  # ...
+  role_groups = {
+    api = { associations = { api = { namespace = "app", service_account = "api" } } }
+  }
+}
+
+module "cache" {
+  source = "./infra/ryvn-cache/azure"
+
+  installation_name   = "my-app-cache"
+  environment         = "production"
+  resource_group_name = azurerm_resource_group.this.name
+
+  entra_principals = {
+    api = { object_id = module.workload_identity.identities["api"].principal_id }
+  }
+
+  # Once every client uses Entra tokens, turn off access keys entirely.
+  access_keys_authentication_enabled = false
+}
+```
+
+Entra authentication is always available on Azure Managed Redis; the module
+creates an `azurerm_managed_redis_access_policy_assignment` per entry in
+`entra_principals`, granting that principal the built-in default access policy
+(full access) on the default database. Nothing has to be created by hand
+after apply. Setting `access_keys_authentication_enabled = false` makes the
+cache passwordless: `primary_access_key` and `auth_token` output null and
+`connection_url` contains no credentials. It requires at least one principal.
+
+Clients authenticate with the principal's **object ID** as the Redis username
+and an Entra access token for scope `https://redis.azure.com/.default`
+(`entra_token_scope` output) as the password. Tokens expire, so long-lived
+connections must re-`AUTH` with a fresh token before expiry (see "Use
+Microsoft Entra for cache authentication" in the Azure Managed Redis docs for
+per-language client guidance).
+
+Caveats:
+
+- TLS is required (already enforced by this module).
+- Only individual principals are supported: Microsoft Entra groups are not.
+- The AzureRM provider only exposes the default access policy (full access);
+  read-only policies are not available through Terraform today, so
+  least-privilege split logins are not possible on Azure yet.
+- Toggling `access_keys_authentication_enabled` disconnects all clients.
+
 ## Required Variables
 
 - `installation_name`: Identifier for the cache instance
@@ -94,6 +146,8 @@ key (the Key Vault Crypto Service Encryption User role).
 | `clustering_policy` | `"EnterpriseCluster"` | `EnterpriseCluster`, `OSSCluster`, or `NoCluster`. Changing recreates the database |
 | `eviction_policy` | `"VolatileLRU"` | Eviction policy when the memory limit is reached |
 | `rdb_backup_frequency` | `null` | RDB persistence frequency (`1h`, `6h`, `12h`; null disables persistence) |
+| `access_keys_authentication_enabled` | `true` | Keep access-key auth on the default database; `false` = Entra-only (needs `entra_principals`) |
+| `entra_principals` | `{}` | `{ alias = { object_id } }` principals granted the default access policy |
 | `customer_managed_key_id` | `null` | Versioned Key Vault key ID for customer-managed encryption |
 | `customer_managed_key_identity_id` | `null` | User-assigned identity for Key Vault access (required with `customer_managed_key_id`) |
 | `private_endpoint_subnet_id` | `null` | Private endpoint subnet ID |
@@ -109,8 +163,12 @@ key (the Key Vault Crypto Service Encryption User role).
 |---|---|
 | `hostname` | Cache hostname |
 | `port` | TLS port (10000) |
-| `primary_access_key` | Access key (sensitive) |
-| `connection_url` | Full connection URL `rediss://:key@host:port` |
+| `primary_access_key` | Access key (sensitive); null when access keys are disabled |
+| `auth_token` | Alias for `primary_access_key` |
+| `connection_url` | `rediss://:key@host:port`, or `rediss://host:port` when access keys are disabled |
+| `access_keys_authentication_enabled` | Whether access-key auth is on |
+| `entra_principals` | `{ alias = { object_id, assignment_id } }` for assigned principals |
+| `entra_token_scope` | OAuth scope for Entra tokens (`https://redis.azure.com/.default`) |
 | `id` | Azure resource ID |
 
 ## One-Way Door Decisions
@@ -126,4 +184,5 @@ Cannot be changed after creation:
 - `sku_name` (scale up within SKU limits)
 - `eviction_policy`
 - RDB persistence
+- Entra principals and access-key authentication
 - Tags
