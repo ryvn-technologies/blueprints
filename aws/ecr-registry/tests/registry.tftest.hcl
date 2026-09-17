@@ -152,6 +152,19 @@ run "punctuation_only_registry_name_falls_back_to_a_valid_prefix" {
   }
 }
 
+run "null_explicit_node_identities_fall_back_to_detection" {
+  command = plan
+
+  variables {
+    node_role_names = null
+  }
+
+  assert {
+    condition     = tolist(local.node_role_names) == tolist(["prod-eks-node"])
+    error_message = "A null node_role_names (rendered from an empty blueprint list) must behave like an empty list and keep detected identities."
+  }
+}
+
 run "fails_without_any_node_identity" {
   command = plan
 

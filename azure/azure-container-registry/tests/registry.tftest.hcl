@@ -79,6 +79,19 @@ run "explicit_identities_skip_cluster_lookup" {
   }
 }
 
+run "null_explicit_node_identities_fall_back_to_detection" {
+  command = plan
+
+  variables {
+    node_principal_ids = null
+  }
+
+  assert {
+    condition     = tolist(local.node_principal_ids) == tolist(["11111111-1111-1111-1111-111111111111"])
+    error_message = "A null node_principal_ids (rendered from an empty blueprint list) must behave like an empty list and keep detected identities."
+  }
+}
+
 run "fails_without_node_identity" {
   command = plan
 

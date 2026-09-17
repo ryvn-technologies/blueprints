@@ -69,6 +69,22 @@ run "explicit_node_identities_skip_cluster_lookup" {
   }
 }
 
+run "null_explicit_node_identities_fall_back_to_detection" {
+  command = plan
+
+  variables {
+    node_service_accounts = null
+  }
+
+  assert {
+    condition = toset(local.node_service_accounts) == toset([
+      "123456789012-compute@developer.gserviceaccount.com",
+      "nodes@test-project.iam.gserviceaccount.com",
+    ])
+    error_message = "A null node_service_accounts (rendered from an empty blueprint list) must behave like an empty list and keep detected identities."
+  }
+}
+
 run "fails_without_any_node_identity" {
   command = plan
 

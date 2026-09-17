@@ -64,6 +64,7 @@ variable "node_principal_ids" {
   description = "Explicit object ids of the kubelet (node) identities that must be able to pull. Merged with the kubelet identity detected from the AKS cluster; required for attached clusters."
   type        = list(string)
   default     = []
+  nullable    = false
 }
 
 variable "oidc_issuer_url" {

@@ -41,6 +41,7 @@ variable "node_service_accounts" {
   description = "Explicit node/kubelet service account emails that must be able to pull. Merged with accounts detected from the GKE cluster; required for attached clusters."
   type        = list(string)
   default     = []
+  nullable    = false
 }
 
 variable "require_node_pull_grant" {

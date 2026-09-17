@@ -171,7 +171,7 @@ spec:
         name_prefix: '{{ ParentInstallationName }}'
         registry_name: '{{ input "registryName" }}'
         environment: '{{ .ryvn.env.name }}'
-        push_namespace: '{{ .ryvn.env.defaultNamespace }}'
+        push_namespace: ryvn-system
         push_service_accounts:
           - '{{ ParentInstallationName }}-sync'
         node_role_names:
@@ -196,7 +196,7 @@ spec:
         name_prefix: '{{ ParentInstallationName }}'
         registry_name: '{{ input "registryName" }}'
         environment: '{{ .ryvn.env.name }}'
-        push_namespace: '{{ .ryvn.env.defaultNamespace }}'
+        push_namespace: ryvn-system
         push_service_accounts:
           - '{{ ParentInstallationName }}-sync'
         node_service_accounts:
@@ -218,7 +218,7 @@ spec:
         registry_name: '{{ input "registryName" }}'
         environment: '{{ .ryvn.env.name }}'
         sku: '{{ input "sku" }}'
-        push_namespace: '{{ .ryvn.env.defaultNamespace }}'
+        push_namespace: ryvn-system
         push_service_accounts:
           - '{{ ParentInstallationName }}-sync'
         node_principal_ids:
@@ -231,7 +231,7 @@ spec:
     - service: registry-sync
       name: '{{ ParentInstallationName }}-sync'
       alias: sync
-      namespace: '{{ .ryvn.env.defaultNamespace }}'
+      namespace: ryvn-system
       config: |
         {{- $push := (serviceInstallation "registry").outputs.push_identity }}
         {{- $prefix := (serviceInstallation "registry").outputs.path_prefix }}
@@ -273,7 +273,7 @@ spec:
         credentialType: client-secret
         enabled: true
         secretName: ryvn-registry-sync-client-creds
-        # Env-scoped: poll, claim and report artifact-sync tasks. The registry
-        # reconciler additionally binds this role at the mirror Registry record.
+        # Env-scoped: poll, claim and report artifact-sync tasks; claim/report
+        # check registry.publish at the task's environment.
         role: registry-sync
       releaseChannel: stable

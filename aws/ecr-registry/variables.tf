@@ -30,6 +30,7 @@ variable "node_role_names" {
   description = "Explicit IAM role names used by cluster nodes (kubelet) that must be able to pull. Merged with roles detected from EKS managed node groups; required for attached clusters and for Karpenter-managed nodes."
   type        = list(string)
   default     = []
+  nullable    = false
 }
 
 variable "require_node_pull_grant" {

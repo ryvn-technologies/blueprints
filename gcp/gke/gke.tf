@@ -289,6 +289,10 @@ locals {
     "compute.firewalls.get",
     "compute.firewalls.list",
     "compute.firewalls.update",
+    # Reading a GKE cluster (data.google_container_cluster) resolves node pool
+    # instance groups, which the registry mirror blueprint uses to detect node identities.
+    "compute.instanceGroupManagers.get",
+    "compute.instanceGroups.get",
     "compute.instances.create",
     "compute.instances.delete",
     "compute.instances.get",
