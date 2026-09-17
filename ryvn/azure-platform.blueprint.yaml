@@ -12,10 +12,9 @@ spec:
     description: Log collection, metrics forwarding, and optional log redaction.
     displayName: Observability
   inputs:
-  # Persist false on existing installations before changing the default to true.
   - name: enableManagedCilium
     type: boolean
-    default: false
+    default: true
     displayName: Use Azure CNI Powered by Cilium.
     description: Cilium data plane and network policies, including FQDN filtering.
     hidden: true
