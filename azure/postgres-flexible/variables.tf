@@ -72,14 +72,88 @@ variable "database_name" {
 }
 
 variable "database_username" {
-  description = "Administrator login name. Cannot be changed after creation."
+  description = "Local administrator login. Required with password authentication; omit for new Entra-only servers. Changing an existing login can replace the server."
   type        = string
+  default     = null
+
+  validation {
+    condition     = !var.password_authentication_enabled || try(trimspace(var.database_username) != "", false)
+    error_message = "database_username is required when password_authentication_enabled is true."
+  }
 }
 
 variable "database_password" {
-  description = "Administrator password. Minimum 8 characters."
+  description = "Local administrator password. Required with password authentication; omit for new Entra-only servers. Minimum 8 characters."
   type        = string
+  default     = null
   sensitive   = true
+
+  validation {
+    condition     = !var.password_authentication_enabled || try(length(var.database_password) > 0, false)
+    error_message = "database_password is required when password_authentication_enabled is true."
+  }
+}
+
+# Authentication
+variable "entra_authentication_enabled" {
+  description = "Enable Microsoft Entra authentication. Requires entra_tenant_id and at least one entra_administrators entry. Enabling it restarts the server."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "password_authentication_enabled" {
+  description = "Allow local PostgreSQL password authentication. Disable for Entra-only access."
+  type        = bool
+  default     = true
+  nullable    = false
+
+  validation {
+    condition     = var.password_authentication_enabled || var.entra_authentication_enabled
+    error_message = "At least one of password_authentication_enabled or entra_authentication_enabled must be true."
+  }
+}
+
+variable "entra_tenant_id" {
+  description = "Microsoft Entra tenant UUID trusted by the server. Required with Entra authentication; leave null when disabled."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.entra_authentication_enabled ? can(regex("^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$", var.entra_tenant_id)) : var.entra_tenant_id == null
+    error_message = "entra_tenant_id must be a UUID when entra_authentication_enabled is true, and null when it is false."
+  }
+}
+
+variable "entra_administrators" {
+  description = "Caller-owned Entra administrators keyed by stable aliases. Use the principal/object ID, not the client ID, and ServicePrincipal for managed identities. These identities receive administrator privileges, not application read/write grants."
+  type = map(object({
+    object_id      = string
+    principal_name = string
+    principal_type = string
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = var.entra_authentication_enabled ? length(var.entra_administrators) > 0 : length(var.entra_administrators) == 0
+    error_message = "entra_administrators must contain at least one administrator when Entra authentication is enabled, and must be empty when disabled."
+  }
+
+  validation {
+    condition = try(alltrue([
+      for administrator in values(var.entra_administrators) :
+      can(regex("^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$", administrator.object_id)) &&
+      trimspace(administrator.principal_name) != "" &&
+      contains(["User", "Group", "ServicePrincipal"], administrator.principal_type)
+    ]), false)
+    error_message = "Each Entra administrator needs a UUID object_id, a nonempty principal_name, and principal_type User, Group, or ServicePrincipal."
+  }
+
+  validation {
+    condition     = try(length(distinct([for administrator in values(var.entra_administrators) : lower(administrator.object_id)])) == length(var.entra_administrators), false)
+    error_message = "Entra administrator object IDs must be distinct."
+  }
 }
 
 # Encryption

@@ -9,7 +9,7 @@ terraform {
       version = "~> 3.0"
     }
   }
-  required_version = ">= 1.0.0"
+  required_version = ">= 1.9.0"
 
   backend "kubernetes" {}
 }
@@ -63,6 +63,12 @@ resource "azurerm_postgresql_flexible_server" "this" {
   # Credentials
   administrator_login    = var.database_username
   administrator_password = var.database_password
+
+  authentication {
+    active_directory_auth_enabled = var.entra_authentication_enabled
+    password_auth_enabled         = var.password_authentication_enabled
+    tenant_id                     = var.entra_tenant_id
+  }
 
   # Network
   delegated_subnet_id           = local.private_access ? local.delegated_subnet_id : null
@@ -133,6 +139,9 @@ resource "azurerm_postgresql_flexible_server_database" "this" {
   server_id = azurerm_postgresql_flexible_server.this.id
   charset   = "UTF8"
   collation = "en_US.utf8"
+
+  # Entra administrators must exist before Azure assigns database ownership.
+  depends_on = [azurerm_postgresql_flexible_server_active_directory_administrator.this]
 }
 
 # Deletion protection via management lock
