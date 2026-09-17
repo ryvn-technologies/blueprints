@@ -1,6 +1,6 @@
 # Azure Blob Container Module
 
-Provisions a dedicated StorageV2 storage account with a single blob container, optional blob versioning and lifecycle rules, optional browser CORS configuration, and an optional `CanNotDelete` lock. The module creates no role assignments: it publishes the container's resource ID as the grant scope, and the [workload identity module](../../ryvn-workload-identity/azure/README.md) assigns `Storage Blob Data Contributor` on that scope to the workloads' managed identities.
+Provisions a dedicated StorageV2 storage account with a single blob container, optional blob versioning and lifecycle rules, optional browser CORS configuration, and an optional `CanNotDelete` lock. The module creates no role assignments: it publishes the container's resource ID as the grant scope and the role to assign (`Storage Blob Data Contributor`), and the caller assigns that role on that scope to the workloads' managed identities.
 
 One storage account per bucket keeps account-level settings (versioning, CORS, lifecycle, replication) from leaking between buckets and lets the container map 1:1 onto the S3/GCS bucket model.
 
@@ -16,21 +16,10 @@ module "bucket" {
   environment         = "production"
 }
 
-module "workload_identity" {
-  source = "./infra/ryvn-workload-identity/azure"
-
-  # ...
-  role_groups = {
-    app = {
-      associations = { api = { namespace = "prod", service_account = "api" } }
-      role_assignments = {
-        media = {
-          scope                = module.bucket.role_assignment_scope
-          role_definition_name = module.bucket.role_definition_name
-        }
-      }
-    }
-  }
+resource "azurerm_role_assignment" "api_media" {
+  scope                = module.bucket.role_assignment_scope
+  role_definition_name = module.bucket.role_definition_name
+  principal_id         = azurerm_user_assigned_identity.api.principal_id
 }
 ```
 
@@ -81,14 +70,14 @@ module "workload_identity" {
 | `endpoint` | `https://<account>.blob.core.windows.net` |
 | `storage_account_name` | Storage account name |
 | `storage_account_id` | Storage account resource ID |
-| `role_assignment_scope` | Container Resource Manager ID (with `storage_account_id`, azurerm 4.x's container `id` is the ARM ID); feed to the workload identity module's `role_assignments.<key>.scope` |
+| `role_assignment_scope` | Container Resource Manager ID (with `storage_account_id`, azurerm 4.x's container `id` is the ARM ID); use as the `scope` of the workloads' role assignments |
 | `role_definition_name` | `Storage Blob Data Contributor`; feed to `role_assignments.<key>.role_definition_name` |
 | `encryption_key_id` | The `encryption_key_id` in use, or empty |
 | `workload_grants` | `[{ scope, role_definition_name }]` — same grant in the cross-cloud list shape every bucket module exposes |
 
 ## Prerequisites
 
-- The identity running Terraform can create storage accounts and management locks in the resource group. Role assignments are written by the workload identity module, which needs `Microsoft.Authorization/roleAssignments/write` on the container scope (e.g. `User Access Administrator` or `Owner` on the resource group).
+- The identity running Terraform can create storage accounts and management locks in the resource group. Whatever writes the workloads' role assignments needs `Microsoft.Authorization/roleAssignments/write` on the container scope (e.g. `User Access Administrator` or `Owner` on the resource group).
 - With `encryption_key_id`, the customer-supplied user-assigned identity must already hold `Key Vault Crypto Service Encryption User` on the vault, and the identity running Terraform must be able to read the key (`Key Vault Reader` or equivalent). This module creates no role assignments on the vault.
 
 ## One-Way Decisions

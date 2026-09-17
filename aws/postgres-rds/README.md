@@ -91,8 +91,8 @@ from Secrets Manager. Switching an existing instance to Secrets Manager does not
 remove old passwords from prior state versions.
 
 It also creates `master_secret_read_policy_arn`, granting only
-`secretsmanager:GetSecretValue` on that secret. Attach it to an administrator or
-bootstrap identity through the workload identity module. This policy exists
+`secretsmanager:GetSecretValue` on that secret. Attach it to the IAM role of an
+administrator or bootstrap identity. This policy exists
 whenever password management is enabled, independently of IAM database login.
 
 ## Advanced IAM authentication
@@ -128,56 +128,28 @@ starting with a letter or underscore. Read-only and read-write describe the
 intended SQL users. The IAM policies themselves only authorize login; PostgreSQL
 grants determine what each user can do. No monitoring-user IAM policy is created.
 
-### Attach policies through workload identity
+### Attach policies to workload roles
 
-Pass the appropriate output to the workload identity module's
-`role_groups.<group>.policy_arns` map. For example, this role group grants a service
-and its pre-deploy job access as `app_rw`:
+Attach the appropriate policy ARN to the IAM role that the workload's Kubernetes
+service account assumes (for example through an EKS Pod Identity association):
 
 ```hcl
-role_groups = {
-  app = {
-    associations = {
-      api = {
-        namespace          = "production"
-        service_account    = "api"
-        include_pre_deploy = true
-      }
-    }
-    policy_arns = {
-      database = module.postgres.read_write_iam_policy_arn
-    }
-  }
+resource "aws_iam_role_policy_attachment" "api_database" {
+  role       = aws_iam_role.api.name
+  policy_arn = module.postgres.read_write_iam_policy_arn
 }
 ```
 
 Use `read_only_iam_policy_arn` for read-only workloads. Attach
 `master_iam_policy_arn` only to identities that should have the master user's SQL
-privileges. The workload identity module owns the IAM roles and EKS Pod Identity
-associations, so a workload can combine database and other resource policies.
+privileges. Because these are plain managed policies, a workload role can combine
+database access with policies from other resources.
 
 ### Bootstrap the master login
 
 For a user-owned bootstrap job, enable both IAM authentication and managed
-passwords, then give its identity access to the initial password and the master
-IAM login:
-
-```hcl
-role_groups = {
-  postgres_admin = {
-    associations = {
-      bootstrap = {
-        namespace       = "production"
-        service_account = "postgres-bootstrap"
-      }
-    }
-    policy_arns = {
-      bootstrap_password = module.postgres.master_secret_read_policy_arn
-      database_login     = module.postgres.master_iam_policy_arn
-    }
-  }
-}
-```
+passwords, then attach both `master_secret_read_policy_arn` (initial password) and
+`master_iam_policy_arn` (master IAM login) to the job's IAM role.
 
 Create the Kubernetes service account and configure the job with
 `serviceAccountName: postgres-bootstrap` in the `production` namespace. The job
@@ -229,8 +201,8 @@ token connection fails, fix the IAM permissions or client configuration and retr
 only the token connection. Repeating the initial password step will fail. An
 already-converted master should skip the password and grant steps entirely.
 
-After verifying IAM access, remove `bootstrap_password` from the role group's
-policy attachments. Keep `database_login` for subsequent administration through
+After verifying IAM access, detach `master_secret_read_policy_arn` from the
+bootstrap role. Keep `master_iam_policy_arn` for subsequent administration through
 IAM. Application identities should receive only their own database-login policy.
 Creating application users and assigning SQL privileges remains part of your
 provisioning workflow.
@@ -272,7 +244,7 @@ tokens out of Terraform state and durable application configuration.
 To return to passwords, use an authorized database session to revoke `rds_iam`.
 For an RDS-managed master password, use the current value from Secrets Manager;
 set passwords for other converted logins as needed. Verify password access, then
-detach the policies through the workload identity configuration before disabling
+detach the policies from the workload roles before disabling
 this module's IAM setting. Disabling IAM deletes the managed policies, and AWS rejects
 deleting policies that are still attached. Detach an application policy before
 setting its username to null for the same reason. Monitoring can continue using

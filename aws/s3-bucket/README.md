@@ -74,7 +74,7 @@ cors_rules = [
 | `region` | AWS region |
 | `endpoint` | Regional S3 endpoint URL |
 | `role_arn` | IAM role ARN (assumed by pods via Pod Identity) |
-| `policy_arn` | Managed IAM policy ARN with the same bucket permissions; feed to the workload identity module's `role_groups.<group>.policy_arns` |
+| `policy_arn` | Managed IAM policy ARN with the same bucket permissions; attach to the workloads' IAM roles |
 | `encryption_key_id` | The `kms_key_arn` in use, or empty |
 | `workload_grants` | `[{ policy_arn }]` — same grant in the cross-cloud list shape every bucket module exposes |
 | `role_name` | IAM role name |

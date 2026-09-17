@@ -82,12 +82,10 @@ key (the Key Vault Crypto Service Encryption User role).
 ### Entra Authentication (passwordless)
 
 ```hcl
-module "workload_identity" {
-  source = "./infra/ryvn-workload-identity/azure"
-  # ...
-  role_groups = {
-    api = { associations = { api = { namespace = "app", service_account = "api" } } }
-  }
+resource "azurerm_user_assigned_identity" "api" {
+  name                = "api"
+  location            = azurerm_resource_group.this.location
+  resource_group_name = azurerm_resource_group.this.name
 }
 
 module "cache" {
@@ -98,7 +96,7 @@ module "cache" {
   resource_group_name = azurerm_resource_group.this.name
 
   entra_principals = {
-    api = { object_id = module.workload_identity.identities["api"].principal_id }
+    api = { object_id = azurerm_user_assigned_identity.api.principal_id }
   }
 
   # Once every client uses Entra tokens, turn off access keys entirely.

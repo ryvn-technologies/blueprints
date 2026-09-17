@@ -1,6 +1,6 @@
 # GCS Bucket Module
 
-Provisions a Cloud Storage bucket with uniform bucket-level access, public access prevention, optional versioning and lifecycle rules, and optional browser CORS configuration. The module writes no IAM bindings: it publishes the bucket name and the recommended object role, and the [workload identity module](../../ryvn-workload-identity/gcp/README.md) binds the workloads' `principal://` members to the bucket.
+Provisions a Cloud Storage bucket with uniform bucket-level access, public access prevention, optional versioning and lifecycle rules, and optional browser CORS configuration. The module writes no IAM bindings: it publishes the bucket name and the recommended object role, and the caller binds the workloads' `principal://` members to the bucket.
 
 ## Usage
 
@@ -14,16 +14,10 @@ module "bucket" {
   environment = "production"
 }
 
-module "workload_identity" {
-  source = "./infra/ryvn-workload-identity/gcp"
-
-  project_id = "my-project"
-  role_groups = {
-    app = {
-      associations = { api = { namespace = "prod", service_account = "api" } }
-      buckets      = { media = { name = module.bucket.bucket_name, role = module.bucket.iam_role } }
-    }
-  }
+resource "google_storage_bucket_iam_member" "api_media" {
+  bucket = module.bucket.bucket_name
+  role   = module.bucket.iam_role
+  member = "principal://iam.googleapis.com/projects/${var.project_number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/prod/sa/api"
 }
 ```
 
@@ -60,18 +54,18 @@ module "workload_identity" {
 
 | Name | Description |
 |------|-------------|
-| `bucket_name` | Full bucket name (prefix + random suffix). Feed to the workload identity module's `buckets.<key>.name` |
+| `bucket_name` | Full bucket name (prefix + random suffix). Use as the `bucket` of the workloads' IAM bindings |
 | `bucket_id` | Cloud-native bucket identifier (self link on GCP) |
 | `bucket_domain_name` | `<bucket>.storage.googleapis.com` |
 | `region` | Bucket location |
 | `endpoint` | `https://storage.googleapis.com` |
-| `iam_role` | `roles/storage.objectUser`; feed to the workload identity module's `buckets.<key>.role` |
+| `iam_role` | `roles/storage.objectUser`; the role to bind for workloads |
 | `encryption_key_id` | The `kms_key_name` in use, or empty |
 | `workload_grants` | `[{ kind = "bucket", target = <bucket name>, role }]` — same grant in the cross-cloud list shape every bucket module exposes |
 
 ## Prerequisites
 
-- The identity running Terraform can create buckets. Bucket IAM bindings are written by the workload identity module, which needs `storage.buckets.getIamPolicy` and `storage.buckets.setIamPolicy`.
+- The identity running Terraform can create buckets. Whatever writes the workloads' bucket IAM bindings needs `storage.buckets.getIamPolicy` and `storage.buckets.setIamPolicy`.
 - With `kms_key_name`, the project's GCS service agent (`service-<PROJECT_NUMBER>@gs-project-accounts.iam.gserviceaccount.com`) must already hold `roles/cloudkms.cryptoKeyEncrypterDecrypter` on it. This module does not grant it.
 
 ## One-Way Decisions

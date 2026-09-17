@@ -9,7 +9,7 @@ Terraform module for provisioning AWS ElastiCache with Redis or Valkey engine.
 - Multi-AZ with automatic failover
 - Encryption at rest (AWS-managed or customer-managed KMS key) and in transit
 - AUTH token support
-- IAM authentication (passwordless) with per-login `elasticache:Connect` policies for the workload identity module
+- IAM authentication (passwordless) with per-login `elasticache:Connect` managed policies to attach to workload IAM roles
 - Automated snapshots
 - SNS notifications
 
@@ -94,19 +94,14 @@ module "cache" {
   iam_authentication_enabled = true
 }
 
-module "workload_identity" {
-  source = "./infra/ryvn-workload-identity/aws"
+resource "aws_iam_role_policy_attachment" "api_cache" {
+  role       = aws_iam_role.api.name
+  policy_arn = module.cache.read_write_iam_policy_arn
+}
 
-  role_groups = {
-    api = {
-      associations = [{ namespace = "app", service_account = "api" }]
-      policy_arns  = [module.cache.read_write_iam_policy_arn]
-    }
-    reports = {
-      associations = [{ namespace = "app", service_account = "reports" }]
-      policy_arns  = [module.cache.read_only_iam_policy_arn]
-    }
-  }
+resource "aws_iam_role_policy_attachment" "reports_cache" {
+  role       = aws_iam_role.reports.name
+  policy_arn = module.cache.read_only_iam_policy_arn
 }
 ```
 
@@ -121,8 +116,8 @@ When `iam_authentication_enabled = true` the module:
   built-in `default` user (full access, no password) is replaced with a
   disabled one; Valkey disables it automatically.
 - Creates one IAM policy per login granting `elasticache:Connect` on the
-  replication group and that user only. Attach the ARNs through the workload
-  identity module's `role_groups.<group>.policy_arns`.
+  replication group and that user only. Attach the ARNs to the IAM roles the
+  workloads assume.
 - Removes the cluster AUTH token: `auth_token` must be null, `auth_token`
   outputs null and `connection_url` contains no credentials.
 
