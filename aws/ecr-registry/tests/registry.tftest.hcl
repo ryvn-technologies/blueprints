@@ -91,6 +91,29 @@ run "explicit_node_roles_are_merged_with_detected_ones" {
   }
 }
 
+run "agent_pull_role_is_granted_reader" {
+  command = plan
+
+  variables {
+    pull_role_arns = ["arn:aws:iam::123456789012:role/ryvn-agent-abc"]
+  }
+
+  assert {
+    condition     = length(aws_iam_role_policy_attachment.node_pull) == 2
+    error_message = "The read-only ECR policy must attach to both node and agent roles."
+  }
+
+  assert {
+    condition     = contains(keys(aws_iam_role_policy_attachment.node_pull), "ryvn-agent-abc")
+    error_message = "The read-only ECR policy must create an attachment keyed by the role name derived from the agent ARN."
+  }
+
+  assert {
+    condition     = contains(output.pull_identity.roleNames, "ryvn-agent-abc")
+    error_message = "The pull identity output must include the effective agent role."
+  }
+}
+
 run "explicit_node_roles_skip_cluster_lookup" {
   command = plan
 

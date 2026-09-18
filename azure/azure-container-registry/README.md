@@ -12,6 +12,10 @@ anonymous pull are disabled.
 | Cluster nodes (kubelet) | Kubelet managed identity (`node_principal_ids`) | `AcrPull` on the registry |
 | Ryvn hub | GenericContainerRegistry with `clusterDefault` credentials | — |
 
+The Ryvn agent's existing managed identity object ids can be granted `AcrPull`
+with `pull_principal_ids`. Azure does not create a new agent identity;
+`pull_namespace` and `pull_service_accounts` are informational output fields.
+
 No registry passwords, tokens or scope maps are created and no secrets are
 emitted as outputs.
 

@@ -79,6 +79,22 @@ run "explicit_identities_skip_cluster_lookup" {
   }
 }
 
+run "agent_pull_principals_are_merged_and_deduplicated" {
+  command = plan
+
+  variables {
+    pull_principal_ids = [
+      "11111111-1111-1111-1111-111111111111",
+      "22222222-2222-2222-2222-222222222222",
+    ]
+  }
+
+  assert {
+    condition     = length(azurerm_role_assignment.node_pull) == 2
+    error_message = "Agent and kubelet principals must receive one deduplicated AcrPull assignment each."
+  }
+}
+
 run "null_explicit_node_identities_fall_back_to_detection" {
   command = plan
 

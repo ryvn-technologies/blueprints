@@ -67,6 +67,13 @@ variable "node_principal_ids" {
   nullable    = false
 }
 
+variable "pull_principal_ids" {
+  description = "Additional managed identity object ids, such as the agent identity, that must be able to pull. Merged with kubelet identities."
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
 variable "oidc_issuer_url" {
   description = "OIDC issuer URL of the cluster used to federate the copier's service account. Overrides cluster detection; required for attached clusters."
   type        = string
@@ -92,6 +99,19 @@ variable "push_service_accounts" {
     condition     = length(var.push_service_accounts) > 0
     error_message = "push_service_accounts must contain at least one service account."
   }
+}
+
+variable "pull_namespace" {
+  description = "Kubernetes namespace associated with pull identities (informational on Azure)"
+  type        = string
+  default     = "ryvn-system"
+}
+
+variable "pull_service_accounts" {
+  description = "Kubernetes service accounts associated with pull identities (informational on Azure)"
+  type        = list(string)
+  default     = ["ryvn-agent"]
+  nullable    = false
 }
 
 variable "tags" {

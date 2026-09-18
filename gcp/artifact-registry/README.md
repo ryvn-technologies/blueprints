@@ -11,6 +11,10 @@ environment-scoped mirror for Ryvn-built container images and OCI Helm charts.
 | Cluster nodes (kubelet) | Node service account | `roles/artifactregistry.reader` on the repository |
 | Ryvn hub | GoogleArtifactRegistry registry definition (no credentials stored) | — |
 
+The Ryvn agent receives reader access through Workload Identity principals for
+`pull_service_accounts` in `pull_namespace`. Attached-cluster agent Google
+service accounts can be added with `pull_service_account_emails`.
+
 No service-account keys are created and no secrets are emitted as outputs.
 
 Node service accounts are discovered from `cluster_name` when it is set and

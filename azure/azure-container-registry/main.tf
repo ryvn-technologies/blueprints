@@ -53,6 +53,7 @@ locals {
   ] : []
 
   node_principal_ids = distinct(concat(var.node_principal_ids, local.detected_node_principal_ids))
+  pull_principal_ids = distinct(concat(local.node_principal_ids, var.pull_principal_ids))
   oidc_issuer_url    = var.oidc_issuer_url != "" ? var.oidc_issuer_url : (local.detect_oidc_issuer ? data.azurerm_kubernetes_cluster.this[0].oidc_issuer_url : "")
 
   push_role = "AcrPush"
@@ -116,7 +117,7 @@ resource "azurerm_role_assignment" "push" {
 # ---------------------------------------------------------------------------
 
 resource "azurerm_role_assignment" "node_pull" {
-  for_each = toset(local.node_principal_ids)
+  for_each = toset(local.pull_principal_ids)
 
   scope                = azurerm_container_registry.this.id
   role_definition_name = local.pull_role

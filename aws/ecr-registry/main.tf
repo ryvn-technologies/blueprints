@@ -39,7 +39,7 @@ data "aws_eks_node_group" "this" {
 }
 
 data "aws_iam_role" "node" {
-  for_each = toset(local.node_role_names)
+  for_each = toset(local.pull_role_names)
 
   name = each.value
 }
@@ -72,7 +72,9 @@ locals {
     for ng in data.aws_eks_node_group.this : element(split("/", ng.node_role_arn), length(split("/", ng.node_role_arn)) - 1)
   ]) : []
 
-  node_role_names = distinct(concat(var.node_role_names, local.detected_node_role_names))
+  node_role_names       = distinct(concat(var.node_role_names, local.detected_node_role_names))
+  agent_pull_role_names = [for arn in var.pull_role_arns : element(split("/", arn), length(split("/", arn)) - 1)]
+  pull_role_names       = distinct(concat(local.node_role_names, local.agent_pull_role_names))
 
   create_hub_read_role = var.hub_principal_arn != ""
 }
@@ -212,7 +214,7 @@ resource "aws_iam_policy" "pull" {
 }
 
 resource "aws_iam_role_policy_attachment" "node_pull" {
-  for_each = toset(local.node_role_names)
+  for_each = toset(local.pull_role_names)
 
   role       = data.aws_iam_role.node[each.key].name
   policy_arn = aws_iam_policy.pull.arn

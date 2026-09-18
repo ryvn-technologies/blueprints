@@ -60,11 +60,15 @@ output "push_identity" {
 }
 
 output "pull_identity" {
-  description = "Non-secret description of how cluster nodes authenticate to pull"
+  description = "Non-secret description of how cluster nodes and the agent authenticate to pull"
   value = {
-    method       = "azureKubeletIdentity"
-    principalIds = local.node_principal_ids
-    role         = local.pull_role
-    detected     = local.detect_node_identities
+    method            = "azureManagedIdentity"
+    namespace         = var.pull_namespace
+    serviceAccounts   = var.pull_service_accounts
+    principalIds      = local.pull_principal_ids
+    agentPrincipalIds = var.pull_principal_ids
+    nodePrincipalIds  = local.node_principal_ids
+    role              = local.pull_role
+    detected          = local.detect_node_identities
   }
 }

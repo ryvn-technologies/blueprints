@@ -47,6 +47,12 @@ spec:
       description: 'Node identities that must be able to pull from the registry: IAM role names on AWS, node service account emails on GCP, kubelet identity object ids on Azure. Merged with what Ryvn discovers from the cluster; required for attached clusters.'
       displayName: Node Identities
       group: access
+    - name: agentIdentities
+      type: array
+      default: []
+      description: 'Identities of the Ryvn agent that must be able to pull charts from the registry: IAM role ARNs on AWS, service account emails on GCP, managed identity object ids on Azure. Merged with what Ryvn discovers for Ryvn-provisioned clusters; required for attached clusters.'
+      displayName: Agent Identities
+      group: access
     - name: requireNodePullAccess
       type: boolean
       default: true
@@ -174,6 +180,13 @@ spec:
           {{- range $identity := input "nodeIdentities" }}
           - '{{ $identity }}'
           {{- end }}
+        pull_role_arns:
+          {{- range $identity := input "agentIdentities" }}
+          - '{{ $identity }}'
+          {{- end }}
+          {{- with .ryvn.env.state.ryvn_agent_role_arn }}
+          - '{{ . }}'
+          {{- end }}
         require_node_pull_grant: {{ input "requireNodePullAccess" }}
         hub_principal_arn: '{{ input "hubPrincipalArn" }}'
       releaseChannel: stable
@@ -196,6 +209,16 @@ spec:
           {{- range $identity := input "nodeIdentities" }}
           - '{{ $identity }}'
           {{- end }}
+        pull_service_account_emails:
+          {{- range $identity := input "agentIdentities" }}
+          - '{{ $identity }}'
+          {{- end }}
+          {{- with .ryvn.env.state.ryvn_agent_service_account }}
+          - '{{ .email }}'
+          {{- end }}
+        pull_namespace: ryvn-system
+        pull_service_accounts:
+          - ryvn-agent
         require_node_pull_grant: {{ input "requireNodePullAccess" }}
       releaseChannel: stable
     - service: azure-container-registry
@@ -218,6 +241,16 @@ spec:
           {{- range $identity := input "nodeIdentities" }}
           - '{{ $identity }}'
           {{- end }}
+        pull_principal_ids:
+          {{- range $identity := input "agentIdentities" }}
+          - '{{ $identity }}'
+          {{- end }}
+          {{- with .ryvn.env.state.ryvn_agent_role }}
+          - '{{ .principal_id }}'
+          {{- end }}
+        pull_namespace: ryvn-system
+        pull_service_accounts:
+          - ryvn-agent
         oidc_issuer_url: '{{ input "oidcIssuerUrl" }}'
         require_node_pull_grant: {{ input "requireNodePullAccess" }}
       releaseChannel: stable

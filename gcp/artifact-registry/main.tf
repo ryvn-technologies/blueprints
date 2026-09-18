@@ -75,7 +75,15 @@ locals {
     "principal://iam.googleapis.com/projects/${data.google_project.this.number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/${var.push_namespace}/sa/${sa}"
   ]
 
-  pull_members = [for sa in local.node_service_accounts : "serviceAccount:${sa}"]
+  pull_workload_identity_members = [
+    for sa in var.pull_service_accounts :
+    "principal://iam.googleapis.com/projects/${data.google_project.this.number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/${var.pull_namespace}/sa/${sa}"
+  ]
+  pull_members = distinct(concat(
+    [for sa in local.node_service_accounts : "serviceAccount:${sa}"],
+    [for sa in var.pull_service_account_emails : "serviceAccount:${sa}"],
+    local.pull_workload_identity_members,
+  ))
 }
 
 resource "google_project_service" "artifact_registry" {

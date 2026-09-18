@@ -33,6 +33,13 @@ variable "node_role_names" {
   nullable    = false
 }
 
+variable "pull_role_arns" {
+  description = "ARNs of existing IRSA / Pod Identity IAM roles, such as the Ryvn agent role, that must be able to pull in addition to node roles."
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
 variable "require_node_pull_grant" {
   description = "Fail provisioning when no node IAM role could be resolved for pull access"
   type        = bool

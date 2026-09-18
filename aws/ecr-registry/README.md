@@ -12,7 +12,12 @@ scoped to that prefix.
 |-----------|----------------------|-------|
 | Artifact copier (`push_service_accounts` in `push_namespace`) | EKS Pod Identity (`aws_iam_role.push`) | Create repositories, push and pull under the prefix |
 | Cluster nodes (kubelet) | Node instance role (`node_role_names`) | Read-only under the prefix (`aws_iam_policy.pull`) |
+| Ryvn agent | Its own IAM role (`pull_role_arns`, discovered from the environment's `ryvn_agent_role_arn`) | Read-only under the prefix |
 | Ryvn hub (optional) | Assumes `aws_iam_role.hub_read` from `hub_principal_arn` | Read-only under the prefix |
+
+The read-only policy is attached to the Ryvn agent's existing IAM role through
+`pull_role_arns`; each mirror attaches its own policy, so multiple mirrors can
+share a cluster without competing for a Pod Identity association.
 
 No IAM users or access keys are created and no secrets are emitted as outputs.
 

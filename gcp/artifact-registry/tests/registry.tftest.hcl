@@ -45,8 +45,8 @@ run "detects_node_service_accounts_from_cluster" {
   }
 
   assert {
-    condition     = length(google_artifact_registry_repository_iam_member.pull) == 2
-    error_message = "One reader grant per distinct node service account is expected."
+    condition     = length(google_artifact_registry_repository_iam_member.pull) == 3
+    error_message = "One reader grant per distinct node and agent identity is expected."
   }
 }
 
@@ -66,6 +66,25 @@ run "explicit_node_identities_skip_cluster_lookup" {
   assert {
     condition     = output.pull_identity.serviceAccounts == tolist(["attached-nodes@other-project.iam.gserviceaccount.com"])
     error_message = "Explicit node service accounts must be used verbatim."
+  }
+}
+
+run "agent_pull_identities_receive_reader_grants" {
+  command = plan
+
+  variables {
+    pull_service_account_emails = ["agent@test-project.iam.gserviceaccount.com"]
+  }
+
+  assert {
+    condition = contains(
+      local.pull_members,
+      "serviceAccount:agent@test-project.iam.gserviceaccount.com",
+      ) && contains(
+      local.pull_members,
+      "principal://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/test-project.svc.id.goog/subject/ns/ryvn-system/sa/ryvn-agent",
+    )
+    error_message = "The agent GSA and Workload Identity principal must both receive Artifact Registry reader access."
   }
 }
 
@@ -106,8 +125,8 @@ run "allows_missing_node_identity_when_not_required" {
   }
 
   assert {
-    condition     = length(google_artifact_registry_repository_iam_member.pull) == 0
-    error_message = "No pull grants are expected when node identities are intentionally omitted."
+    condition     = length(google_artifact_registry_repository_iam_member.pull) == 1
+    error_message = "The agent Workload Identity principal still receives a pull grant."
   }
 }
 

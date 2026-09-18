@@ -55,12 +55,15 @@ output "push_identity" {
 }
 
 output "pull_identity" {
-  description = "Non-secret description of how cluster nodes authenticate to pull"
+  description = "Non-secret description of how cluster nodes and the agent authenticate to pull"
   value = {
-    method          = "gcpNodeServiceAccount"
-    serviceAccounts = local.node_service_accounts
-    members         = local.pull_members
-    role            = local.pull_role
-    detected        = local.detect_node_identities
+    method               = "gcpWorkloadIdentity"
+    namespace            = var.pull_namespace
+    serviceAccounts      = local.node_service_accounts
+    agentServiceAccounts = var.pull_service_accounts
+    serviceAccountEmails = var.pull_service_account_emails
+    members              = local.pull_members
+    role                 = local.pull_role
+    detected             = local.detect_node_identities
   }
 }

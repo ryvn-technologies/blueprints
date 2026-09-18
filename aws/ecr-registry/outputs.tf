@@ -39,8 +39,9 @@ output "registry_definition" {
       roleArn = aws_iam_role.hub_read[0].arn
     }
     }) : jsonencode({
-    type = "genericContainerRegistry"
-    url  = local.registry_host
+    type    = "genericContainerRegistry"
+    url     = local.registry_host
+    subType = "elasticContainerRegistry"
     credentials = {
       type = "clusterDefault"
     }
@@ -59,12 +60,15 @@ output "push_identity" {
 }
 
 output "pull_identity" {
-  description = "Non-secret description of how cluster nodes authenticate to pull"
+  description = "Non-secret description of the IAM roles that authenticate to pull"
   value = {
-    method    = "awsNodeRole"
-    roleNames = local.node_role_names
-    policyArn = aws_iam_policy.pull.arn
-    detected  = local.detect_node_identities
+    method         = "awsIamRole"
+    roleNames      = local.pull_role_names
+    nodeRoleNames  = local.node_role_names
+    agentRoleNames = local.agent_pull_role_names
+    agentRoleArns  = var.pull_role_arns
+    policyArn      = aws_iam_policy.pull.arn
+    detected       = local.detect_node_identities
   }
 }
 

@@ -65,6 +65,26 @@ variable "push_service_accounts" {
   }
 }
 
+variable "pull_namespace" {
+  description = "Kubernetes namespace in which pull identities are used"
+  type        = string
+  default     = "ryvn-system"
+}
+
+variable "pull_service_accounts" {
+  description = "Kubernetes service accounts that receive pull access through Workload Identity"
+  type        = list(string)
+  default     = ["ryvn-agent"]
+  nullable    = false
+}
+
+variable "pull_service_account_emails" {
+  description = "Additional Google service account emails, such as the agent identity, that must be able to pull"
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
 variable "immutable_tags" {
   description = "Reject tag overwrites in the repository. Mirrored artifacts are addressed by digest, so tags may stay mutable."
   type        = bool
