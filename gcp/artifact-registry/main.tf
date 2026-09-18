@@ -140,3 +140,4 @@ resource "google_artifact_registry_repository_iam_member" "pull" {
   role       = local.pull_role
   member     = each.value
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

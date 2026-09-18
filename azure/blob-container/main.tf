@@ -173,3 +173,4 @@ resource "azurerm_management_lock" "this" {
   lock_level = "CanNotDelete"
   notes      = "Managed by Ryvn: deletion protection for bucket ${local.container_name}"
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

@@ -126,3 +126,4 @@ resource "azurerm_role_assignment" "node_pull" {
   principal_id         = each.value
   principal_type       = "ServicePrincipal"
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

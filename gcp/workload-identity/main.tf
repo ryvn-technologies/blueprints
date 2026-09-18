@@ -104,3 +104,4 @@ resource "google_project_iam_member" "this" {
     }
   }
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

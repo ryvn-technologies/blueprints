@@ -242,3 +242,4 @@ resource "aws_iam_role_policy_attachment" "hub_read" {
   role       = aws_iam_role.hub_read[0].name
   policy_arn = aws_iam_policy.pull.arn
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

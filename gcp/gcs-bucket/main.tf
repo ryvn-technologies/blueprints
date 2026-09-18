@@ -108,3 +108,4 @@ resource "google_storage_bucket" "this" {
 
   labels = local.all_labels
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

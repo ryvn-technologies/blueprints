@@ -250,3 +250,4 @@ resource "google_sql_user" "application" {
   project  = var.project_id
   password = var.database_password
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

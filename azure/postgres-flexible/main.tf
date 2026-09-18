@@ -184,3 +184,4 @@ resource "azurerm_postgresql_flexible_server_configuration" "cron_database_name"
     azurerm_postgresql_flexible_server_configuration.azure_extensions,
   ]
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

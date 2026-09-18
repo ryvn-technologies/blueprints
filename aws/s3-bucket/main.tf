@@ -153,3 +153,4 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
     }
   }
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

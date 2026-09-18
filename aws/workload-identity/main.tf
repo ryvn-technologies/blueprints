@@ -126,3 +126,4 @@ resource "aws_eks_pod_identity_association" "this" {
 
   tags = local.all_tags
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

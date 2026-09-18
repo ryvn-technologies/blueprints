@@ -136,3 +136,4 @@ resource "aws_db_instance" "this" {
     ignore_changes = [db_name]
   }
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).

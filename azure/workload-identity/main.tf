@@ -101,3 +101,4 @@ resource "azurerm_role_assignment" "this" {
   # fail on replication lag.
   skip_service_principal_aad_check = true
 }
+# Distributed to BYOC hubs as a public module (github.com/ryvn-technologies/blueprints).
