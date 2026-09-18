@@ -8,7 +8,7 @@ spec:
 
     `provisioningMode` selects who the stack serves. `hub`: every organization of the hub it is installed beside; sign-in through the environment's `zitadel` installation, organizations and datasources created by that hub's orchestrator, mapped with `hubOrgs`. `dedicated`: the single organization owning the installation; the managing hub issues the OAuth client and gateway identity, Grafana organization 1 is provisioned statically and named `organizationDisplayName`, and `grafanaExposure` chooses the public or internal ingress.
 
-    Supported on GCP (GCS + Workload Identity Federation for GKE) and AWS (S3 + EKS Pod Identity). On other providers the buckets and the Grafana database are still created, but Loki, Mimir, the auth-proxy and Grafana are not deployed and the URL outputs are not published. Collectors are deployed separately and reach the stack through the `connectionName`, `lokiIngestUrl` and `mimirIngestUrl` outputs.
+    Supported on GCP (GCS + Workload Identity Federation for GKE), AWS (S3 + EKS Pod Identity) and Azure (Blob + Workload Identity). On other providers the buckets and the Grafana database are still created, but Loki, Mimir, the auth-proxy and Grafana are not deployed and the URL outputs are not published. Collectors are deployed separately and reach the stack through the `connectionName`, `lokiIngestUrl` and `mimirIngestUrl` outputs.
   displayName: LGTM Stack
   inputGroups:
     - name: endpoint
@@ -192,31 +192,31 @@ spec:
       displayName: Connection Name
     - name: lokiIngestUrl
       type: string
-      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") }}'
+      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
       from: 'https://loki.{{ input "domain" }}'
       description: Base URL remote collectors push logs to.
       displayName: Loki Ingest URL
     - name: mimirIngestUrl
       type: string
-      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") }}'
+      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
       from: 'https://mimir.{{ input "domain" }}'
       description: Base URL remote collectors push metrics to.
       displayName: Mimir Ingest URL
     - name: lokiUrl
       type: string
-      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") }}'
+      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
       from: 'https://loki.{{ input "domain" }}'
       description: Public Loki endpoint behind the auth-proxy. Set it as the platform blueprint's `lokiUrl` input in each workload environment whose collector should ship here.
       displayName: Loki URL
     - name: mimirUrl
       type: string
-      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") }}'
+      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
       from: 'https://mimir.{{ input "domain" }}'
       description: Public Mimir endpoint behind the auth-proxy. Set it as the platform blueprint's `mimirUrl` input in each workload environment whose collector should ship here.
       displayName: Mimir URL
     - name: grafanaUrl
       type: string
-      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") }}'
+      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
       from: '{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "grafanaExposure") "private") }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}'
       description: Grafana URL on the public domain, or on the environment's internal domain when a dedicated stack's Grafana exposure is private. In hub mode it must match the `grafanaUrl` input of the zitadel installation so the OAuth redirect is accepted.
       displayName: Grafana URL
@@ -279,10 +279,52 @@ spec:
         namespace: observability
         service_accounts: ['mimir']
         grants: {{ (blueprintInstallation "mimir-bucket").outputs.workloadGrants }}
+    - service: azure-workload-identity
+      name: '{{ ParentInstallationName }}-loki-access'
+      alias: loki-azure-access
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        location: '{{ .ryvn.env.state.resource_group.location }}'
+        resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
+        oidc_issuer_url: '{{ .ryvn.env.state.cluster.oidc_issuer_url }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        environment: '{{ .ryvn.env.name }}'
+        role_groups:
+          loki:
+            associations:
+              loki:
+                namespace: observability
+                service_account: loki
+            role_assignments:
+              bucket:
+                scope: '{{ (blueprintInstallation "loki-bucket").outputs.roleAssignmentScope }}'
+                role_definition_name: '{{ (blueprintInstallation "loki-bucket").outputs.roleDefinitionName }}'
+    - service: azure-workload-identity
+      name: '{{ ParentInstallationName }}-mimir-access'
+      alias: mimir-azure-access
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        location: '{{ .ryvn.env.state.resource_group.location }}'
+        resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
+        oidc_issuer_url: '{{ .ryvn.env.state.cluster.oidc_issuer_url }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        environment: '{{ .ryvn.env.name }}'
+        role_groups:
+          mimir:
+            associations:
+              mimir:
+                namespace: observability
+                service_account: mimir
+            role_assignments:
+              bucket:
+                scope: '{{ (blueprintInstallation "mimir-bucket").outputs.roleAssignmentScope }}'
+                role_definition_name: '{{ (blueprintInstallation "mimir-bucket").outputs.roleDefinitionName }}'
     # On AWS the bucket blueprint associates Pod Identity only in the environment's
     # default namespace, so the observability ServiceAccounts get their own IAM roles
     # here, each carrying the bucket's managed access policy.
-    - service: aws-workload-access
+    - service: aws-workload-identity
       name: '{{ ParentInstallationName }}-loki-access'
       alias: loki-access
       provisionsInfrastructure: true
@@ -300,7 +342,7 @@ spec:
                 service_account: loki
             policy_arns:
               bucket: '{{ (blueprintInstallation "loki-bucket").outputs.iamPolicyArn }}'
-    - service: aws-workload-access
+    - service: aws-workload-identity
       name: '{{ ParentInstallationName }}-mimir-access'
       alias: mimir-access
       provisionsInfrastructure: true
@@ -322,7 +364,7 @@ spec:
       name: '{{ ParentInstallationName }}-loki-svc'
       alias: loki-svc
       namespace: observability
-      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") }}'
+      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
       config: |
         deploymentMode: Distributed
         loki:
@@ -335,6 +377,9 @@ spec:
           # Referencing the access role orders this install after the Pod Identity association has applied.
           podAnnotations:
             ryvn.app/workload-access-role-arn: '{{ (serviceInstallation "loki-access").outputs.role_arns.loki }}'
+          {{- else if eq EnvironmentProviderType "azure" }}
+          podLabels:
+            azure.workload.identity/use: "true"
           {{- end }}
           storage:
             {{- if eq EnvironmentProviderType "gcp" }}
@@ -349,6 +394,11 @@ spec:
             s3:
               region: '{{ .ryvn.env.state.cluster_region }}'
               s3ForcePathStyle: false
+            {{- else if eq EnvironmentProviderType "azure" }}
+            type: azure
+            azure:
+              accountName: '{{ (blueprintInstallation "loki-bucket").outputs.storageAccountName }}'
+              useFederatedToken: true
             {{- end }}
             bucketNames:
               chunks: '{{ (blueprintInstallation "loki-bucket").outputs.bucketName }}'
@@ -358,7 +408,7 @@ spec:
             configs:
               - from: "2024-04-01"
                 store: tsdb
-                object_store: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else if eq EnvironmentProviderType "aws" }}s3{{ end }}
+                object_store: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else if eq EnvironmentProviderType "aws" }}s3{{ else if eq EnvironmentProviderType "azure" }}azure{{ end }}
                 schema: v13
                 index:
                   prefix: loki_index_
@@ -378,7 +428,7 @@ spec:
             ingestion_rate_mb: 16
           compactor:
             retention_enabled: true
-            delete_request_store: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else if eq EnvironmentProviderType "aws" }}s3{{ end }}
+            delete_request_store: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else if eq EnvironmentProviderType "aws" }}s3{{ else if eq EnvironmentProviderType "azure" }}azure{{ end }}
           ruler:
             enable_api: true
             alertmanager_url: 'http://{{ ParentInstallationName }}-mimir-svc-alertmanager-headless.observability.svc.cluster.local:8080'
@@ -390,6 +440,11 @@ spec:
         serviceAccount:
           create: true
           name: loki
+          {{- if eq EnvironmentProviderType "azure" }}
+          # The client-id reference orders this install after the managed identity and its role assignments have applied.
+          annotations:
+            azure.workload.identity/client-id: '{{ (serviceInstallation "loki-azure-access").outputs.client_ids.loki }}'
+          {{- end }}
         test:
           enabled: false
         lokiCanary:
@@ -491,11 +546,19 @@ spec:
       name: '{{ ParentInstallationName }}-mimir-svc'
       alias: mimir-svc
       namespace: observability
-      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") }}'
+      condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
       config: |
         serviceAccount:
           create: true
           name: mimir
+          {{- if eq EnvironmentProviderType "azure" }}
+          # The client-id reference orders this install after the managed identity and its role assignments have applied.
+          annotations:
+            azure.workload.identity/client-id: '{{ (serviceInstallation "mimir-azure-access").outputs.client_ids.mimir }}'
+        global:
+          podLabels:
+            azure.workload.identity/use: "true"
+          {{- end }}
         {{- if eq EnvironmentProviderType "gcp" }}
         global:
           # Referencing the access binding orders this install after the bucket IAM binding has applied.
@@ -528,14 +591,19 @@ spec:
                   endpoint: 's3.{{ .ryvn.env.state.cluster_region }}.amazonaws.com'
                   region: '{{ .ryvn.env.state.cluster_region }}'
                   bucket_name: '{{ (blueprintInstallation "mimir-bucket").outputs.bucketName }}'
+                {{- else if eq EnvironmentProviderType "azure" }}
+                backend: azure
+                azure:
+                  account_name: '{{ (blueprintInstallation "mimir-bucket").outputs.storageAccountName }}'
+                  container_name: '{{ (blueprintInstallation "mimir-bucket").outputs.bucketName }}'
                 {{- end }}
             blocks_storage:
-              backend: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else if eq EnvironmentProviderType "aws" }}s3{{ end }}
+              backend: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else if eq EnvironmentProviderType "aws" }}s3{{ else if eq EnvironmentProviderType "azure" }}azure{{ end }}
               storage_prefix: blocks
             ruler_storage:
               storage_prefix: ruler
             alertmanager_storage:
-              backend: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else if eq EnvironmentProviderType "aws" }}s3{{ end }}
+              backend: {{ if eq EnvironmentProviderType "gcp" }}gcs{{ else if eq EnvironmentProviderType "aws" }}s3{{ else if eq EnvironmentProviderType "azure" }}azure{{ end }}
               storage_prefix: alertmanager
         minio:
           enabled: false
@@ -648,7 +716,7 @@ spec:
       name: '{{ ParentInstallationName }}-auth-proxy'
       alias: auth-proxy
       namespace: observability
-      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws")) (eq (input "provisioningMode") "hub") }}'
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (eq (input "provisioningMode") "hub") }}'
       config: |
         replicaCount: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
@@ -702,7 +770,7 @@ spec:
       name: '{{ ParentInstallationName }}-auth-proxy'
       alias: auth-proxy
       namespace: observability
-      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws")) (eq (input "provisioningMode") "dedicated") }}'
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (eq (input "provisioningMode") "dedicated") }}'
       serviceUser:
         credentialType: machine-key
         enabled: true
@@ -772,7 +840,7 @@ spec:
       name: '{{ ParentInstallationName }}-grafana'
       alias: grafana
       namespace: observability
-      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws")) (eq (input "provisioningMode") "hub") }}'
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (eq (input "provisioningMode") "hub") }}'
       secrets:
         - name: grafana-admin
           values:
@@ -885,7 +953,7 @@ spec:
       name: '{{ ParentInstallationName }}-grafana'
       alias: grafana
       namespace: observability
-      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws")) (eq (input "provisioningMode") "dedicated") }}'
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (eq (input "provisioningMode") "dedicated") }}'
       serviceUser:
         credentialType: oidc-web-app
         enabled: true
@@ -1060,7 +1128,7 @@ spec:
       name: '{{ ParentInstallationName }}-grafana-bootstrap'
       alias: grafana-bootstrap
       namespace: observability
-      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws")) (eq (input "provisioningMode") "dedicated") }}'
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (eq (input "provisioningMode") "dedicated") }}'
       lifecycle:
         postUpdate:
           - run: '{{ ParentInstallationName }}-grafana-bootstrap'
