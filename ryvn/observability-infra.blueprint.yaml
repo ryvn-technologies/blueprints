@@ -125,12 +125,6 @@ spec:
       displayName: Node Group
       description: Value of the `ryvn.app/node-group-name` label of the node pool that runs Loki and Mimir (for example `observability`). Leave blank to schedule on any node.
       group: capacity
-    - name: authProxyImagePullSecret
-      type: string
-      default: ryvn-registry-credentials
-      displayName: Auth-Proxy Image Pull Secret
-      description: Kubernetes secret holding credentials for the private Ryvn registry that publishes the auth-proxy image. The ryvn-agent writes the registry's credentials into every managed namespace under this name; leave blank if the image is pullable anonymously.
-      group: capacity
     - name: storageClassName
       type: string
       default: ""
@@ -750,7 +744,6 @@ spec:
       config: |
         replicaCount: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
-        imagePullSecrets: {{ if input "authProxyImagePullSecret" }}[{name: '{{ input "authProxyImagePullSecret" }}'}]{{ else }}[]{{ end }}
         # Hub API mode: authorization decisions come from the hub at hubUrl, never from a
         # database connection, so this child never receives RYVN_DATABASE_URL.
         env:
@@ -814,7 +807,6 @@ spec:
       config: |
         replicaCount: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
-        imagePullSecrets: {{ if input "authProxyImagePullSecret" }}[{name: '{{ input "authProxyImagePullSecret" }}'}]{{ else }}[]{{ end }}
         hostingEnvironmentName: '{{ EnvironmentName }}'
         # Hub API mode: authorization decisions come from the managing hub's API, never
         # from a database connection, so this child never receives RYVN_DATABASE_URL.
