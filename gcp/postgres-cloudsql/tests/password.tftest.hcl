@@ -1,5 +1,6 @@
 mock_provider "google" {}
 mock_provider "random" {}
+mock_provider "time" {}
 
 variables {
   project_id                          = "test-project"

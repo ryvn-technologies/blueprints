@@ -105,7 +105,7 @@ resource "google_project_iam_member" "app_database" {
 
 `roles/cloudsql.instanceUser` authorizes IAM login. `roles/cloudsql.client` authorizes proxy or connector connections; direct IP connections do not require that role. These IAM roles do not grant SQL table access. The example requests access for the named instance using Google's [resource-name condition](https://cloud.google.com/sql/docs/postgres/iam-conditions). Google's example covers the client permission; verify the separate database-login permission with the cross-instance checks below before relying on login isolation. An existing broader IAM grant still applies.
 
-The identity applying the module needs Cloud SQL instance and user management permissions. Creating the caller-owned project bindings additionally needs `resourcemanager.projects.getIamPolicy` and `resourcemanager.projects.setIamPolicy`. If `managed_tag_value` is supplied, IAM database accounts are registered only after the tag binding, matching the existing application-user ordering. This module does not enable project APIs or change project IAM policies.
+The identity applying the module needs Cloud SQL instance and user management permissions. Creating the caller-owned project bindings additionally needs `resourcemanager.projects.getIamPolicy` and `resourcemanager.projects.setIamPolicy`. If `managed_tag_value` is supplied, IAM database accounts are registered only after the tag binding, matching the existing application-user ordering. The module waits `managed_tag_propagation_wait` (90 seconds by default) after creating or changing that binding so its conditional IAM grant can propagate. This module does not enable project APIs or change project IAM policies.
 
 ### Connect a Kubernetes workload
 

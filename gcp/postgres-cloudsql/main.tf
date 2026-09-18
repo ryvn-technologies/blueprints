@@ -8,6 +8,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.13"
+    }
   }
   required_version = ">= 1.0.0"
 
@@ -207,11 +211,25 @@ resource "google_tags_location_tag_binding" "managed" {
   location  = var.region
 }
 
+# The managed tag drives a conditional IAM grant on the instance; the grant is
+# not visible to the SQL Admin API immediately, so give it time to propagate
+# before creating databases and users. Only waits when the binding is created
+# or changed.
+resource "time_sleep" "managed_tag_propagation" {
+  count = var.managed_tag_value != "" ? 1 : 0
+
+  triggers = {
+    binding = google_tags_location_tag_binding.managed[0].id
+  }
+
+  create_duration = var.managed_tag_propagation_wait
+}
+
 # Default database
 resource "google_sql_database" "this" {
   count = local.creates_database ? 1 : 0
 
-  depends_on = [google_tags_location_tag_binding.managed]
+  depends_on = [google_tags_location_tag_binding.managed, time_sleep.managed_tag_propagation]
 
   name     = var.database_name
   instance = google_sql_database_instance.this.name
@@ -225,7 +243,7 @@ resource "google_sql_database" "this" {
 resource "google_sql_user" "application" {
   count = local.uses_builtin_postgres ? 0 : 1
 
-  depends_on = [google_tags_location_tag_binding.managed]
+  depends_on = [google_tags_location_tag_binding.managed, time_sleep.managed_tag_propagation]
 
   name     = local.database_username
   instance = google_sql_database_instance.this.name

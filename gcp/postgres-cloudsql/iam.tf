@@ -20,7 +20,7 @@ locals {
 resource "google_sql_user" "iam" {
   for_each = local.iam_database_users
 
-  depends_on = [google_tags_location_tag_binding.managed]
+  depends_on = [google_tags_location_tag_binding.managed, time_sleep.managed_tag_propagation]
 
   project  = var.project_id
   instance = google_sql_database_instance.this.name

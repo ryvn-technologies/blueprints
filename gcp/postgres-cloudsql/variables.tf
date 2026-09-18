@@ -31,6 +31,17 @@ variable "managed_tag_value" {
   }
 }
 
+variable "managed_tag_propagation_wait" {
+  description = "How long to wait after creating the managed tag binding for its conditional IAM grant to propagate (Go duration)."
+  type        = string
+  default     = "90s"
+
+  validation {
+    condition     = can(regex("^[0-9]+(s|m)$", var.managed_tag_propagation_wait))
+    error_message = "managed_tag_propagation_wait must be a duration in seconds or minutes, such as 90s or 2m."
+  }
+}
+
 # Engine
 variable "postgres_version" {
   description = "PostgreSQL major version"

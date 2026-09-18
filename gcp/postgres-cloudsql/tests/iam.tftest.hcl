@@ -1,4 +1,10 @@
 mock_provider "google" {
+  mock_resource "google_tags_location_tag_binding" {
+    defaults = {
+      id = "tagBindings/test"
+    }
+  }
+
   mock_resource "google_sql_database_instance" {
     defaults = {
       connection_name    = "test-project:us-central1:postgres-test"
@@ -14,12 +20,36 @@ mock_provider "random" {
   }
 }
 
+mock_provider "time" {}
+
 variables {
   project_id        = "test-project"
   name_prefix       = "postgres"
   environment       = "test"
   database_password = "bootstrap-password"
   private_network   = "projects/test-project/global/networks/default"
+}
+
+run "managed_tag_waits_for_propagation" {
+  command = plan
+
+  variables {
+    managed_tag_value = "tagValues/123"
+  }
+
+  assert {
+    condition     = length(time_sleep.managed_tag_propagation) == 1 && time_sleep.managed_tag_propagation[0].create_duration == "90s"
+    error_message = "A managed tag must create the default propagation wait."
+  }
+}
+
+run "no_managed_tag_skips_wait" {
+  command = plan
+
+  assert {
+    condition     = length(time_sleep.managed_tag_propagation) == 0
+    error_message = "Without a managed tag, no propagation wait should be created."
+  }
 }
 
 run "password_authentication_is_the_default" {
