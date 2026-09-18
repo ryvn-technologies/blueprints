@@ -259,26 +259,44 @@ spec:
         - name: deletionProtection
           valueFromInput:
             name: deletionProtection
-    - service: gcp-workload-access
+    - service: gcp-workload-identity
       name: '{{ ParentInstallationName }}-loki-access'
       alias: loki-access
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "gcp" }}'
       config: |
         project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
-        namespace: observability
-        service_accounts: ['loki']
-        grants: {{ (blueprintInstallation "loki-bucket").outputs.workloadGrants }}
-    - service: gcp-workload-access
+        name_prefix: '{{ ParentInstallationName }}'
+        environment: '{{ .ryvn.env.name }}'
+        role_groups:
+          loki:
+            associations:
+              loki:
+                namespace: observability
+                service_account: loki
+            buckets:
+              bucket:
+                name: '{{ (blueprintInstallation "loki-bucket").outputs.bucketName }}'
+                role: '{{ (blueprintInstallation "loki-bucket").outputs.iamRole }}'
+    - service: gcp-workload-identity
       name: '{{ ParentInstallationName }}-mimir-access'
       alias: mimir-access
       provisionsInfrastructure: true
       condition: '{{ eq EnvironmentProviderType "gcp" }}'
       config: |
         project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
-        namespace: observability
-        service_accounts: ['mimir']
-        grants: {{ (blueprintInstallation "mimir-bucket").outputs.workloadGrants }}
+        name_prefix: '{{ ParentInstallationName }}'
+        environment: '{{ .ryvn.env.name }}'
+        role_groups:
+          mimir:
+            associations:
+              mimir:
+                namespace: observability
+                service_account: mimir
+            buckets:
+              bucket:
+                name: '{{ (blueprintInstallation "mimir-bucket").outputs.bucketName }}'
+                role: '{{ (blueprintInstallation "mimir-bucket").outputs.iamRole }}'
     - service: azure-workload-identity
       name: '{{ ParentInstallationName }}-loki-access'
       alias: loki-azure-access
