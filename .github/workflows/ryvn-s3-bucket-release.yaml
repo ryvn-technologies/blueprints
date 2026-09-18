@@ -17,6 +17,7 @@ jobs:
     uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
     with:
       service_name: s3-bucket
+      tag_prefix: s3-bucket@
     permissions:
       contents: write
       id-token: write

@@ -18,6 +18,7 @@ jobs:
     uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
     with:
       service_name: azure-container-registry
+      tag_prefix: azure-container-registry@
     permissions:
       contents: write
       id-token: write
