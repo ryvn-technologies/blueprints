@@ -1265,4 +1265,4 @@ spec:
         - name: deletionProtection
           valueFromInput:
             name: deletionProtection
-  distribution: internal-managed
+  distribution: marketplace-managed
