@@ -1,3 +1,5 @@
+# Public module: github.com/ryvn-technologies/blueprints//azure/azure-container-registry
+
 terraform {
   required_providers {
     azurerm = {

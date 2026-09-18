@@ -1,3 +1,5 @@
+# Public module: github.com/ryvn-technologies/blueprints//aws/ecr-registry
+
 terraform {
   required_providers {
     aws = {

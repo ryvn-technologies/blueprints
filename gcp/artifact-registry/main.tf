@@ -1,3 +1,5 @@
+# Public module: github.com/ryvn-technologies/blueprints//gcp/artifact-registry
+
 terraform {
   required_providers {
     google = {
