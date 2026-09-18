@@ -4,17 +4,11 @@ metadata:
   name: observability-infra
 spec:
   description: |
-    Ryvn's observability stack (Loki, Grafana, Mimir behind the tenant auth-proxy) packaged as one installation for a Ryvn hub, so a BYOC hub can run the same stack Ryvn hosts centrally.
+    Ryvn's observability stack (Loki, Grafana, Mimir behind the tenant auth-proxy) as one installation: object storage for Loki and Mimir, a Postgres database for Grafana unless you bring your own, the Loki and Mimir services sized by `profile`, the auth-proxy at `loki.<domain>` / `mimir.<domain>`, and Grafana at `grafana.<domain>`, with TLS from cert-manager. How the pieces fit together: https://ryvn.ai/docs/observability/logs and https://ryvn.ai/docs/observability/metrics.
 
-    It provisions the durable layer, the two telemetry backends, Grafana and their public entry points: one object storage bucket each for Loki and Mimir (chunks, blocks, ruler and alertmanager state live under prefixes in the same bucket), workload access bindings for the `loki` and `mimir` ServiceAccounts, a dedicated Postgres database for Grafana unless you bring your own, the Loki and Mimir services themselves (distributed mode, sized by `profile`, retention enforced by their compactors rather than by bucket lifecycle rules, which cannot tell telemetry apart from the ruler and alertmanager state sharing the bucket), the tenant auth-proxy that fronts the Loki and Mimir gateways at `loki.<domain>` and `mimir.<domain>`, and Grafana at `grafana.<domain>`, all with TLS from cert-manager.
+    `provisioningMode` selects who the stack serves. `hub`: every organization of the hub it is installed beside; sign-in through the environment's `zitadel` installation, organizations and datasources created by that hub's orchestrator, mapped with `hubOrgs`. `dedicated`: the single organization owning the installation; the managing hub issues the OAuth client and gateway identity, Grafana organization 1 is provisioned statically and named `organizationDisplayName`, and `grafanaExposure` chooses the public or internal ingress.
 
-    Grafana signs users in through the environment's `zitadel` blueprint installation (client id and secret come from that installation's `grafanaClientId` / `grafanaClientSecret` outputs) and maps each user into the Grafana organizations matching their hub organization memberships via the auth-proxy's `/userinfo` endpoint. The zitadel installation's `grafanaUrl` input must equal `https://grafana.<domain>`, otherwise the OAuth redirect is rejected. The hub's orchestrator creates a Grafana organization with Loki and Mimir datasources for every hub organization; `hubOrgs` maps hub organization ids to those Grafana organization ids so sign-ins land in the right one.
-
-    The auth-proxy validates bearer tokens against the environment's `zitadel` blueprint installation and asks the hub API at `hubUrl` whether the caller may read or write the tenant named in `X-Scope-OrgID` / `X-Scope-EnvironmentName`. It authenticates to the hub with the `authProxyServiceAccountJson` machine account published by the zitadel blueprint; that account (the zitadel installation's `authProxyServiceUserId` output) must be bound to the `authz-gateway` role on the hub organization before ingest and queries succeed — set the orchestrator's `hub.authzGatewaySvcUserId` to that output and the orchestrator creates the binding at boot.
-
-    Supported on GCP (GCS + Workload Identity). On other providers the buckets and the Grafana database are still created, but Loki, Mimir and the auth-proxy are not deployed and the public URL outputs are not published.
-
-    The collector (`ryvn-collector`) is deployed separately in each workload environment and points at this installation through the platform blueprint's Loki and Mimir URL inputs.
+    Supported on GCP (GCS + Workload Identity). On other providers the buckets and the Grafana database are still created, but Loki, Mimir, the auth-proxy and Grafana are not deployed and the URL outputs are not published. Collectors are deployed separately and reach the stack through the `connectionName`, `lokiIngestUrl` and `mimirIngestUrl` outputs.
   displayName: LGTM Stack
   inputGroups:
     - name: endpoint
@@ -33,6 +27,20 @@ spec:
       description: Safeguards against accidental data loss
       displayName: Protection
   inputs:
+    - name: provisioningMode
+      type: string
+      default: hub
+      displayName: Provisioning mode
+      description: |
+        `hub`: this stack serves every organization of the hub it is installed beside; sign-in uses the environment's `zitadel` installation and `hubOrgs`; Grafana organizations and datasources are provisioned by that hub's orchestrator.
+
+        `dedicated`: this stack serves the single organization that owns the installation; the managing hub issues the OAuth client and gateway identity and Grafana is provisioned statically.
+      group: endpoint
+      options:
+        - label: Hub
+          value: hub
+        - label: Dedicated
+          value: dedicated
     - name: domain
       type: string
       displayName: Domain
@@ -41,18 +49,41 @@ spec:
       immutable: true
     - name: hubUrl
       type: string
+      default: ""
       displayName: Hub API URL
-      description: Base URL of the Ryvn hub API (for example `https://api.<hub-domain>`) the auth-proxy authorizes tenant requests against.
+      description: Base URL of the Ryvn hub API (for example `https://api.<hub-domain>`) the auth-proxy authorizes tenant requests against. Required in `hub` mode, where it is the API of the hub this stack is installed beside. In `dedicated` mode leave it blank to use the managing hub's API; set it only to authorize against a different hub API URL.
       group: endpoint
+    - name: connectionName
+      type: string
+      default: ""
+      displayName: Connection Name
+      description: |
+        Name remote collectors use to address this stack, in either provisioning mode. Leave blank to use `<installation name>-<hosting environment name>`.
+
+        Must be a valid label value: at most 63 characters of letters, digits, `-`, `_` or `.`, starting and ending with a letter or digit. A generated default that is too long is rejected rather than shortened; set the name explicitly in that case.
+      group: endpoint
+    - name: grafanaExposure
+      type: string
+      default: public
+      displayName: Grafana Exposure
+      description: Applies to `dedicated` mode only; in `hub` mode Grafana is always published at `grafana.<domain>` because the `zitadel` installation registers that callback. Public publishes Grafana at `grafana.<domain>` on the ingress class below. Private publishes it on the `internal-nginx` ingress class under the environment's internal domain, reachable only from inside the network; hub sign-in stays enabled either way.
+      group: endpoint
+      condition: '{{ eq (input "provisioningMode") "dedicated" }}'
+      options:
+        - label: Public
+          value: public
+        - label: Private
+          value: private
     - name: hubOrgs
       type: map
       default: {}
       displayName: Grafana Organization Mapping
       description: |
-        Hub (Zitadel) organization id → Grafana organization id. Members of a hub organization sign in to Grafana as Editors of the mapped Grafana organization. The Grafana organizations and their Loki/Mimir datasources are created by the hub's orchestrator; look up the ids under Server admin → Organizations.
+        Maps hub (Zitadel) organization ids to Grafana organization ids. Members of a hub organization sign in to Grafana as Editors of the mapped Grafana organization. The Grafana organizations and their Loki/Mimir datasources are created by the hub's orchestrator; look up the ids under Server admin → Organizations.
 
         Example: `"298765826054437928": "2"`.
       group: endpoint
+      condition: '{{ eq (input "provisioningMode") "hub" }}'
     - name: ingressClassName
       type: string
       default: external-nginx
@@ -129,6 +160,24 @@ spec:
       displayName: Grafana Admin Password
       description: Generated once for the built-in Grafana `admin` user and retained across upgrades.
       group: grafana
+    - name: datasourceSecret
+      type: string
+      isSecret: true
+      hidden: true
+      generated:
+        type: random-string
+        length: 32
+      displayName: Datasource Secret
+      description: Used in `dedicated` mode only. Generated once; Grafana's Loki and Mimir datasources present it to the auth-proxy as the Basic auth password of user `grafana`.
+      group: grafana
+      condition: '{{ eq (input "provisioningMode") "dedicated" }}'
+    - name: organizationDisplayName
+      type: string
+      default: ""
+      displayName: Organization Display Name
+      description: Applies to `dedicated` mode only. Name shown for Grafana organization 1, applied after every install and upgrade. Leave blank to use the id of the organization that owns this installation.
+      group: grafana
+      condition: '{{ eq (input "provisioningMode") "dedicated" }}'
     - name: deletionProtection
       type: boolean
       default: true
@@ -136,6 +185,23 @@ spec:
       description: Protects the buckets and the Grafana database from accidental destruction. Disable before tearing down the stack.
       group: protection
   outputs:
+    - name: connectionName
+      type: string
+      from: '{{ if input "connectionName" }}{{ input "connectionName" }}{{ else }}{{ .ryvn.installation.name }}-{{ EnvironmentName }}{{ end }}'
+      description: Name remote collectors use to address this stack.
+      displayName: Connection Name
+    - name: lokiIngestUrl
+      type: string
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      from: 'https://loki.{{ input "domain" }}'
+      description: Base URL remote collectors push logs to.
+      displayName: Loki Ingest URL
+    - name: mimirIngestUrl
+      type: string
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      from: 'https://mimir.{{ input "domain" }}'
+      description: Base URL remote collectors push metrics to.
+      displayName: Mimir Ingest URL
     - name: lokiUrl
       type: string
       condition: '{{ eq EnvironmentProviderType "gcp" }}'
@@ -151,8 +217,8 @@ spec:
     - name: grafanaUrl
       type: string
       condition: '{{ eq EnvironmentProviderType "gcp" }}'
-      from: 'https://grafana.{{ input "domain" }}'
-      description: Public Grafana URL. Must match the `grafanaUrl` input of the zitadel installation so the OAuth redirect is accepted.
+      from: '{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "grafanaExposure") "private") }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}'
+      description: Grafana URL on the public domain, or on the environment's internal domain when a dedicated stack's Grafana exposure is private. In hub mode it must match the `grafanaUrl` input of the zitadel installation so the OAuth redirect is accepted.
       displayName: Grafana URL
     - name: lokiBucketName
       type: string
@@ -532,7 +598,7 @@ spec:
       name: '{{ ParentInstallationName }}-auth-proxy'
       alias: auth-proxy
       namespace: observability
-      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      condition: '{{ and (eq EnvironmentProviderType "gcp") (eq (input "provisioningMode") "hub") }}'
       config: |
         replicaCount: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
@@ -582,11 +648,81 @@ spec:
               items:
                 - key: authProxyServiceAccountJson
                   path: service-account.json
+    - service: auth-proxy
+      name: '{{ ParentInstallationName }}-auth-proxy'
+      alias: auth-proxy
+      namespace: observability
+      condition: '{{ and (eq EnvironmentProviderType "gcp") (eq (input "provisioningMode") "dedicated") }}'
+      serviceUser:
+        credentialType: machine-key
+        enabled: true
+        role: authz-gateway
+        secretName: auth-proxy-service-account
+      secrets:
+        - name: datasource
+          values:
+            - key: secret
+              valueFromInput: datasourceSecret
+      config: |
+        replicaCount: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
+        nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        imagePullSecrets: {{ if input "authProxyImagePullSecret" }}[{name: '{{ input "authProxyImagePullSecret" }}'}]{{ else }}[]{{ end }}
+        hostingEnvironmentName: '{{ EnvironmentName }}'
+        # Hub API mode: authorization decisions come from the managing hub's API, never
+        # from a database connection, so this child never receives RYVN_DATABASE_URL.
+        env:
+          - name: AUTHORIZATION_MODE
+            value: hub
+          - name: RYVN_HUB_URL
+            value: '{{ if input "hubUrl" }}{{ input "hubUrl" }}{{ else }}{{ Hub "apiUrl" }}{{ end }}'
+          - name: RYVN_HUB_SERVICE_ACCOUNT_FILE
+            value: /app/conf/hub/service-account.json
+          - name: AUTH_TOKEN_VERIFICATION
+            value: jwt
+          - name: AUTH_NEGATIVE_CACHE_TTL_SECONDS
+            value: "30"
+          # The hub issuer URL is https://<zitadel-domain>; ZITADEL_DOMAIN is the host part.
+          - name: ZITADEL_DOMAIN
+            value: '{{ substring 8 -1 (Hub "issuerUrl") }}'
+          - name: ZITADEL_RYVN_PROJECT_ID
+            value: '{{ Hub "projectId" }}'
+          # The Grafana child's serviceUser.secretName as rendered by the platform
+          # (<installation>-<secretName>); renaming either side requires changing both.
+          - name: RYVN_EXPECTED_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: '{{ ParentInstallationName }}-grafana-grafana-oauth'
+                key: RYVN_CLIENT_ID
+          - name: RYVN_DATASOURCE_SECRET_FILE
+            value: /app/conf/datasource/secret
+        volumeMounts:
+          - name: hub-service-account
+            mountPath: /app/conf/hub
+            readOnly: true
+          - name: datasource-secret
+            mountPath: /app/conf/datasource
+            readOnly: true
+        volumes:
+          # Hub authorization calls use the machine account bound to the hub's
+          # authz-gateway role; Grafana's datasources authenticate as that same identity
+          # with the datasource secret.
+          - name: hub-service-account
+            secret:
+              secretName: '{{ k8sSecretName "auth-proxy-service-account" }}'
+              items:
+                - key: RYVN_SERVICE_ACCOUNT_JSON
+                  path: service-account.json
+          - name: datasource-secret
+            secret:
+              secretName: '{{ k8sSecretName "datasource" }}'
+              items:
+                - key: secret
+                  path: secret
     - service: grafana
       name: '{{ ParentInstallationName }}-grafana'
       alias: grafana
       namespace: observability
-      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      condition: '{{ and (eq EnvironmentProviderType "gcp") (eq (input "provisioningMode") "hub") }}'
       secrets:
         - name: grafana-admin
           values:
@@ -695,6 +831,227 @@ spec:
             - secretName: '{{ ParentInstallationName }}-grafana-tls'
               hosts:
                 - grafana.{{ input "domain" }}
+    - service: grafana
+      name: '{{ ParentInstallationName }}-grafana'
+      alias: grafana
+      namespace: observability
+      condition: '{{ and (eq EnvironmentProviderType "gcp") (eq (input "provisioningMode") "dedicated") }}'
+      serviceUser:
+        credentialType: oidc-web-app
+        enabled: true
+        secretName: grafana-oauth
+        redirectUris:
+          - '{{ if eq (input "grafanaExposure") "private" }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}/login/generic_oauth'
+      lifecycle:
+        postInstall:
+          - run: '{{ ParentInstallationName }}-grafana-bootstrap'
+        postUpgrade:
+          - run: '{{ ParentInstallationName }}-grafana-bootstrap'
+      secrets:
+        - name: grafana-admin
+          values:
+            - key: admin-password
+              valueFromInput: grafanaAdminPassword
+        - name: grafana-datasource
+          values:
+            - key: secret
+              valueFromInput: datasourceSecret
+        # Only materialized when useExternalGrafanaDatabase is on: keys whose input is
+        # disabled are dropped, and a secret with no keys is not created.
+        - name: grafana-database
+          values:
+            - key: url
+              valueFromInput: grafanaDatabaseUrl
+      config: |
+        replicas: 1
+        nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        resources:
+          requests:
+            cpu: {{ if eq (input "profile") "medium" }}500m{{ else }}100m{{ end }}
+            memory: {{ if eq (input "profile") "medium" }}1Gi{{ else }}256Mi{{ end }}
+          limits:
+            memory: {{ if eq (input "profile") "medium" }}2Gi{{ else }}512Mi{{ end }}
+        persistence:
+          enabled: false
+        env:
+          GF_SECURITY_ADMIN_USER: admin
+        admin:
+          existingSecret: '{{ k8sSecretName "grafana-admin" }}'
+          passwordKey: admin-password
+        # Credentials never appear in grafana.ini or the datasource file: the chart's
+        # assertNoLeakedSecrets guard rejects them in grafana.ini, so they are substituted
+        # from environment variables backed by Kubernetes secrets.
+        envValueFrom:
+          {{- if input "useExternalGrafanaDatabase" }}
+          GF_DATABASE_URL:
+            secretKeyRef:
+              name: '{{ k8sSecretName "grafana-database" }}'
+              key: url
+          {{- else }}
+          # Grafana only accepts postgres:// URLs, while the postgres blueprint emits
+          # postgresql://, so the discrete database settings are used instead.
+          GF_DATABASE_HOST:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "grafana-db").outputsSecret }}'
+              key: endpoint
+          GF_DATABASE_NAME:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "grafana-db").outputsSecret }}'
+              key: databaseName
+          GF_DATABASE_USER:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "grafana-db").outputsSecret }}'
+              key: username
+          GF_DATABASE_PASSWORD:
+            secretKeyRef:
+              name: '{{ (blueprintInstallation "grafana-db").outputsSecret }}'
+              key: password
+          {{- end }}
+          GF_AUTH_GENERIC_OAUTH_CLIENT_ID:
+            secretKeyRef:
+              name: '{{ k8sSecretName "grafana-oauth" }}'
+              key: RYVN_CLIENT_ID
+          GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+            secretKeyRef:
+              name: '{{ k8sSecretName "grafana-oauth" }}'
+              key: RYVN_CLIENT_SECRET
+          RYVN_DATASOURCE_SECRET:
+            secretKeyRef:
+              name: '{{ k8sSecretName "grafana-datasource" }}'
+              key: secret
+        # Both datasources live in organization 1, the only organization of this stack,
+        # and query the owning organization's tenant through the auth-proxy. Basic auth
+        # identifies Grafana itself for scheduled work (alerting, recorded queries);
+        # the signed-in user's token is passed through for interactive queries.
+        datasources:
+          datasources.yaml:
+            apiVersion: 1
+            datasources:
+              - name: Loki
+                uid: ryvn-loki
+                type: loki
+                access: proxy
+                orgId: 1
+                url: https://loki.{{ input "domain" }}
+                basicAuth: true
+                basicAuthUser: grafana
+                editable: false
+                jsonData:
+                  httpHeaderName1: X-Scope-OrgID
+                  oauthPassThru: true
+                secureJsonData:
+                  httpHeaderValue1: '{{ EnvironmentOrgId }}'
+                  basicAuthPassword: $RYVN_DATASOURCE_SECRET
+              - name: Mimir
+                uid: ryvn-mimir
+                type: prometheus
+                access: proxy
+                orgId: 1
+                url: https://mimir.{{ input "domain" }}/prometheus
+                basicAuth: true
+                basicAuthUser: grafana
+                editable: false
+                isDefault: true
+                jsonData:
+                  httpHeaderName1: X-Scope-OrgID
+                  oauthPassThru: true
+                  prometheusType: Mimir
+                secureJsonData:
+                  httpHeaderValue1: '{{ EnvironmentOrgId }}'
+                  basicAuthPassword: $RYVN_DATASOURCE_SECRET
+        grafana.ini:
+          server:
+            root_url: {{ if eq (input "grafanaExposure") "private" }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}
+          database:
+            type: postgres
+            ssl_mode: require
+          users:
+            allow_sign_up: false
+            allow_org_create: true
+            auto_assign_org: false
+          auth.generic_oauth:
+            enabled: true
+            name: Ryvn
+            allow_sign_up: true
+            scopes: "openid email profile offline_access roles"
+            email_attribute_name: "email"
+            login_attribute_path: "preferred_username"
+            name_attribute_path: "name"
+            tls_skip_verify_insecure: false
+            auth_url: "{{ Hub "issuerUrl" }}/oauth/v2/authorize"
+            token_url: "{{ Hub "issuerUrl" }}/oauth/v2/token"
+            api_url: "http://{{ ParentInstallationName }}-auth-proxy.observability.svc.cluster.local:9545/userinfo"
+            # Only members of the organization owning this installation may sign in; they
+            # land in organization 1 as Editors. Strict mode refuses everyone else.
+            org_attribute_path: ryvn_orgs
+            org_mapping: '{{ EnvironmentOrgId }}:1:Editor'
+            role_attribute_strict: true
+            skip_org_role_sync: false
+            use_pkce: true
+            use_refresh_token: true
+        ingress:
+          enabled: true
+          ingressClassName: '{{ if eq (input "grafanaExposure") "private" }}internal-nginx{{ else }}{{ input "ingressClassName" }}{{ end }}'
+          annotations:
+            cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+            nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+          hosts:
+            - {{ if eq (input "grafanaExposure") "private" }}grafana.{{ EnvironmentInternalDomain }}{{ else }}grafana.{{ input "domain" }}{{ end }}
+          tls:
+            - secretName: '{{ ParentInstallationName }}-grafana-tls'
+              hosts:
+                - {{ if eq (input "grafanaExposure") "private" }}grafana.{{ EnvironmentInternalDomain }}{{ else }}grafana.{{ input "domain" }}{{ end }}
+    # Grafana's initial organization is created as "Main Org." and static provisioning
+    # cannot rename it, so this job sets the display name through the API after Grafana
+    # is up. It is triggered by the Grafana child's lifecycle hooks and by changes to
+    # its own inputs, and re-running it is a no-op.
+    - service: grafana-org-bootstrap
+      name: '{{ ParentInstallationName }}-grafana-bootstrap'
+      alias: grafana-bootstrap
+      namespace: observability
+      condition: '{{ and (eq EnvironmentProviderType "gcp") (eq (input "provisioningMode") "dedicated") }}'
+      lifecycle:
+        postUpdate:
+          - run: '{{ ParentInstallationName }}-grafana-bootstrap'
+      env:
+        - key: GRAFANA_URL
+          value: 'http://{{ ParentInstallationName }}-grafana.observability.svc.cluster.local:80'
+        - key: GRAFANA_ADMIN_USER
+          value: admin
+        - key: GRAFANA_ADMIN_PASSWORD
+          isSecret: true
+          valueFromInput:
+            name: grafanaAdminPassword
+        - key: ORG_DISPLAY_NAME
+          value: '{{ if input "organizationDisplayName" }}{{ input "organizationDisplayName" }}{{ else }}{{ EnvironmentOrgId }}{{ end }}'
+      config: |
+        concurrencyPolicy: Forbid
+        backoffLimit: 3
+        successfulJobsHistoryLimit: 1
+        failedJobsHistoryLimit: 3
+        ttlSecondsAfterFinished: 86400
+        nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        command: ["/bin/sh", "-ec"]
+        args:
+          - |
+            for i in $(seq 1 60); do
+              if curl -fsS "$GRAFANA_URL/api/health" >/dev/null; then break; fi
+              if [ "$i" -eq 60 ]; then echo "grafana not healthy after 60 attempts" >&2; exit 1; fi
+              sleep 5
+            done
+            payload=$(printf '{"name":"%s"}' "$(printf '%s' "$ORG_DISPLAY_NAME" | sed 's/\\/\\\\/g; s/"/\\"/g')")
+            curl -fsS -X PUT -u "$GRAFANA_ADMIN_USER:$GRAFANA_ADMIN_PASSWORD" \
+              -H 'Content-Type: application/json' \
+              --data "$payload" "$GRAFANA_URL/api/orgs/1"
+            echo
     - blueprint: postgres
       name: '{{ ParentInstallationName }}-db'
       alias: grafana-db
