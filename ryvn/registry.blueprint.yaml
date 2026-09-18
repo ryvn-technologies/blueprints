@@ -22,9 +22,6 @@ spec:
     - name: access
       description: Identities that copy into and pull from the registry
       displayName: Access
-    - name: sync
-      description: How the artifact sync worker reaches Ryvn and which repositories it may copy
-      displayName: Sync
     - name: azure
       description: Azure Container Registry options
       displayName: Azure
@@ -80,27 +77,6 @@ spec:
       displayName: Cluster OIDC Issuer URL
       group: access
       condition: '{{ eq EnvironmentProviderType "azure" }}'
-    - name: hubUrl
-      type: string
-      default: https://api.ryvn.app
-      description: Ryvn API the artifact sync worker polls for copy tasks.
-      displayName: Hub URL
-      group: sync
-      hidden: true
-    - name: hubIssuer
-      type: string
-      default: https://auth.ryvn.app
-      description: OAuth2 issuer the artifact sync worker mints its hub access tokens from.
-      displayName: Hub Issuer
-      group: sync
-      hidden: true
-    - name: hubProjectId
-      type: string
-      default: '298766811497774120'
-      description: Identity-provider project ID the artifact sync worker requests its token audience for.
-      displayName: Hub Identity Project ID
-      group: sync
-      hidden: true
     - name: sku
       type: string
       default: Standard
@@ -273,10 +249,10 @@ spec:
           azure.workload.identity/use: "true"
         {{- end }}
         hub:
-          url: '{{ input "hubUrl" }}'
+          url: '{{ Hub "apiUrl" }}'
           auth:
-            issuer: '{{ input "hubIssuer" }}'
-            projectId: '{{ input "hubProjectId" }}'
+            issuer: '{{ Hub "issuerUrl" }}'
+            projectId: '{{ Hub "projectId" }}'
             clientCredentialsSecret:
               name: '{{ k8sSecretName "ryvn-registry-sync-client-creds" }}'
         expectedAssignment:
@@ -296,3 +272,4 @@ spec:
         # check registry.publish at the task's environment.
         role: registry-sync
       releaseChannel: stable
+  distribution: marketplace-managed
