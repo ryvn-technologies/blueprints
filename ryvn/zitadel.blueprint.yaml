@@ -31,6 +31,18 @@ spec:
       description: Public hostname for the ZITADEL issuer, without a scheme.
       group: endpoint
       immutable: true
+    - name: ingressEnabled
+      type: boolean
+      default: true
+      displayName: Create Ingress
+      description: Create an Ingress for the ZITADEL hostname.
+      group: endpoint
+    - name: routesEnabled
+      type: boolean
+      default: false
+      displayName: Create Ryvn Route
+      description: Publish the ZITADEL hostname through a Ryvn Route (ryvn-routes) on the managed gateway.
+      group: endpoint
     - name: databaseHost
       type: string
       displayName: Database Host
@@ -312,7 +324,7 @@ spec:
                 name: '{{ k8sSecretName "database" }}'
                 key: admin-password
         ingress:
-          enabled: true
+          enabled: {{ input "ingressEnabled" }}
           className: external-nginx
           annotations:
             cert-manager.io/cluster-issuer: external-issuer
@@ -327,6 +339,23 @@ spec:
             - hosts:
                 - '{{ input "domain" }}'
               secretName: '{{ ParentInstallationName }}-tls'
+    - service: ryvn-routes
+      name: '{{ ParentInstallationName }}-routes'
+      alias: routes
+      namespace: zitadel
+      condition: '{{ input "routesEnabled" }}'
+      config: |
+        routes:
+          - name: '{{ ParentInstallationName }}'
+            spec:
+              exposure: [public]
+              domains:
+                - '{{ input "domain" }}'
+              rules:
+                - path: /
+                  to:
+                    - name: '{{ ParentInstallationName }}'
+                      port: 8080
     - service: zitadel-terraform
       name: '{{ ParentInstallationName }}-config'
       alias: zitadel-terraform

@@ -84,6 +84,18 @@ spec:
         Example: `"298765826054437928": "2"`.
       group: endpoint
       condition: '{{ eq (input "provisioningMode") "hub" }}'
+    - name: ingressEnabled
+      type: boolean
+      default: true
+      displayName: Create Ingresses
+      description: Create Ingress resources for Loki, Mimir and Grafana.
+      group: endpoint
+    - name: routesEnabled
+      type: boolean
+      default: false
+      displayName: Create Ryvn Routes
+      description: Publish Loki, Mimir and Grafana through Ryvn Routes (ryvn-routes) on the managed gateway.
+      group: endpoint
     - name: ingressClassName
       type: string
       default: external-nginx
@@ -534,7 +546,7 @@ spec:
           service:
             type: ClusterIP
           ingress:
-            enabled: true
+            enabled: {{ input "ingressEnabled" }}
             ingressClassName: '{{ input "ingressClassName" }}'
             annotations:
               cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
@@ -703,7 +715,7 @@ spec:
           service:
             type: ClusterIP
           ingress:
-            enabled: true
+            enabled: {{ input "ingressEnabled" }}
             ingressClassName: '{{ input "ingressClassName" }}'
             annotations:
               cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
@@ -955,7 +967,7 @@ spec:
             use_pkce: true
             use_refresh_token: true
         ingress:
-          enabled: true
+          enabled: {{ input "ingressEnabled" }}
           ingressClassName: '{{ input "ingressClassName" }}'
           annotations:
             cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
@@ -1126,7 +1138,7 @@ spec:
             use_pkce: true
             use_refresh_token: true
         ingress:
-          enabled: true
+          enabled: {{ input "ingressEnabled" }}
           ingressClassName: '{{ if eq (input "grafanaExposure") "private" }}internal-nginx{{ else }}{{ input "ingressClassName" }}{{ end }}'
           annotations:
             cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
@@ -1188,6 +1200,53 @@ spec:
               -H 'Content-Type: application/json' \
               --data "$payload" "$GRAFANA_URL/api/orgs/1"
             echo
+    - service: ryvn-routes
+      name: '{{ ParentInstallationName }}-routes'
+      alias: routes
+      namespace: observability
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (input "routesEnabled") }}'
+      config: |
+        routes:
+          - name: '{{ ParentInstallationName }}-loki'
+            spec:
+              exposure: [public]
+              domains:
+                - 'loki.{{ input "domain" }}'
+              rules:
+                - path: /
+                  to:
+                    - name: '{{ ParentInstallationName }}-loki-svc-gateway'
+                      port: 80
+          - name: '{{ ParentInstallationName }}-mimir'
+            spec:
+              exposure: [public]
+              domains:
+                - 'mimir.{{ input "domain" }}'
+              rules:
+                - path: /
+                  to:
+                    - name: '{{ ParentInstallationName }}-mimir-svc-gateway'
+                      port: 80
+          - name: '{{ ParentInstallationName }}-grafana'
+            spec:
+              {{- if eq (input "provisioningMode") "dedicated" }}{{ if eq (input "grafanaExposure") "private" }}
+              exposure: [internal]
+              domains:
+                - 'grafana.{{ EnvironmentInternalDomain }}'
+              {{- else }}
+              exposure: [public]
+              domains:
+                - 'grafana.{{ input "domain" }}'
+              {{- end }}{{ else }}
+              exposure: [public]
+              domains:
+                - 'grafana.{{ input "domain" }}'
+              {{- end }}
+              rules:
+                - path: /
+                  to:
+                    - name: '{{ ParentInstallationName }}-grafana'
+                      port: 80
     - blueprint: postgres
       name: '{{ ParentInstallationName }}-db'
       alias: grafana-db
