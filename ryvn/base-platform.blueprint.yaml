@@ -43,28 +43,28 @@ spec:
   - name: lokiUrl
     type: string
     default: ""
-    description: Base URL of the Loki ingest gateway the collector pushes logs to. Leave empty to use Ryvn's hosted stack.
+    description: Base URL of the Loki ingest gateway the collector pushes logs to. Leave empty to use the managing hub's observability stack.
     displayName: Loki URL
     group: observability
     hidden: true
   - name: mimirUrl
     type: string
     default: ""
-    description: Base URL of the Mimir ingest gateway the collector pushes metrics to. Leave empty to use Ryvn's hosted stack.
+    description: Base URL of the Mimir ingest gateway the collector pushes metrics to. Leave empty to use the managing hub's observability stack.
     displayName: Mimir URL
     group: observability
     hidden: true
   - name: tokenUrl
     type: string
     default: ""
-    description: OAuth2 token endpoint the collector authenticates against before pushing telemetry. Leave empty to use Ryvn's hosted identity provider.
+    description: OAuth2 token endpoint the collector authenticates against before pushing telemetry. Leave empty to use the managing hub's identity provider.
     displayName: Token URL
     group: observability
     hidden: true
   - name: projectId
     type: string
     default: ""
-    description: Identity-provider project ID the collector requests its token audience for. Leave empty to use Ryvn's hosted identity provider.
+    description: Identity-provider project ID the collector requests its token audience for. Leave empty to use the managing hub's identity provider.
     displayName: Identity Project ID
     group: observability
     hidden: true
@@ -173,22 +173,28 @@ spec:
       {{- input "redactionPatterns" | toYaml | nindent 6 }}
         metrics:
           enabled: {{ input "metrics" }}
-      {{- if or (input "lokiUrl" | trim) (input "mimirUrl" | trim) }}
+      {{- /* Hub route: explicit inputs win, then the managing hub's own stack. */}}
+      {{- if or (input "lokiUrl" | trim | default (Hub "lokiUrl")) (input "mimirUrl" | trim | default (Hub "mimirUrl")) }}
       endpoints:
-        {{- if input "lokiUrl" | trim }}
-        loki: {{ input "lokiUrl" | trim | toJson }}
+        {{- if input "lokiUrl" | trim | default (Hub "lokiUrl") }}
+        loki: {{ input "lokiUrl" | trim | default (Hub "lokiUrl") | toJson }}
         {{- end }}
-        {{- if input "mimirUrl" | trim }}
-        mimir: {{ input "mimirUrl" | trim | toJson }}
+        {{- if input "mimirUrl" | trim | default (Hub "mimirUrl") }}
+        mimir: {{ input "mimirUrl" | trim | default (Hub "mimirUrl") | toJson }}
         {{- end }}
       {{- end }}
-      {{- if or (input "tokenUrl" | trim) (input "projectId" | trim) }}
+      {{- /* Hub auth defaults only alongside hub gateways: never hub credentials against central's stack. */}}
+      {{- if or (input "tokenUrl" | trim) (input "projectId" | trim) (Hub "lokiUrl") }}
       auth:
         {{- if input "tokenUrl" | trim }}
         tokenUrl: {{ input "tokenUrl" | trim | toJson }}
+        {{- else if Hub "lokiUrl" }}
+        tokenUrl: {{ Hub "tokenUrl" | toJson }}
         {{- end }}
         {{- if input "projectId" | trim }}
         projectId: {{ input "projectId" | trim | toJson }}
+        {{- else if Hub "lokiUrl" }}
+        projectId: {{ Hub "projectId" | toJson }}
         {{- end }}
       {{- end }}
       {{- if ObservabilityDestinations }}
