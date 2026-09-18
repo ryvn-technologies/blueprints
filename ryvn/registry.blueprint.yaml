@@ -36,18 +36,11 @@ spec:
       displayName: Registry Name
       group: naming
     - name: sourceRegistry
-      type: string
-      default: registry.ryvn.app
-      description: Upstream registry host whose Ryvn-built artifacts are mirrored here. Image references matching this host are rewritten to pull from this registry. Must be the host of the registry record named by sourceRegistryName, since the sync worker authenticates source pulls with that single record's credentials.
-      displayName: Source Registry
+      type: array
+      default: []
+      description: Upstream registry hosts to mirror, such as registry.ryvn.app, registry.k8s.io, or docker.io. No upstream hosts are mirrored by default. Each configured host gets an explicit mirror rule. Authentication comes from the deploying service's bound Registry when the source matches its host and repository scope; other sources use anonymous access.
+      displayName: Source Registries
       group: sources
-    - name: sourceRegistryName
-      type: string
-      default: ryvn-registry
-      description: Name of the Ryvn registry record for sourceRegistry. The sync worker fetches that registry's pull credentials from the hub using its own service user (registry.pull on this environment).
-      displayName: Source Registry Record
-      group: sources
-      hidden: true
     - name: nodeIdentities
       type: array
       default: []
@@ -136,8 +129,8 @@ spec:
       displayName: Registry Definition
     - name: sourceMirrors
       type: string
-      from: '{{ $prefix := (serviceInstallation "registry").outputs.path_prefix }}{{ $host := input "sourceRegistry" }}[{{ if $prefix }}{{ dict "host" $host "pathPrefix" $prefix | toJson }}{{ else }}{{ dict "host" $host | toJson }}{{ end }}]'
-      description: JSON list of `{ host, pathPrefix }` mirror entries matching the registry API's `mirrors` field. Image references from this host are rewritten to this registry, with `pathPrefix` (the ECR repository prefix or the Artifact Registry `<project>/<repository>`) prepended to the source path; ACR keeps paths as-is.
+      from: '{{ $prefix := (serviceInstallation "registry").outputs.path_prefix }}[{{ range $index, $host := input "sourceRegistry" }}{{ if $index }},{{ end }}{{ if $prefix }}{{ dict "host" $host "pathPrefix" $prefix | toJson }}{{ else }}{{ dict "host" $host | toJson }}{{ end }}{{ end }}]'
+      description: JSON list of `{ host, pathPrefix }` mirror entries matching the registry API's `mirrors` field. Image references from these hosts are rewritten to this registry, with `pathPrefix` (the ECR repository prefix or the Artifact Registry `<project>/<repository>`) prepended to the source path; ACR keeps paths as-is.
       displayName: Source Mirrors
     - name: environment
       type: string
@@ -256,16 +249,9 @@ spec:
         expectedAssignment:
           orgId: '{{ .ryvn.env.orgId }}'
           environmentName: '{{ .ryvn.env.name }}'
-        # Mirror every repository users pull from the source registry. A single
-        # host is allowed because sourceCredentials resolves one registry record.
-        allowedSources:
-          - registry: '{{ input "sourceRegistry" }}'
-            repositoryPrefix: ''
         allowedDestinations:
           - registry: '{{ (serviceInstallation "registry").outputs.registry_host }}'
             repositoryPrefix: '{{ $prefix }}'
-        sourceCredentials:
-          hubRegistry: '{{ input "sourceRegistryName" }}'
         destinationCredentials:
           anonymous: false
           cloudIdentity: '{{ EnvironmentProviderType }}'
