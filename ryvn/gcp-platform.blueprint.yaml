@@ -143,6 +143,10 @@ spec:
         projectId: {{ input "projectId" | trim | toJson }}
         {{- end }}
       {{- end }}
+      {{- if ObservabilityDestinations }}
+      destinations:
+      {{- ObservabilityDestinations | toYaml | nindent 2 }}
+      {{- end }}
     releaseChannel: stable
     serviceUser:
       credentialType: client-secret

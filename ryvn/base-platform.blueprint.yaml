@@ -191,6 +191,10 @@ spec:
         projectId: {{ input "projectId" | trim | toJson }}
         {{- end }}
       {{- end }}
+      {{- if ObservabilityDestinations }}
+      destinations:
+      {{- ObservabilityDestinations | toYaml | nindent 2 }}
+      {{- end }}
     serviceUser:
       credentialType: client-secret
       enabled: true
