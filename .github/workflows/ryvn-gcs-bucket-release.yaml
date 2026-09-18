@@ -18,6 +18,7 @@ jobs:
     uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
     with:
       service_name: gcs-bucket
+      tag_prefix: gcs-bucket@
     permissions:
       contents: write
       id-token: write

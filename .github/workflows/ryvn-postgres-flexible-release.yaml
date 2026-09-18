@@ -17,6 +17,7 @@ jobs:
     uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
     with:
       service_name: postgres-flexible
+      tag_prefix: postgres-flexible@
     permissions:
       contents: write
       id-token: write
