@@ -650,3 +650,77 @@ resource "aws_iam_role_policy" "cluster_autoscaler_policy" {
     ]
   })
 }
+
+# ============================================================================
+# Cilium operator (cni = "cilium")
+# ============================================================================
+# The Cilium chart annotates the cilium-operator service account with this role
+# (eni.iamRole) and fixes that account's name, which the trust policy pins to.
+# TODO(NominalTrajectory): move this role and policy into the ryvn-init
+# Terraform module when that module is split out.
+
+resource "aws_iam_role" "cilium_operator_role" {
+  count                = var.cni == "cilium" ? 1 : 0
+  name                 = substr("CiliumOperatorRole-${var.environment_name}", 0, 64)
+  permissions_boundary = var.iam_permissions_boundary_arn
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = module.eks.oidc_provider_arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${local.oidc_provider_url}:sub" = "system:serviceaccount:kube-system:cilium-operator"
+            "${local.oidc_provider_url}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# Cilium's published action set, at the Resource "*" both it and AWS use.
+# Scoping it down risks breaking IP allocation and ENI cleanup.
+# https://docs.cilium.io/en/stable/network/concepts/ipam/eni/
+# https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonEKS_CNI_Policy.html
+resource "aws_iam_role_policy" "cilium_operator_policy" {
+  count = var.cni == "cilium" ? 1 : 0
+  name  = substr("CiliumOperatorPolicy-${var.environment_name}", 0, 128)
+  role  = aws_iam_role.cilium_operator_role[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateNetworkInterface",
+          "ec2:AttachNetworkInterface",
+          "ec2:DeleteNetworkInterface",
+          "ec2:ModifyNetworkInterfaceAttribute",
+          "ec2:AssignPrivateIpAddresses",
+          "ec2:UnassignPrivateIpAddresses",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeRouteTables",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeTags"
+        ]
+        Resource = "*"
+      },
+      {
+        # The operator tags each ENI it creates to find orphans to delete later.
+        Effect   = "Allow"
+        Action   = ["ec2:CreateTags"]
+        Resource = "arn:${local.partition}:ec2:*:*:network-interface/*"
+      }
+    ]
+  })
+}

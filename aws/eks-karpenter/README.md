@@ -27,8 +27,8 @@ knobs those docs expose.
 - **Add-ons**: VPC CNI, CoreDNS, kube-proxy, EBS CSI, EFS CSI, Pod Identity
   agent, and Karpenter's controller IAM role and interruption queue.
 - **IAM**: roles for the Ryvn agent, external-dns, cert-manager, the AWS Load
-  Balancer Controller, and cluster-autoscaler (opt-in). Every role can carry a
-  permissions boundary.
+  Balancer Controller, cluster-autoscaler (opt-in) and the Cilium operator
+  (when `cni = "cilium"`). Every role can carry a permissions boundary.
 - **DNS**: a public and a private Route 53 zone, with a CAA record on the
   public zone.
 
@@ -80,6 +80,7 @@ the environment by NAT address must switch to an `aws:SourceVpc` condition.
 | `create_cluster_kms_key` | Use a customer-managed KMS key as the envelope-encryption KEK | `true` |
 | `eks_managed_node_groups` | Node group overrides, merged with the defaults | `{}` |
 | `cluster_addons` | Add-on overrides, merged with the defaults | `{}` |
+| `cni` | Target CNI; `cilium` adds the Cilium operator's IRSA role and nothing else | `"vpc-cni"` |
 | `cluster_access_entries` | Extra EKS access entries | `{}` |
 | `pod_identity_associations` | Extra Pod Identity associations | `{}` |
 | `terraform_executor_policies` | Replace the Ryvn agent's default IAM policy | `[]` |

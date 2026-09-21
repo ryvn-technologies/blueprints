@@ -71,6 +71,11 @@ output "cluster_autoscaler_role_arn" {
   value       = var.cluster_autoscaler.enabled ? aws_iam_role.cluster_autoscaler_role[0].arn : null
 }
 
+output "cilium_operator_role_arn" {
+  description = "ARN of the IAM role for the Cilium operator, or null when cni is not cilium"
+  value       = var.cni == "cilium" ? aws_iam_role.cilium_operator_role[0].arn : null
+}
+
 output "public_domain" {
   description = "The public domain for the cluster"
   value = var.skip_dns_provisioning ? null : {
