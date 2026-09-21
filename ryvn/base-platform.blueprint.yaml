@@ -228,4 +228,4 @@ spec:
       tolerations:
         - key: CriticalAddonsOnly
           operator: Exists
-  distribution: internal-managed
+  distribution: private

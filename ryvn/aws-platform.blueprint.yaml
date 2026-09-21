@@ -291,4 +291,4 @@ spec:
       type: string
       isSecret: false
       from: '{{- if input "legacy" -}}{{ with (serviceInstallation "aws-eks-legacy").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- else -}}{{ with (serviceInstallation "aws-eks-karpenter").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- end -}}'
-  distribution: internal-managed
+  distribution: private

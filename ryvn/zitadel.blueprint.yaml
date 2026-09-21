@@ -375,4 +375,4 @@ spec:
         operator_email_domain: '{{ input "operatorEmailDomain" }}'
         operator_oidc_idp_client_id: '{{ input "operatorOidcClientId" }}'
         operator_oidc_idp_client_secret: '{{ k8sSecretValue "idp-credentials" "operator-client-secret" }}'
-  distribution: internal-managed
+  distribution: private

@@ -179,4 +179,4 @@ spec:
       type: string
       isSecret: false
       from: '{{- if input "legacy" -}}{{ with (serviceInstallation "gcp-gke-legacy").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- else -}}{{ with (serviceInstallation "gcp-gke").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- end -}}'
-  distribution: internal-managed
+  distribution: private
