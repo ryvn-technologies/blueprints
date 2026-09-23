@@ -53,6 +53,11 @@ spec:
     description: Define custom Karpenter EC2NodeClasses with specific AMIs, block device mappings, or instance store policies. Merged with the default node class; diskSize no longer applies when set. Provide as YAML.
     displayName: Custom Node Classes
     multiline: true
+  - name: capacityBuffers
+    type: boolean
+    default: false
+    description: Enable Karpenter's CapacityBuffer feature gate (alpha) so node pools can keep a warm capacity reserve provisioned ahead of demand. Used by the Sandbox Runtime blueprint's warm capacity inputs. Requires Karpenter 1.14 or later on the stable channel.
+    displayName: Karpenter Capacity Buffers
   - name: logs
     type: boolean
     default: true
@@ -193,6 +198,10 @@ spec:
         clusterName: '{{ .ryvn.env.state.cluster_name }}'
         clusterEndpoint: '{{ .ryvn.env.state.cluster_endpoint }}'
         interruptionQueue: '{{ .ryvn.env.state.karpenter.queue_name }}'
+        {{- if input "capacityBuffers" }}
+        featureGates:
+          capacityBuffer: true
+        {{- end }}
       webhook:
         enabled: false
     releaseChannel: stable

@@ -28,7 +28,13 @@ spec:
     ```
 
     `strict` denies pod traffic until policies are reconciled; the default `standard` mode allows traffic in the window before reconciliation, which weakens a default-deny containment guarantee.
+
+    An optional warm capacity reserve keeps spare node capacity provisioned ahead of demand, so a burst of new sandboxes lands on nodes that already exist. It is a Karpenter CapacityBuffer: a fixed number of virtual placeholder slots take part in scheduling, and as real sandboxes consume the headroom the reserve is refilled. Requires Karpenter 1.14 or later with the `CapacityBuffer` feature gate enabled on the cluster's Karpenter controller (the `capacityBuffers` input of the AWS platform blueprint). The feature is alpha upstream.
   displayName: Sandbox Runtime
+  inputGroups:
+    - name: warmCapacity
+      description: Spare sandbox capacity kept provisioned ahead of demand (Karpenter CapacityBuffer, alpha).
+      displayName: Warm Capacity Reserve
   inputs:
     - name: instanceCategories
       type: array
@@ -65,6 +71,24 @@ spec:
       default: 30m
       description: How long a node must sit empty before it is reclaimed. Longer keeps images cached on the node and sandbox startup fast; shorter reduces cost.
       displayName: Empty Node Reclaim Delay
+    - name: warmCapacitySlots
+      type: number
+      default: 0
+      description: Number of sandbox slots kept provisioned but unused, refilled as sandboxes consume them. 0 disables the reserve. Needs Karpenter 1.14+ with the CapacityBuffer feature gate enabled.
+      displayName: Warm Capacity Slots
+      group: warmCapacity
+    - name: warmCapacitySlotCpu
+      type: string
+      default: '1'
+      description: vCPU request of one warm slot. Set to what a typical sandbox requests so one slot is one sandbox.
+      displayName: Warm Slot vCPU
+      group: warmCapacity
+    - name: warmCapacitySlotMemory
+      type: string
+      default: 2Gi
+      description: Memory request of one warm slot.
+      displayName: Warm Slot Memory
+      group: warmCapacity
     - name: verifyRuntime
       type: boolean
       default: false
@@ -104,6 +128,12 @@ spec:
             cpu: {{ input "cpuLimit" }}
           disruption:
             consolidateAfter: {{ input "consolidateAfter" }}
+        warmCapacity:
+          enabled: {{ if input "warmCapacitySlots" }}true{{ else }}false{{ end }}
+          slots: {{ input "warmCapacitySlots" }}
+          slotRequests:
+            cpu: "{{ input "warmCapacitySlotCpu" }}"
+            memory: {{ input "warmCapacitySlotMemory" }}
         verify:
           enabled: {{ input "verifyRuntime" }}
   outputs:
