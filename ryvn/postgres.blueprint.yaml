@@ -198,7 +198,7 @@ spec:
     - name: exposeToTailnet
       type: boolean
       default: false
-      description: Expose the Postgres host to your Tailnet using Tailscale. The database becomes reachable on the tailnet under a hostname derived from the installation and environment name. Requires the Tailscale operator to already be installed in the environment.
+      description: Expose the Postgres host to your Tailnet using Tailscale. Where the database has a DNS endpoint (AWS, Azure) it becomes reachable under a hostname derived from the installation and environment name; where it has only a private IP (GCP Cloud SQL) a subnet router advertises the host and the advertised route must be approved in your Tailnet. Requires the Tailscale operator to already be installed in the environment.
       displayName: Expose to Tailnet
       group: networking
   outputs:
@@ -506,9 +506,23 @@ spec:
     - service: tailscale-resources
       name: '{{ ParentInstallationName }}-ts'
       namespace: tailscale-operator
+      # GCP Cloud SQL exposes only a private IP with no cluster-resolvable DNS
+      # name, so a subnet-router Connector advertises the host route (which must
+      # be approved in the Tailnet). AWS and Azure expose a DNS endpoint, served
+      # by an ExternalName proxy reachable under a derived hostname.
       config: |
+        {{- if and (input "exposeToTailnet") (eq EnvironmentProviderType "gcp") }}
+        externalServices: []
+        connectors:
+          - name: '{{ ParentInstallationName }}'
+            hostname: '{{ ParentInstallationName }}-{{ EnvironmentName }}'
+            tags:
+              - tag:k8s
+            subnetRouter:
+              advertiseRoutes:
+                - '{{ (serviceInstallation "postgres").outputs.host }}/32'
+        {{- else if input "exposeToTailnet" }}
         externalServices:
-          {{- if input "exposeToTailnet" }}
           - name: '{{ ParentInstallationName }}'
             externalName: '{{ (serviceInstallation "postgres").outputs.host }}'
             annotations:
@@ -516,8 +530,8 @@ spec:
             labels:
               ryvn.app/blueprint: postgres
               ryvn.app/exposed-service: '{{ ParentInstallationName }}'
-          {{- else }}
-          []
-          {{- end }}
+        {{- else }}
+        externalServices: []
+        {{- end }}
       releaseChannel: stable
   distribution: marketplace-managed
