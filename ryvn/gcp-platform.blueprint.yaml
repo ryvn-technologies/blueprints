@@ -179,4 +179,10 @@ spec:
       type: string
       isSecret: false
       from: '{{- if input "legacy" -}}{{ with (serviceInstallation "gcp-gke-legacy").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- else -}}{{ with (serviceInstallation "gcp-gke").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- end -}}'
+    - name: cluster_oidc_issuer_url
+      displayName: Cluster OIDC Issuer URL
+      description: OIDC issuer URL for Kubernetes service account tokens in this environment.
+      type: string
+      isSecret: false
+      from: '{{- if input "legacy" -}}{{ with (serviceInstallation "gcp-gke-legacy").outputs.cluster_oidc_issuer_url }}{{ . }}{{ end }}{{- else -}}{{ with (serviceInstallation "gcp-gke").outputs.cluster_oidc_issuer_url }}{{ . }}{{ end }}{{- end -}}'
   distribution: private

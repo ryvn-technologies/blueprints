@@ -21,6 +21,11 @@ output "cluster_name" {
   value       = module.gke.name
 }
 
+output "cluster_oidc_issuer_url" {
+  description = "Public OIDC issuer URL for Kubernetes service account tokens"
+  value       = "https://container.googleapis.com/v1/projects/${var.project_id}/locations/${module.gke.location}/clusters/${module.gke.name}"
+}
+
 output "cluster_region" {
   description = "The GCP region where the GKE cluster is deployed"
   value       = var.region

@@ -55,6 +55,11 @@ output "cluster" {
   description = "A map of AKS cluster attributes: id, name, cluster_ca_certificate, cluster_fqdn, oidc_issuer_url, location. Local accounts are disabled, so no static kubeconfig or client certificate is exported; clients authenticate with Entra tokens."
 }
 
+output "cluster_oidc_issuer_url" {
+  description = "Public OIDC issuer URL for Kubernetes service account tokens"
+  value       = module.aks.oidc_issuer_url
+}
+
 output "external_dns_identity" {
   value = {
     client_id    = azurerm_user_assigned_identity.external_dns.client_id

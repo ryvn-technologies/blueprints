@@ -300,4 +300,10 @@ spec:
       type: string
       isSecret: false
       from: '{{- if input "legacy" -}}{{ with (serviceInstallation "aws-eks-legacy").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- else -}}{{ with (serviceInstallation "aws-eks-karpenter").outputs.outbound_ips }}{{ . | toJson }}{{ end }}{{- end -}}'
+    - name: cluster_oidc_issuer_url
+      displayName: Cluster OIDC Issuer URL
+      description: OIDC issuer URL for Kubernetes service account tokens in this environment.
+      type: string
+      isSecret: false
+      from: '{{- if input "legacy" -}}{{ with (serviceInstallation "aws-eks-legacy").outputs.cluster_oidc_issuer_url }}{{ . }}{{ end }}{{- else -}}{{ with (serviceInstallation "aws-eks-karpenter").outputs.cluster_oidc_issuer_url }}{{ . }}{{ end }}{{- end -}}'
   distribution: private
