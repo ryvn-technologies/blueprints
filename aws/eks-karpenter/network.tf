@@ -349,6 +349,11 @@ resource "terraform_data" "byo_vpc_validation" {
     }
 
     precondition {
+      condition     = var.workload_subnets_per_az == 1
+      error_message = "workload_subnets_per_az can't be used with existing_vpc_id. Remove it."
+    }
+
+    precondition {
       condition     = var.egress_mode != "transit_gateway" || can(regex("^tgw-", coalesce(var.egress_target_id, "")))
       error_message = "egress_mode = \"transit_gateway\" requires egress_target_id to be a transit gateway ID (tgw-...)."
     }
@@ -431,6 +436,11 @@ resource "terraform_data" "byo_subnets_validation" {
     precondition {
       condition     = !var.enable_transit_gateway_subnets
       error_message = "enable_transit_gateway_subnets cannot be used with existing_workload_subnet_ids. Ryvn's TGW landing-pad subnets are a Ryvn-provisioned-VPC feature, and BYO subnets mode creates no subnets at all."
+    }
+
+    precondition {
+      condition     = var.workload_subnets_per_az == 1
+      error_message = "workload_subnets_per_az can't be used with existing_vpc_id. Remove it."
     }
 
     precondition {
@@ -718,8 +728,12 @@ locals {
   private_subnet_ids = local.byo_subnets_enabled ? [for s in local.byo_provided_workload : s.id] : (
     local.byo_enabled ? aws_subnet.byo_workload[*].id : flatten(module.vpc[*].private_subnets)
   )
+  # IDs stay one per AZ for load balancer subnet lists; CIDRs include the added subnets.
   private_subnet_cidr_blocks = local.byo_subnets_enabled ? [for s in local.byo_provided_workload : s.cidr_block] : (
-    local.byo_enabled ? aws_subnet.byo_workload[*].cidr_block : flatten(module.vpc[*].private_subnets_cidr_blocks)
+    local.byo_enabled ? aws_subnet.byo_workload[*].cidr_block : concat(
+      flatten(module.vpc[*].private_subnets_cidr_blocks),
+      values(aws_subnet.additional_workload)[*].cidr_block
+    )
   )
 
   public_subnet_ids = local.byo_subnets_enabled ? [for s in local.byo_provided_public : s.id] : (

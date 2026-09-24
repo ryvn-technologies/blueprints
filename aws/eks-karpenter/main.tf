@@ -108,6 +108,51 @@ resource "aws_route_table_association" "transit_gateway" {
   route_table_id = aws_route_table.transit_gateway[0].id
 }
 
+# No internal-elb tag, so load balancers stay on the first subnets.
+# The cni tag lets the VPC CNI give existing nodes pod IPs from these subnets.
+resource "aws_subnet" "additional_workload" {
+  for_each          = local.additional_workload_subnets
+  vpc_id            = local.vpc_id
+  cidr_block        = each.value.cidr_block
+  availability_zone = each.value.availability_zone
+
+  tags = merge(local.tags, {
+    Name                                          = "ryvn-${var.environment_name}-vpc-private-${each.key}"
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+    "karpenter.sh/discovery"                      = local.cluster_name
+    "kubernetes.io/role/cni"                      = "1"
+  })
+}
+
+resource "aws_route_table_association" "additional_workload" {
+  for_each       = local.additional_workload_subnets
+  subnet_id      = aws_subnet.additional_workload[each.key].id
+  route_table_id = element(flatten(module.vpc[*].private_route_table_ids), each.value.az_index)
+}
+
+# Blocks lowering the count, which would cut subnets in use off from the NAT gateway.
+# Filtered by the Cluster tag instead of the VPC ID so it works before the VPC exists.
+data "aws_subnets" "workload_subnets_above_count" {
+  count = length(local.workload_subnet_cidrs_above_count) > 0 ? 1 : 0
+
+  filter {
+    name   = "cidr-block"
+    values = local.workload_subnet_cidrs_above_count
+  }
+
+  filter {
+    name   = "tag:Cluster"
+    values = [local.cluster_name]
+  }
+
+  lifecycle {
+    postcondition {
+      condition     = length(self.ids) == 0
+      error_message = "workload_subnets_per_az can't be lowered. Set it back to its previous value."
+    }
+  }
+}
+
 # Local values
 locals {
   # Raw cluster name before length optimization
@@ -130,6 +175,25 @@ locals {
 
   # Use custom CIDRs if provided, otherwise use auto-calculated ones
   tgw_subnets = length(var.transit_gateway_subnets) > 0 ? var.transit_gateway_subnets : local.auto_tgw_subnets
+
+  # Of the VPC's 16 equal blocks, module.vpc uses 0-3 and auto TGW subnets sit in 15, so 4-12 are free.
+  additional_workload_subnet_slots = flatten([
+    for n in range(2, 5) : [
+      for k, az in local.azs : {
+        key               = "${az}-${n}"
+        position_in_az    = n
+        az_index          = k
+        availability_zone = az
+        cidr_block        = cidrsubnet(var.vpc_cidr, 4, 4 + 3 * (n - 2) + k)
+      }
+    ]
+  ])
+  additional_workload_subnets = local.byo_enabled ? {} : {
+    for slot in local.additional_workload_subnet_slots : slot.key => slot if slot.position_in_az <= var.workload_subnets_per_az
+  }
+  workload_subnet_cidrs_above_count = local.byo_enabled ? [] : [
+    for slot in local.additional_workload_subnet_slots : slot.cidr_block if slot.position_in_az > var.workload_subnets_per_az
+  ]
 
   partition = data.aws_partition.current.partition
 

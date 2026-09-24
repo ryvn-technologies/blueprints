@@ -72,6 +72,7 @@ the environment by NAT address must switch to an `aws:SourceVpc` condition.
 | `public_root_domain` / `internal_root_domain` | Domains for the Route 53 zones | required |
 | `cluster_version` | EKS Kubernetes version | `"1.34"` |
 | `vpc_cidr` | CIDR for the VPC when the module creates it | `"10.0.0.0/16"` |
+| `workload_subnets_per_az` | Workload subnets per AZ (1–4); raise it to add IP capacity | `1` |
 | `existing_vpc_id` | Provision into an existing VPC | `null` |
 | `existing_workload_subnet_ids` | Run nodes in pre-existing subnets, creating no topology | `[]` |
 | `egress_mode` | `create_nat`, `nat_gateway` or `transit_gateway` | `"create_nat"` |
@@ -108,7 +109,8 @@ consumers should not read an empty `outbound_ips` as the former.
 The VPC CIDR and subnet layout, the cluster name (derived from
 `environment_name`), and the choice of envelope-encryption key cannot be
 changed in place. Switching between networking modes on a live environment
-means replacing the cluster.
+means replacing the cluster. `workload_subnets_per_az` can be raised but not
+lowered.
 
 ## Tests
 
@@ -117,4 +119,11 @@ means replacing the cluster.
 
 ```bash
 cd tests/byo_subnet_azs && terraform init -backend=false && terraform test
+```
+
+`tests/workload_subnets.tftest.hcl` plans the whole module against mock
+providers:
+
+```bash
+terraform init -backend=false -upgrade && terraform test
 ```

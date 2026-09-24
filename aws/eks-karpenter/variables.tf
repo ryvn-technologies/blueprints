@@ -47,6 +47,17 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
+variable "workload_subnets_per_az" {
+  description = "Workload subnets per availability zone (1-4). Raise it to get more IP addresses for nodes and pods. It can't be lowered."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.workload_subnets_per_az >= 1 && var.workload_subnets_per_az <= 4 && floor(var.workload_subnets_per_az) == var.workload_subnets_per_az
+    error_message = "workload_subnets_per_az must be a whole number from 1 to 4."
+  }
+}
+
 variable "existing_vpc_id" {
   description = "ID of an existing VPC to provision into (BYO VPC). When set, Ryvn skips VPC creation and either carves its standard subnet layout inside this VPC (carve mode) or consumes the subnets named by existing_workload_subnet_ids (subnets mode). Leave null to have Ryvn create the VPC."
   type        = string
