@@ -5,6 +5,27 @@ metadata:
 spec:
   description: |
     Privately publishes services in this environment to other networks. Other environments connect with Private Service Consumer.
+
+    Connected environments reach every internal Route here at the same URL pods here use, `http://<name>.<publisherDomain>`, over the cloud's private network (Private Service Connect on GCP, PrivateLink on AWS).
+
+    ## Requirements
+
+    - GCP or AWS. Connecting environments must be on the same cloud and in the same region. Overlapping IP ranges are fine.
+    - This environment's internal gateway must serve HTTP on port 80 with native networking on. Contact Ryvn support to turn this on before the first install.
+    - If this environment sets custom agent permissions (`terraform_executor_policies`), they must allow the private service resources this blueprint creates.
+
+    ## Setup
+
+    1. Install this blueprint once on this environment. Put connecting environments that are in other GCP projects or AWS accounts in `allowedConsumers`. Once set, the list replaces the default, so if other connecting environments share this environment's project or account, list that one too.
+    2. On each connecting environment, install Private Service Consumer with this installation's `publisherId` and `publisherDomain` outputs.
+    3. A service is reachable once it has a Route with `internal` exposure and a name directly under this environment's internal domain. `web-server` services get one automatically.
+
+    ## Limits
+
+    - HTTP on port 80 only. Traffic isn't encrypted, but it stays on the private connection.
+    - Every internal Route here is reachable from every connected environment.
+    - Services here see callers at the connection's addresses, not their pod IPs, so don't authorize callers by source IP.
+    - Uninstall Private Service Consumer everywhere before you uninstall this blueprint or deprovision this environment.
   displayName: Private Service Publisher
   inputs:
     - name: allowedConsumers
@@ -44,6 +65,17 @@ spec:
         network: '{{ .ryvn.env.state.vpc.self_link }}'
         name_prefix: '{{ ParentInstallationName }}'
         nat_subnet_cidr: '{{ input "natSubnetCidr" }}'
+        allowed_consumers: {{ input "allowedConsumers" | toJson }}
+      releaseChannel: stable
+    - service: aws-private-service-publisher
+      name: '{{ ParentInstallationName }}'
+      alias: link
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+      config: |
+        region: '{{ .ryvn.env.state.cluster_region }}'
+        cluster_name: '{{ .ryvn.env.state.cluster_name }}'
+        name_prefix: '{{ ParentInstallationName }}'
         allowed_consumers: {{ input "allowedConsumers" | toJson }}
       releaseChannel: stable
   distribution: private

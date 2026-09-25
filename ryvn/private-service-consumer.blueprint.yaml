@@ -4,7 +4,27 @@ metadata:
   name: private-service-consumer
 spec:
   description: |
-    Connects this environment to a Private Service Publisher so its services are reachable from here. Install once per publisher.
+    Connects this environment to a Private Service Publisher so its services are reachable from here.
+
+    Pods here reach every internal Route in the publisher's environment at `http://<name>.<publisherDomain>`, over the cloud's private network (Private Service Connect on GCP, PrivateLink on AWS).
+
+    ## Requirements
+
+    - Private Service Publisher is installed on the environment you want to reach. Set `publisherId` and `publisherDomain` to its outputs, copied exactly.
+    - This environment is on the same cloud and in the same region as the publisher. On AWS it also needs a private subnet in one of the publisher's availability zones. Overlapping IP ranges are fine.
+    - If this environment is in a different GCP project or AWS account from the publisher, that project or account must be in the publisher's `allowedConsumers`.
+    - If this environment sets custom agent permissions (`terraform_executor_policies`), they must allow the private service resources this blueprint creates.
+
+    ## Checking the link
+
+    - `linkState` shows whether the publisher accepted the connection: `ACCEPTED` on GCP, `available` on AWS. If the state is `PENDING` on GCP, or the install on AWS can't find the publisher, the publisher doesn't allow this project or account yet.
+    - Requests can fail for a few minutes after the link first connects, while DNS settles.
+
+    ## Limits
+
+    - HTTP on port 80 only.
+    - Each install connects this environment to one publisher. To reach another publisher, install this again.
+    - Uninstall this before the publisher.
   displayName: Private Service Consumer
   inputs:
     - name: publisherId
@@ -37,6 +57,19 @@ spec:
         network: '{{ .ryvn.env.state.vpc.self_link }}'
         subnetwork: '{{ (index .ryvn.env.state.vpc.subnets 0).id }}'
         subnetwork_region: '{{ (index .ryvn.env.state.vpc.subnets 0).region }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        publisher_id: '{{ input "publisherId" | trim }}'
+        publisher_domain: '{{ input "publisherDomain" | trim }}'
+      releaseChannel: stable
+    - service: aws-private-service-consumer
+      name: '{{ ParentInstallationName }}'
+      alias: link
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+      config: |
+        region: '{{ .ryvn.env.state.cluster_region }}'
+        vpc_id: '{{ .ryvn.env.state.vpc.id }}'
+        subnet_ids: {{ .ryvn.env.state.vpc.private_subnet_ids | toJson }}
         name_prefix: '{{ ParentInstallationName }}'
         publisher_id: '{{ input "publisherId" | trim }}'
         publisher_domain: '{{ input "publisherDomain" | trim }}'
