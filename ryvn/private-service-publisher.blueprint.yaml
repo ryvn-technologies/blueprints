@@ -1,0 +1,49 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: private-service-publisher
+spec:
+  description: |
+    Privately publishes services in this environment to other networks. Other environments connect with Private Service Consumer.
+  displayName: Private Service Publisher
+  inputs:
+    - name: allowedConsumers
+      type: array
+      default: []
+      description: Project, account or subscription IDs allowed to connect. Leave empty to allow only this environment's own.
+      displayName: Allowed Consumers
+    - name: natSubnetCidr
+      type: string
+      default: 198.18.0.0/28
+      description: IPv4 range that incoming connections come from. Must not overlap anything in or routed to this network. Can't be changed after install.
+      displayName: NAT Subnet Range
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      immutable: true
+  outputs:
+    - name: publisherId
+      type: string
+      from: '{{ (serviceInstallation "link").outputs.publisher_id }}'
+      description: Set as `publisherId` on Private Service Consumer.
+      displayName: Publisher ID
+    - name: publisherDomain
+      type: string
+      from: '{{ EnvironmentInternalDomain }}'
+      description: Set as `publisherDomain` on Private Service Consumer.
+      displayName: Publisher Domain
+  # TODO(NominalTrajectory): the published load balancer is intentionally fixed to the managed internal gateway, since
+  # the link relies on its port 80 listener and internal DNS. Later, open this up to a custom gateway or Service.
+  installations:
+    - service: gcp-private-service-publisher
+      name: '{{ ParentInstallationName }}'
+      alias: link
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        region: '{{ .ryvn.env.state.cluster_region }}'
+        network: '{{ .ryvn.env.state.vpc.self_link }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        nat_subnet_cidr: '{{ input "natSubnetCidr" }}'
+        allowed_consumers: {{ input "allowedConsumers" | toJson }}
+      releaseChannel: stable
+  distribution: private

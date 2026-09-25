@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: private-service-consumer
+spec:
+  description: |
+    Connects this environment to a Private Service Publisher so its services are reachable from here. Install once per publisher.
+  displayName: Private Service Consumer
+  inputs:
+    - name: publisherId
+      type: string
+      description: The `publisherId` output of the Private Service Publisher to connect to.
+      displayName: Publisher ID
+    - name: publisherDomain
+      type: string
+      description: The `publisherDomain` output of the same publisher.
+      displayName: Publisher Domain
+  outputs:
+    - name: consumerId
+      type: string
+      from: '{{ (serviceInstallation "link").outputs.consumer_id }}'
+      description: Endpoint this environment connects through.
+      displayName: Consumer ID
+    - name: linkState
+      type: string
+      from: '{{ (serviceInstallation "link").outputs.link_state }}'
+      description: Whether the publisher accepted the connection.
+      displayName: Link State
+  installations:
+    - service: gcp-private-service-consumer
+      name: '{{ ParentInstallationName }}'
+      alias: link
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        network: '{{ .ryvn.env.state.vpc.self_link }}'
+        subnetwork: '{{ (index .ryvn.env.state.vpc.subnets 0).id }}'
+        subnetwork_region: '{{ (index .ryvn.env.state.vpc.subnets 0).region }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        publisher_id: '{{ input "publisherId" | trim }}'
+        publisher_domain: '{{ input "publisherDomain" | trim }}'
+      releaseChannel: stable
+  distribution: private

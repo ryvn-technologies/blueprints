@@ -412,7 +412,34 @@ locals {
     "dns.resourceRecordSets.delete",
     "dns.resourceRecordSets.get",
     "dns.resourceRecordSets.list",
-    "dns.resourceRecordSets.update"
+    "dns.resourceRecordSets.update",
+    "dns.networks.bindPrivateDNSZone",
+
+    # Allow private service publishers and consumers over Private Service Connect
+    "compute.serviceAttachments.create",
+    "compute.serviceAttachments.delete",
+    "compute.serviceAttachments.get",
+    "compute.serviceAttachments.list",
+    "compute.serviceAttachments.update",
+    "compute.forwardingRules.create",
+    "compute.forwardingRules.delete",
+    "compute.forwardingRules.get",
+    "compute.forwardingRules.list",
+    "compute.forwardingRules.use",
+    "compute.forwardingRules.pscCreate",
+    "compute.forwardingRules.pscDelete",
+    "compute.forwardingRules.pscSetLabels",
+    "compute.addresses.createInternal",
+    "compute.addresses.deleteInternal",
+    "compute.addresses.useInternal",
+    "compute.addresses.setLabels",
+    "compute.networks.updatePolicy",
+    "compute.globalOperations.get",
+    "compute.regionOperations.get",
+    # GCP registers each Private Service Connect endpoint in Service Directory.
+    "servicedirectory.namespaces.create",
+    "servicedirectory.services.create",
+    "servicedirectory.services.delete"
   ]
 
   # Cloud SQL mutations that can destroy or expose an existing database. When
