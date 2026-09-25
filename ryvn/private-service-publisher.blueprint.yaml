@@ -5,14 +5,49 @@ metadata:
 spec:
   description: |
     Privately publishes services in this environment to other networks. Other environments connect with Private Service Consumer.
+
+    Connected environments reach every internal Route here at the same URL pods here use, `http://<name>.<publisherDomain>`, over the cloud's private network (Private Service Connect on GCP, PrivateLink on AWS).
+
+    ## Requirements
+
+    - GCP or AWS. Connecting environments must be on the same cloud. On GCP they must also be in the same region; on AWS they can be in other regions. Overlapping IP ranges are fine.
+    - This environment's internal gateway must serve HTTP on port 80 with native networking on. Contact Ryvn support to turn this on before the first install.
+    - If this environment sets custom agent permissions (`terraform_executor_policies`), they must allow the private service resources this blueprint creates.
+
+    ## Setup
+
+    1. Install this blueprint once on this environment. On GCP, list the projects of connecting environments in other projects in `gcpAllowedProjects`. On AWS, list the accounts of connecting environments in other accounts in `awsAllowedPrincipals` as `arn:aws:iam::<account ID>:root`, and their other regions in `awsAllowedConsumerRegions`. Once set, the list replaces the default, so if other connecting environments share this environment's project or account, list that one too.
+    2. On each connecting environment, install Private Service Consumer with this installation's `publisherId` and `publisherDomain` outputs.
+    3. A service is reachable once it has a Route with `internal` exposure and a name directly under this environment's internal domain. `web-server` services get one automatically.
+
+    ## Limits
+
+    - HTTP on port 80 only. Traffic isn't encrypted, but it stays on the private connection.
+    - Every internal Route here is reachable from every connected environment.
+    - Services here see callers at the connection's addresses, not their pod IPs, so don't authorize callers by source IP.
+    - On AWS, removing a principal from `awsAllowedPrincipals` or a region from `awsAllowedConsumerRegions` doesn't disconnect environments already connected from it. Uninstall Private Service Consumer there first.
+    - Uninstall Private Service Consumer everywhere before you uninstall this blueprint or deprovision this environment.
   displayName: Private Service Publisher
   inputs:
-    - name: allowedConsumers
+    - name: gcpAllowedProjects
       type: array
       default: []
-      description: Project, account or subscription IDs allowed to connect. Leave empty to allow only this environment's own.
-      displayName: Allowed Consumers
-    - name: natSubnetCidr
+      description: GCP project IDs allowed to connect. Leave empty to allow only this environment's own project.
+      displayName: Allowed Projects
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+    - name: awsAllowedPrincipals
+      type: array
+      default: []
+      description: IAM principal ARNs allowed to connect, such as `arn:aws:iam::123456789012:root` for a whole account. Leave empty to allow only this environment's own account.
+      displayName: Allowed Principals
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+    - name: awsAllowedConsumerRegions
+      type: array
+      default: []
+      description: Other AWS regions that connecting environments may be in. This environment's own region is always allowed.
+      displayName: Allowed Consumer Regions
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+    - name: gcpNatSubnetCidr
       type: string
       default: 198.18.0.0/28
       description: IPv4 range that incoming connections come from. Must not overlap anything in or routed to this network. Can't be changed after install.
@@ -22,7 +57,7 @@ spec:
   outputs:
     - name: publisherId
       type: string
-      from: '{{ (serviceInstallation "link").outputs.publisher_id }}'
+      from: '{{ if eq EnvironmentProviderType "aws" }}{{ (serviceInstallation "link").outputs.endpoint_service_name }}{{ else }}{{ (serviceInstallation "link").outputs.publisher_id }}{{ end }}'
       description: Set as `publisherId` on Private Service Consumer.
       displayName: Publisher ID
     - name: publisherDomain
@@ -43,7 +78,22 @@ spec:
         region: '{{ .ryvn.env.state.cluster_region }}'
         network: '{{ .ryvn.env.state.vpc.self_link }}'
         name_prefix: '{{ ParentInstallationName }}'
-        nat_subnet_cidr: '{{ input "natSubnetCidr" }}'
-        allowed_consumers: {{ input "allowedConsumers" | toJson }}
+        nat_subnet_cidr: '{{ input "gcpNatSubnetCidr" }}'
+        allowed_projects: {{ input "gcpAllowedProjects" | toJson }}
+      releaseChannel: stable
+    - service: aws-privatelink-endpoint-service
+      name: '{{ ParentInstallationName }}'
+      alias: link
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+      config: |
+        region: '{{ .ryvn.env.state.cluster_region }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        network_load_balancer_tags:
+          elbv2.k8s.aws/cluster: '{{ .ryvn.env.state.cluster_name }}'
+          service.k8s.aws/stack: ryvn-system/internal-ryvn-istio
+        acceptance_required: false
+        allowed_principals: {{ input "awsAllowedPrincipals" | toJson }}
+        supported_regions: {{ input "awsAllowedConsumerRegions" | toJson }}
       releaseChannel: stable
   distribution: private

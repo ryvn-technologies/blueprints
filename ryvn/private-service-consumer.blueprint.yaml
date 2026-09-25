@@ -4,7 +4,28 @@ metadata:
   name: private-service-consumer
 spec:
   description: |
-    Connects this environment to a Private Service Publisher so its services are reachable from here. Install once per publisher.
+    Connects this environment to a Private Service Publisher so its services are reachable from here.
+
+    Pods here reach every internal Route in the publisher's environment at `http://<name>.<publisherDomain>`, over the cloud's private network (Private Service Connect on GCP, PrivateLink on AWS).
+
+    ## Requirements
+
+    - Private Service Publisher is installed on the environment you want to reach. Set `publisherId` and `publisherDomain` to its outputs, copied exactly.
+    - This environment is on the same cloud as the publisher. On GCP it must also be in the publisher's region. Overlapping IP ranges are fine.
+    - On AWS, this environment can be in another region if the publisher lists that region in `awsAllowedConsumerRegions`. In the publisher's own region, it needs a private subnet in one of the publisher's availability zones. Its VPC can't be one shared from another AWS account.
+    - If this environment is in a different GCP project or AWS account from the publisher, the publisher must allow it: the project in `gcpAllowedProjects`, or the account in `awsAllowedPrincipals`.
+    - If this environment sets custom agent permissions (`terraform_executor_policies`), they must allow the private service resources this blueprint creates.
+
+    ## Checking the link
+
+    - `linkState` shows whether the publisher accepted the connection: `ACCEPTED` on GCP, `available` on AWS. If the state is `PENDING` on GCP, or the install on AWS can't find the publisher, the publisher doesn't allow this project, account or region yet.
+    - Requests can fail for a few minutes after the link first connects, while DNS settles.
+
+    ## Limits
+
+    - HTTP on port 80 only.
+    - Each install connects this environment to one publisher. To reach another publisher, install this again.
+    - Uninstall this before the publisher. On AWS, also uninstall it before the publisher stops allowing this environment's account or region. After that, this install can't find the publisher, so updating or uninstalling it fails until the publisher allows it again.
   displayName: Private Service Consumer
   inputs:
     - name: publisherId
@@ -18,12 +39,12 @@ spec:
   outputs:
     - name: consumerId
       type: string
-      from: '{{ (serviceInstallation "link").outputs.consumer_id }}'
+      from: '{{ if eq EnvironmentProviderType "aws" }}{{ (serviceInstallation "link").outputs.vpc_endpoint_id }}{{ else }}{{ (serviceInstallation "link").outputs.consumer_id }}{{ end }}'
       description: Endpoint this environment connects through.
       displayName: Consumer ID
     - name: linkState
       type: string
-      from: '{{ (serviceInstallation "link").outputs.link_state }}'
+      from: '{{ if eq EnvironmentProviderType "aws" }}{{ (serviceInstallation "link").outputs.vpc_endpoint_state }}{{ else }}{{ (serviceInstallation "link").outputs.link_state }}{{ end }}'
       description: Whether the publisher accepted the connection.
       displayName: Link State
   installations:
@@ -40,5 +61,18 @@ spec:
         name_prefix: '{{ ParentInstallationName }}'
         publisher_id: '{{ input "publisherId" | trim }}'
         publisher_domain: '{{ input "publisherDomain" | trim }}'
+      releaseChannel: stable
+    - service: aws-privatelink-endpoint
+      name: '{{ ParentInstallationName }}'
+      alias: link
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "aws" }}'
+      config: |
+        region: '{{ .ryvn.env.state.cluster_region }}'
+        vpc_id: '{{ .ryvn.env.state.vpc.id }}'
+        subnet_ids: {{ .ryvn.env.state.vpc.private_subnet_ids | toJson }}
+        name_prefix: '{{ ParentInstallationName }}'
+        endpoint_service_name: '{{ input "publisherId" | trim }}'
+        private_hosted_zone_name: '{{ input "publisherDomain" | trim }}'
       releaseChannel: stable
   distribution: private
