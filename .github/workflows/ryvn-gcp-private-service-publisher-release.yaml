@@ -1,0 +1,24 @@
+name: Build & Release gcp-private-service-publisher
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "gcp/private-service-publisher/**"
+      - ".github/workflows/ryvn-gcp-private-service-publisher-release.yaml"
+  pull_request:
+    paths:
+      - "gcp/private-service-publisher/**"
+      - ".github/workflows/ryvn-gcp-private-service-publisher-release.yaml"
+
+jobs:
+  release:
+    uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
+    with:
+      service_name: gcp-private-service-publisher
+      tag_prefix: gcp-private-service-publisher@
+    permissions:
+      contents: write
+      id-token: write
