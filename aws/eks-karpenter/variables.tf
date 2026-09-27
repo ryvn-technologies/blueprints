@@ -276,7 +276,7 @@ variable "cluster_addons" {
 }
 
 variable "cni" {
-  description = "The cluster's target CNI. vpc-cni (default) changes nothing. cilium creates the IRSA role the Cilium operator needs to manage pod ENIs; it neither installs Cilium nor removes the VPC CNI add-on."
+  description = "Cluster CNI: vpc-cni or cilium."
   type        = string
   default     = "vpc-cni"
 
@@ -284,6 +284,28 @@ variable "cni" {
     condition     = contains(["vpc-cni", "cilium"], var.cni)
     error_message = "cni must be one of: vpc-cni, cilium."
   }
+}
+
+variable "ryvn_init_image" {
+  description = "ryvn-init image used when cni = \"cilium\". Set by the platform blueprint."
+  type        = string
+}
+
+variable "ryvn_init_timeout_seconds" {
+  description = "Deadline for one ryvn-init run; must stay under EKS's 15-minute NotReady node limit."
+  type        = number
+  default     = 780
+}
+
+variable "cilium_chart_version" {
+  description = "Cilium chart version (oci://quay.io/cilium/charts/cilium). Set by the platform blueprint."
+  type        = string
+}
+
+variable "cilium_repair" {
+  description = "Force reinstall Cilium, even if a Ryvn installation has adopted it."
+  type        = bool
+  default     = false
 }
 
 variable "enable_transit_gateway_subnets" {

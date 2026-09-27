@@ -177,8 +177,20 @@
                 },
                 {
                   "Action": [
+                    "codebuild:BatchGetBuilds",
+                    "codebuild:BatchGetProjects",
+                    "codebuild:CreateProject",
+                    "codebuild:DeleteProject",
+                    "codebuild:StartBuild",
+                    "codebuild:UpdateProject",
+                    "ssm:AddTagsToResource",
+                    "ssm:DeleteParameter",
+                    "ssm:DescribeParameters",
                     "ssm:GetParameter",
-                    "ssm:GetParameters"
+                    "ssm:GetParameters",
+                    "ssm:ListTagsForResource",
+                    "ssm:PutParameter",
+                    "ssm:RemoveTagsFromResource"
                   ],
                   "Resource": "*",
                   "Effect": "Allow"

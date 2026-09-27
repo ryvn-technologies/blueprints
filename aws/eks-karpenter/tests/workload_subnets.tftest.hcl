@@ -37,6 +37,32 @@ mock_provider "aws" {
       ids = []
     }
   }
+
+  # Only read for customer-provided subnets and the VPC they sit in.
+  mock_data "aws_subnet" {
+    defaults = {
+      vpc_id                     = "vpc-0123456789abcdef0"
+      owner_id                   = "123456789012"
+      available_ip_address_count = 4000
+    }
+  }
+
+  mock_data "aws_vpc" {
+    defaults = {
+      cidr_block = "10.0.0.0/16"
+      cidr_block_associations = [{
+        association_id = "vpc-cidr-assoc-0123456789abcdef0"
+        cidr_block     = "10.0.0.0/16"
+        state          = "associated"
+      }]
+    }
+  }
+
+  mock_data "aws_route_table" {
+    defaults = {
+      routes = [{ cidr_block = "0.0.0.0/0" }]
+    }
+  }
 }
 
 mock_provider "random" {}
@@ -50,6 +76,8 @@ variables {
   account_id           = "123456789012"
   internal_root_domain = "internal.example.com"
   public_root_domain   = "example.com"
+  ryvn_init_image      = "ryvn/init:test"
+  cilium_chart_version = "1.20.2"
 }
 
 run "default_adds_no_subnets" {
@@ -118,6 +146,81 @@ run "four_per_az_on_a_16_uses_blocks_4_to_12" {
       "10.0.160.0/20", "10.0.176.0/20", "10.0.192.0/20",
     ]))
     error_message = "Unexpected subnets: ${jsonencode(sort(values(aws_subnet.additional_workload)[*].cidr_block))}"
+  }
+}
+
+run "cilium_finds_workload_subnets_by_tag" {
+  command = plan
+
+  variables {
+    cni = "cilium"
+  }
+
+  assert {
+    condition = jsonencode(local.cilium_values.eni.nodeSpec) == jsonencode({
+      firstInterfaceIndex = 0
+      subnetIDs           = []
+      subnetTags          = ["karpenter.sh/discovery=ryvn-eks-test"]
+    })
+    error_message = "Unexpected Cilium subnet selection: ${jsonencode(local.cilium_values.eni.nodeSpec)}"
+  }
+}
+
+run "cilium_finds_added_subnets_by_tag" {
+  command = plan
+
+  variables {
+    cni                     = "cilium"
+    workload_subnets_per_az = 2
+  }
+
+  assert {
+    condition = length(aws_subnet.additional_workload) == 3 && alltrue([
+      for subnet in aws_subnet.additional_workload : alltrue([
+        for key, value in local.workload_subnet_discovery_tags : lookup(subnet.tags, key, null) == value
+      ])
+    ])
+    error_message = "Every added subnet must carry the tags Cilium finds workload subnets by."
+  }
+}
+
+run "cilium_finds_customer_subnets_by_id" {
+  command = plan
+
+  variables {
+    cni                          = "cilium"
+    existing_vpc_id              = "vpc-0123456789abcdef0"
+    existing_workload_subnet_ids = ["subnet-0aaaaaaaaaaaaaaaa", "subnet-0bbbbbbbbbbbbbbbb"]
+    egress_mode                  = "nat_gateway"
+  }
+
+  override_data {
+    target = data.aws_subnet.byo_provided_workload["subnet-0aaaaaaaaaaaaaaaa"]
+    values = { availability_zone = "us-east-1a", cidr_block = "10.0.0.0/20", vpc_id = "vpc-0123456789abcdef0", available_ip_address_count = 4000 }
+  }
+
+  override_data {
+    target = data.aws_subnet.byo_provided_workload["subnet-0bbbbbbbbbbbbbbbb"]
+    values = { availability_zone = "us-east-1b", cidr_block = "10.0.16.0/20", vpc_id = "vpc-0123456789abcdef0", available_ip_address_count = 4000 }
+  }
+
+  override_data {
+    target = data.aws_subnet.byo_provided_control_plane["subnet-0aaaaaaaaaaaaaaaa"]
+    values = { availability_zone = "us-east-1a", cidr_block = "10.0.0.0/20", vpc_id = "vpc-0123456789abcdef0", available_ip_address_count = 4000 }
+  }
+
+  override_data {
+    target = data.aws_subnet.byo_provided_control_plane["subnet-0bbbbbbbbbbbbbbbb"]
+    values = { availability_zone = "us-east-1b", cidr_block = "10.0.16.0/20", vpc_id = "vpc-0123456789abcdef0", available_ip_address_count = 4000 }
+  }
+
+  assert {
+    condition = jsonencode(local.cilium_values.eni.nodeSpec) == jsonencode({
+      firstInterfaceIndex = 0
+      subnetIDs           = ["subnet-0aaaaaaaaaaaaaaaa", "subnet-0bbbbbbbbbbbbbbbb"]
+      subnetTags          = []
+    })
+    error_message = "Unexpected Cilium subnet selection: ${jsonencode(local.cilium_values.eni.nodeSpec)}"
   }
 }
 

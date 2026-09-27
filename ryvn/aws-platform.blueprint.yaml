@@ -115,7 +115,8 @@ spec:
     condition: '{{ not (input "legacy") }}'
     config: |
       # Include the entire environment config since this is how its passed in today
-      {{ .ryvn.env.config | toYaml }}
+      # The ryvn-init image and Cilium chart version come from this blueprint.
+      {{ merge (dict "ryvn_init_image" "ryvn/init:0.1.0" "cilium_chart_version" "1.20.2") .ryvn.env.config | toYaml }}
     releaseChannel: stable
   - service: aws-eks-legacy
     condition: '{{ input "legacy" }}'
@@ -153,7 +154,14 @@ spec:
         subnetIds:
         {{- .ryvn.env.state.vpc.private_subnet_ids | toYaml | nindent 10 }}
         {{- end }}
-      
+      {{- if and .ryvn.env.state.cni (eq .ryvn.env.state.cni "cilium") }}
+      # Cilium's operator removes it once the node's agent is ready.
+      startupTaints:
+        - key: node.cilium.io/agent-not-ready
+          value: "true"
+          effect: NoExecute
+      {{- end }}
+
       {{- if input "customNodeClasses" }}
       nodeClasses:
         {{- input "customNodeClasses" | nindent 2 }}

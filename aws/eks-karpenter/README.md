@@ -26,6 +26,9 @@ knobs those docs expose.
   Karpenter itself depends on; all other capacity comes from Karpenter.
 - **Add-ons**: VPC CNI, CoreDNS, kube-proxy, EBS CSI, EFS CSI, Pod Identity
   agent, and Karpenter's controller IAM role and interruption queue.
+- **Cilium** (`cni = "cilium"`): no VPC CNI add-on; `ryvn-init` installs
+  Cilium from a CodeBuild run inside the VPC that the apply starts and waits
+  for. See [Cilium bootstrap](#cilium-bootstrap).
 - **IAM**: roles for the Ryvn agent, external-dns, cert-manager, the AWS Load
   Balancer Controller, cluster-autoscaler (opt-in) and the Cilium operator
   (when `cni = "cilium"`). Every role can carry a permissions boundary.
@@ -81,7 +84,9 @@ the environment by NAT address must switch to an `aws:SourceVpc` condition.
 | `create_cluster_kms_key` | Use a customer-managed KMS key as the envelope-encryption KEK | `true` |
 | `eks_managed_node_groups` | Node group overrides, merged with the defaults | `{}` |
 | `cluster_addons` | Add-on overrides, merged with the defaults | `{}` |
-| `cni` | Target CNI; `cilium` adds the Cilium operator's IRSA role and nothing else | `"vpc-cni"` |
+| `cni` | Target CNI; `cilium` drops the VPC CNI add-on and bootstraps Cilium with `ryvn-init` | `"vpc-cni"` |
+| `ryvn_init_image` / `cilium_chart_version` | Bootstrap image and Cilium chart version used in `cilium` mode | required, set by the platform blueprint |
+| `cilium_repair` | Force reinstall Cilium, even if a Ryvn installation has adopted it | `false` |
 | `cluster_access_entries` | Extra EKS access entries | `{}` |
 | `pod_identity_associations` | Extra Pod Identity associations | `{}` |
 | `terraform_executor_policies` | Replace the Ryvn agent's default IAM policy | `[]` |
@@ -103,6 +108,19 @@ for each component, `addons` (per-addon IRSA role ARNs),
 `outbound_ips_known` distinguishes "this environment has no public egress
 addresses" from "its egress is centralized and the addresses live elsewhere" —
 consumers should not read an empty `outbound_ips` as the former.
+
+## Cilium Bootstrap
+
+- With `cni = "cilium"` the cluster gets no `vpc-cni` add-on, and new nodes
+  carry the `node.cilium.io/agent-not-ready` taint until Cilium runs on them
+  (managed node groups here, Karpenter node pools through the platform
+  blueprint).
+- [`modules/ryvn-init`](modules/ryvn-init/README.md) installs Cilium from a
+  CodeBuild run inside the VPC, so nothing outside the VPC calls the cluster
+  API. The apply waits for it and stops with the reason on failure; changing
+  the image, chart version or values runs it again.
+- If the CNI breaks, apply with `cilium_repair = true`, then set it back to
+  `false`.
 
 ## One-Way Decisions
 
