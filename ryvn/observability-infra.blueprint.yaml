@@ -1121,11 +1121,18 @@ spec:
             auth_url: "{{ Hub "issuerUrl" }}/oauth/v2/authorize"
             token_url: "{{ Hub "issuerUrl" }}/oauth/v2/token"
             api_url: "http://{{ ParentInstallationName }}-auth-proxy.observability.svc.cluster.local:9545/userinfo"
-            # Only members of the organization owning this installation may sign in; they
-            # land in organization 1 as Editors. Strict mode refuses everyone else.
-            org_attribute_path: ryvn_orgs
-            org_mapping: '{{ EnvironmentOrgId }}:1:Editor'
+            # Grafana roles derive from the caller's organization-level Ryvn role in the
+            # organization owning this installation, as reported by the auth-proxy's
+            # /userinfo `ryvn_org_roles` claim ("<orgId>/<role>"): admin -> Admin,
+            # developer -> Editor, operator/viewer -> Viewer. The membership-only `member`
+            # role, roles held only on an environment/service, roles in other organizations
+            # and subjects without bindings match nothing; strict mode then refuses login.
+            # No role_attribute_path is set (Grafana would take the higher of the two), and
+            # Grafana server admin is never assigned.
+            org_attribute_path: ryvn_org_roles
+            org_mapping: '{{ EnvironmentOrgId }}/admin:1:Admin {{ EnvironmentOrgId }}/developer:1:Editor {{ EnvironmentOrgId }}/operator:1:Viewer {{ EnvironmentOrgId }}/viewer:1:Viewer'
             role_attribute_strict: true
+            allow_assign_grafana_admin: false
             skip_org_role_sync: false
             use_pkce: true
             use_refresh_token: true
