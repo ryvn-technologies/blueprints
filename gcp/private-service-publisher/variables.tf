@@ -28,8 +28,8 @@ variable "name_prefix" {
   }
 }
 
-variable "gateway_service" {
-  description = "Kubernetes Service (<namespace>/<name>) of the internal gateway. Its GKE internal passthrough load balancer is what gets published."
+variable "kubernetes_service" {
+  description = "Kubernetes Service (<namespace>/<name>) whose GKE internal passthrough load balancer gets published."
   type        = string
   default     = "ryvn-system/internal-ryvn-istio"
 }
@@ -46,14 +46,14 @@ variable "nat_subnet_cidr" {
   }
 }
 
-variable "allowed_consumers" {
+variable "allowed_projects" {
   description = "GCP project IDs allowed to connect. Empty allows only project_id."
   type        = list(string)
   default     = []
   nullable    = false
 
   validation {
-    condition     = !contains(var.allowed_consumers, "*")
-    error_message = "Allowed Consumers can't include \"*\". List the GCP project IDs of the environments that connect."
+    condition     = !contains(var.allowed_projects, "*")
+    error_message = "Allowed Projects can't include \"*\". List the GCP project IDs of the environments that connect."
   }
 }
