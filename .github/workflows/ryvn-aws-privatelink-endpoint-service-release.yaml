@@ -1,0 +1,24 @@
+name: Build & Release aws-privatelink-endpoint-service
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "aws/privatelink-endpoint-service/**"
+      - ".github/workflows/ryvn-aws-privatelink-endpoint-service-release.yaml"
+  pull_request:
+    paths:
+      - "aws/privatelink-endpoint-service/**"
+      - ".github/workflows/ryvn-aws-privatelink-endpoint-service-release.yaml"
+
+jobs:
+  release:
+    uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
+    with:
+      service_name: aws-privatelink-endpoint-service
+      tag_prefix: aws-privatelink-endpoint-service@
+    permissions:
+      contents: write
+      id-token: write
