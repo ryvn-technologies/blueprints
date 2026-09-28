@@ -56,6 +56,14 @@ run "default_adds_no_subnets" {
   command = plan
 
   assert {
+    condition = alltrue([
+      for domain in ["auth.docker.io", "registry-1.docker.io", "production.cloudflare.docker.com", "docker-images-prod.s3.dualstack.${var.region}.amazonaws.com"] :
+      contains(local.platform_https_domains, domain)
+    ])
+    error_message = "The cluster platform baseline must permit Docker Hub image authentication, registry and layer requests."
+  }
+
+  assert {
     condition     = length(aws_subnet.additional_workload) == 0
     error_message = "The default must not add workload subnets."
   }
@@ -63,6 +71,159 @@ run "default_adds_no_subnets" {
   assert {
     condition     = jsonencode(output.vpc.private_subnet_cidr_blocks) == jsonencode(["10.0.0.0/20", "10.0.16.0/20", "10.0.32.0/20"])
     error_message = "private_subnet_cidr_blocks changed: ${jsonencode(output.vpc.private_subnet_cidr_blocks)}"
+  }
+}
+
+run "firewall_disabled_preserves_s3_gateway_and_nat" {
+  command = plan
+
+  assert {
+    condition     = length(module.egress_network) == 0 && length(aws_vpc_endpoint.s3) == 1
+    error_message = "Disabled firewall mode must retain the existing S3 gateway endpoint without creating firewall resources."
+  }
+
+  assert {
+    condition     = output.egress_firewall.enabled == false && output.egress_firewall.attachments == {} && output.egress_firewall.effective_rules == {} && output.egress_firewall.firewall_arn == null && length(output.egress_firewall.protected_subnet_ids) == 0
+    error_message = "Disabled mode must return the stable output object with enabled = false and empty diagnostics."
+  }
+
+  assert {
+    condition     = length(module.vpc[0].natgw_ids) == 1
+    error_message = "Disabled firewall mode must keep the VPC module's NAT gateway."
+  }
+
+  # The private default route is one root-owned resource in both modes so an
+  # enable/disable flips it in place (ReplaceRoute) instead of racing a create
+  # against a destroy of the same 0.0.0.0/0 route.
+  assert {
+    condition     = keys(aws_route.private_default) == ["0"] && aws_route.private_default["0"].vpc_endpoint_id == null && length(module.vpc[0].private_nat_gateway_route_ids) == 0
+    error_message = "Disabled mode must own exactly one private default route (single NAT table) at the root, not inside the VPC module."
+  }
+}
+
+run "disabled_firewall_rejects_attachments" {
+  command = plan
+  variables {
+    aws_egress_attachments = {
+      external = { policy_key = "cluster", subnets_by_az = { us-east-1a = { ipv4_cidr = "10.0.208.0/24" } } }
+    }
+  }
+  expect_failures = [terraform_data.egress_firewall_compatibility]
+}
+
+run "enabled_firewall_requires_cilium" {
+  command = plan
+  variables {
+    egress_firewall = {
+      enabled  = true
+      policies = { cluster = {} }
+    }
+  }
+  expect_failures = [terraform_data.egress_firewall_compatibility]
+}
+
+run "enabled_firewall_exposes_cni_and_protected_subnets" {
+  command = plan
+  variables {
+    cni = "cilium"
+    egress_firewall = {
+      enabled  = true
+      policies = { cluster = {} }
+    }
+  }
+  assert {
+    condition     = length(keys(output.egress_firewall.nat_route_table_ids)) == 3 && toset(output.egress_firewall.vpc_cidrs) == toset(["10.0.0.0/16"])
+    error_message = "The output must expose one NAT route table per AZ and every VPC CIDR for audit."
+  }
+  assert {
+    condition     = output.egress_firewall.cni == "cilium" && length(output.egress_firewall.cluster_subnet_ids) == 3
+    error_message = "The output must expose the CNI and the protected cluster subnet IDs (Cilium eni.nodeSpec.subnetIDs)."
+  }
+  assert {
+    condition     = length(output.egress_firewall.protected_subnet_ids) == 3 && length(output.egress_firewall.effective_rules) == length(local.platform_https_domains) && alltrue([for rule in values(output.egress_firewall.effective_rules) : rule.origin == "platform" && rule.source_class == "cluster"])
+    error_message = "With no customer policy the effective rules are exactly the cluster platform baseline, and the protected pool is the three primary subnets."
+  }
+  assert {
+    condition     = keys(aws_route.private_default) == ["0", "1", "2"] && alltrue([for route in values(aws_route.private_default) : route.nat_gateway_id == null]) && length(module.vpc[0].private_nat_gateway_route_ids) == 0
+    error_message = "Enabled mode must own one root private default route per AZ table pointing at the firewall endpoint, with no NAT route from the VPC module."
+  }
+}
+
+run "two_per_az_extends_protected_pool_and_reserves_growth" {
+  command = plan
+  variables {
+    cni                     = "cilium"
+    workload_subnets_per_az = 2
+    egress_firewall         = { enabled = true, policies = { cluster = {} } }
+  }
+  assert {
+    condition     = length(output.egress_firewall.protected_subnet_ids) == 6 && length(output.egress_firewall.cluster_subnet_ids) == 3
+    error_message = "Additional workload subnets join the protected pool without changing the primary EKS selector."
+  }
+  assert {
+    condition     = toset(local.workload_subnet_cidrs_above_count) == toset(["10.0.112.0/20", "10.0.128.0/20", "10.0.144.0/20", "10.0.160.0/20", "10.0.176.0/20", "10.0.192.0/20"])
+    error_message = "The not-yet-created growth slots handed to the module as reserved CIDRs must be exactly slots 7..12."
+  }
+}
+
+# 10.0.64.0/20 is the first growth slot: an attachment there would block raising workload_subnets_per_az.
+run "attachment_in_future_growth_slot_is_rejected" {
+  command = plan
+  variables {
+    cni             = "cilium"
+    egress_firewall = { enabled = true, policies = { cluster = {} } }
+    aws_egress_attachments = {
+      external = { policy_key = "cluster", subnets_by_az = { us-east-1a = { ipv4_cidr = "10.0.64.0/24" } } }
+    }
+  }
+  expect_failures = [terraform_data.egress_firewall_compatibility]
+}
+
+run "attachment_in_initial_cluster_slot_is_rejected" {
+  command = plan
+  variables {
+    cni             = "cilium"
+    egress_firewall = { enabled = true, policies = { cluster = {} } }
+    aws_egress_attachments = {
+      external = { policy_key = "cluster", subnets_by_az = { us-east-1a = { ipv4_cidr = "10.0.16.0/24" } } }
+    }
+  }
+  expect_failures = [terraform_data.egress_firewall_compatibility]
+}
+
+run "shared_policy_does_not_grant_platform_baseline_to_external" {
+  command = plan
+  variables {
+    cni = "cilium"
+    egress_firewall = {
+      enabled            = true
+      default_action     = "deny"
+      cluster_policy_key = "shared"
+      policies = {
+        shared = { domain_allow = { example = { domains = ["example.com"], protocol = "https" } } }
+      }
+    }
+    aws_egress_attachments = {
+      external = {
+        policy_key = "shared"
+        subnets_by_az = {
+          us-east-1a = { ipv4_cidr = "10.0.208.0/24" }
+        }
+      }
+    }
+  }
+
+  assert {
+    condition     = length(regexall("pass tls .*10[.]0[.]0[.]0/20.*auth[.]docker[.]io", module.egress_network[0].suricata_rules)) == 1 && length(regexall("pass tls .*10[.]0[.]208[.]0/24.*auth[.]docker[.]io", module.egress_network[0].suricata_rules)) == 0
+    error_message = "A shared customer policy must not grant the cluster platform baseline to external sources."
+  }
+  assert {
+    condition     = length(regexall("pass tls .*10[.]0[.]0[.]0/20.*example[.]com", module.egress_network[0].suricata_rules)) == 1 && length(regexall("pass tls .*10[.]0[.]208[.]0/24.*example[.]com", module.egress_network[0].suricata_rules)) == 1
+    error_message = "Both source classes must retain their common customer allowances."
+  }
+  assert {
+    condition     = length(output.egress_firewall.protected_subnet_ids) == 4 && output.egress_firewall.effective_rules["external/domain/example/https/443/example.com"].origin == "customer" && output.egress_firewall.effective_rules["cluster/domain/example/https/443/example.com"].origin == "customer" && output.egress_firewall.effective_rules["cluster/platform/https/443/auth.docker.io"].origin == "platform"
+    error_message = "The attachment subnet joins the protected pool and effective_rules attributes provenance per source class."
   }
 }
 

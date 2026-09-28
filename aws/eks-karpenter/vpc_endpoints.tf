@@ -23,7 +23,7 @@
 # account that owns the network.
 
 locals {
-  s3_gateway_endpoint_enabled = coalesce(var.create_s3_gateway_endpoint, !local.byo_enabled)
+  s3_gateway_endpoint_enabled = coalesce(var.create_s3_gateway_endpoint, !local.byo_enabled && !local.firewall_enabled)
 }
 
 resource "aws_vpc_endpoint" "s3" {

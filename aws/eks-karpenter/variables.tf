@@ -47,6 +47,44 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
+variable "egress_firewall" {
+  description = "Optional managed VPC default-deny egress. Disabled mode retains the existing network. Enabled mode requires cni = cilium. policies[*].domain_allow is a map of named rules: a non-empty set of bare DNS names (exact, or a leading *. suffix), protocol https (TLS on 443, matched on SNI) or http (plain HTTP on 80, matched on Host), and optional destination_ports defaulting to that port; v1 accepts only https+443 and http+80. Any other destination needs a named network_allow entry (IPv4 CIDRs, protocol, destination ports, reason). change_protection sets AWS Network Firewall's native delete/subnet-change protection only."
+  type = object({
+    enabled            = bool
+    change_protection  = optional(bool, true)
+    default_action     = optional(string, "deny")
+    cluster_policy_key = optional(string, "cluster")
+    policies = optional(map(object({
+      domain_allow = optional(map(object({
+        domains           = set(string)
+        protocol          = string
+        destination_ports = optional(set(number))
+      })), {})
+      network_allow = optional(map(object({
+        destination_ipv4_cidrs = set(string)
+        protocol               = string
+        destination_ports      = set(number)
+        reason                 = string
+      })), {})
+    })), {})
+  })
+  default = { enabled = false }
+
+  validation {
+    condition     = !var.egress_firewall.enabled || (var.egress_firewall.default_action == "deny" && contains(keys(var.egress_firewall.policies), var.egress_firewall.cluster_policy_key))
+    error_message = "Enabled egress_firewall requires default_action deny and an existing cluster_policy_key."
+  }
+}
+
+variable "aws_egress_attachments" {
+  description = "Named external compute classes; their subnet CIDRs are reserved by the producer before consumers attach."
+  type = map(object({
+    policy_key    = string
+    subnets_by_az = map(object({ ipv4_cidr = string }))
+  }))
+  default = {}
+}
+
 variable "workload_subnets_per_az" {
   description = "Workload subnets per availability zone (1-4). Raise it to get more IP addresses for nodes and pods. It can't be lowered."
   type        = number

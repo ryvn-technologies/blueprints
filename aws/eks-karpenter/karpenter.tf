@@ -1,5 +1,5 @@
 module "karpenter" {
-  source  = "terraform-aws-modules/eks/aws//modules/karpenter"
+  source = "terraform-aws-modules/eks/aws//modules/karpenter"
   # >= 21.19.0 grants the controller policy the actions Karpenter 1.12+ calls (ec2:DescribeInstanceStatus, ec2:DescribePlacementGroups)
   version = ">= 21.19.0, < 22.0"
 

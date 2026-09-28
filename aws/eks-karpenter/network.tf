@@ -765,7 +765,7 @@ locals {
   # In subnets mode with nat_gateway egress the caller may not have named a NAT
   # (the route already exists and Ryvn does not need a target), so the IPs are
   # unknown there too.
-  outbound_ips = local.byo_enabled ? (
+  outbound_ips = local.firewall_enabled ? one(module.egress_network[*].nat_public_ips) : local.byo_enabled ? (
     var.egress_mode == "nat_gateway" ? compact(data.aws_nat_gateway.existing[*].public_ip) : aws_nat_gateway.byo[*].public_ip
   ) : flatten(module.vpc[*].nat_public_ips)
 
