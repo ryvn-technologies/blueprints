@@ -736,6 +736,11 @@ locals {
     )
   )
 
+  # Finds every workload subnet, including the added ones: by the Karpenter
+  # discovery tag on subnets Ryvn creates, by ID on customer subnets it can't tag.
+  workload_subnet_discovery_ids  = local.byo_subnets_enabled ? local.private_subnet_ids : []
+  workload_subnet_discovery_tags = local.byo_subnets_enabled ? {} : { "karpenter.sh/discovery" = local.cluster_name }
+
   public_subnet_ids = local.byo_subnets_enabled ? [for s in local.byo_provided_public : s.id] : (
     local.byo_enabled ? aws_subnet.byo_public[*].id : flatten(module.vpc[*].public_subnets)
   )

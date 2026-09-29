@@ -50,6 +50,8 @@ variables {
   account_id           = "123456789012"
   internal_root_domain = "internal.example.com"
   public_root_domain   = "example.com"
+  ryvn_init_image      = "ryvn/init:test"
+  cilium_chart_version = "1.20.2"
 }
 
 run "default_is_the_builtin_baseline_only" {

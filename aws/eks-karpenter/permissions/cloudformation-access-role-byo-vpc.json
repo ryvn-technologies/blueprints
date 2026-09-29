@@ -177,10 +177,38 @@
                 },
                 {
                   "Action": [
+                    "ssm:DescribeParameters",
                     "ssm:GetParameter",
                     "ssm:GetParameters"
                   ],
                   "Resource": "*",
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "codebuild:BatchGetBuilds",
+                    "codebuild:BatchGetProjects",
+                    "codebuild:CreateProject",
+                    "codebuild:DeleteProject",
+                    "codebuild:StartBuild",
+                    "codebuild:UpdateProject"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:codebuild:*:${AWS::AccountId}:project/ryvn-init-*"
+                  },
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "ssm:AddTagsToResource",
+                    "ssm:DeleteParameter",
+                    "ssm:ListTagsForResource",
+                    "ssm:PutParameter",
+                    "ssm:RemoveTagsFromResource"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/ryvn/*/ryvn-init/*"
+                  },
                   "Effect": "Allow"
                 },
                 {
