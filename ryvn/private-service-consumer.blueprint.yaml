@@ -4,28 +4,29 @@ metadata:
   name: private-service-consumer
 spec:
   description: |
-    Connects this environment to a Private Service Publisher so its services are reachable from here.
+    Connects this environment to a Private Service Publisher, so installations here can call services in the publisher's environment over a private link.
 
-    Pods here reach every internal Route in the publisher's environment at `http://<name>.<publisherDomain>`, over the cloud's private network (Private Service Connect on GCP, PrivateLink on AWS).
+    The link runs over the cloud's private network (Private Service Connect on GCP, PrivateLink on AWS) to the internal gateway of the publisher's environment. Installations here call a service at the same internal URL it has there, like `https://<name>.<publisherDomain>`.
 
-    ## Requirements
+    ## Setup
 
-    - Private Service Publisher is installed on the environment you want to reach. Set `publisherId` and `publisherDomain` to its outputs, copied exactly.
-    - This environment is on the same cloud as the publisher. On GCP it must also be in the publisher's region. Overlapping IP ranges are fine.
-    - On AWS, this environment can be in another region if the publisher lists that region in `awsAllowedConsumerRegions`. In the publisher's own region, it needs a private subnet in one of the publisher's availability zones. Its VPC can't be one shared from another AWS account.
-    - If this environment is in a different GCP project or AWS account from the publisher, the publisher must allow it: the project in `gcpAllowedProjects`, or the account in `awsAllowedPrincipals`.
-    - If this environment sets custom agent permissions (`terraform_executor_policies`), they must allow the private service resources this blueprint creates.
+    1. Get the `publisherId` and `publisherDomain` outputs of the Private Service Publisher you want to reach. It must be on the same cloud as this environment, and on GCP in the same region. If this environment is in another GCP project or AWS account, or in another AWS region, the publisher must allow it first.
+    2. Install this blueprint with those two values, copied exactly.
+    3. Check `linkState`. It shows `ACCEPTED` on GCP or `available` on AWS once the publisher accepts the connection.
 
-    ## Checking the link
+    Each install connects to one publisher. To reach more, install this once per publisher.
 
-    - `linkState` shows whether the publisher accepted the connection: `ACCEPTED` on GCP, `available` on AWS. If the state is `PENDING` on GCP, or the install on AWS can't find the publisher, the publisher doesn't allow this project, account or region yet.
-    - Requests can fail for a few minutes after the link first connects, while DNS settles.
+    ## Call a service
 
-    ## Limits
+    - Use the service's internal URL from the publisher's environment. Names under `publisherDomain` resolve to the link inside this environment, and the certificate is publicly trusted, so clients need no extra setup.
+    - Every service with an internal [Route](https://ryvn.ai/docs/networking/routes) in the publisher's environment is reachable.
+    - The link carries HTTP, including gRPC. It doesn't carry other protocols, like direct database connections.
+    - Calls can fail for a few minutes after the link first connects, while DNS updates.
 
-    - HTTP on port 80 only.
-    - Each install connects this environment to one publisher. To reach another publisher, install this again.
-    - Uninstall this before the publisher. On AWS, also uninstall it before the publisher stops allowing this environment's account or region. After that, this install can't find the publisher, so updating or uninstalling it fails until the publisher allows it again.
+    ## What to expect
+
+    - If `linkState` stays `PENDING` on GCP, or the install can't find the publisher on AWS, the publisher doesn't allow this environment's project, account, or region yet.
+    - Uninstall this before the publisher is uninstalled or stops allowing this environment. On AWS, updating or uninstalling this fails until the publisher allows this environment again.
   displayName: Private Service Consumer
   inputs:
     - name: publisherId
@@ -75,4 +76,4 @@ spec:
         endpoint_service_name: '{{ input "publisherId" | trim }}'
         private_hosted_zone_name: '{{ input "publisherDomain" | trim }}'
       releaseChannel: stable
-  distribution: private
+  distribution: marketplace-managed
