@@ -63,6 +63,32 @@ run "default_is_the_builtin_baseline_only" {
   }
 }
 
+run "baseline_covers_hosts_observed_blocked_during_cilium_migration" {
+  command = plan
+  variables {
+    region = "us-west-2"
+  }
+
+  assert {
+    condition = length(setsubtract([
+      "api.ecr-public.us-east-1.amazonaws.com",
+      "api.pricing.us-east-1.amazonaws.com",
+      "shield.us-east-1.amazonaws.com",
+      "d5l0dvt14r5h8.cloudfront.net",
+      "production.cloudfront.docker.com",
+      "prod-registry-k8s-io-us-west-2.s3.dualstack.us-west-2.amazonaws.com",
+      "pkg-containers.githubusercontent.com",
+      "registry.istio.io",
+      "*.pkg.dev",
+      "gcr.io",
+      "charts.ryvn.app",
+      "registry.ryvn.app",
+      "acme-v02.api.letsencrypt.org",
+    ], local.builtin_platform_https_domains)) == 0
+    error_message = "The built-in baseline includes the registry, CDN and global-endpoint hosts platform components need; us-east-1-only APIs stay pinned to us-east-1 in other regions."
+  }
+}
+
 run "caller_domains_are_normalized_deduplicated_and_additive" {
   command = plan
   variables {

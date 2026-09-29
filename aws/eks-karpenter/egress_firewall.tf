@@ -14,6 +14,8 @@ locals {
     # ECR Public API (GetAuthorizationToken from the node credential provider;
     # observed blocked from Bottlerocket/Karpenter nodes in egfw-r8).
     "api.ecr-public.${var.region}.amazonaws.com",
+    # ECR Public's token API and pricing API only exist in us-east-1.
+    "api.ecr-public.us-east-1.amazonaws.com",
     "eks.${var.region}.amazonaws.com",
     "eks-auth.${var.region}.amazonaws.com",
     "eks-auth.${var.region}.api.aws",
@@ -24,14 +26,27 @@ locals {
     "ssmmessages.${var.region}.amazonaws.com",
     "pricing.${var.region}.amazonaws.com",
     "api.pricing.${var.region}.amazonaws.com",
+    "api.pricing.us-east-1.amazonaws.com",
     "public.ecr.aws",
     "d2glxqk2uabbnd.cloudfront.net",
+    "d5l0dvt14r5h8.cloudfront.net",
     "auth.docker.io",
     "registry-1.docker.io",
     "production.cloudflare.docker.com",
+    "production.cloudfront.docker.com",
     "docker-images-prod.s3.dualstack.${var.region}.amazonaws.com",
     "registry.k8s.io",
+    "prod-registry-k8s-io-${var.region}.s3.dualstack.${var.region}.amazonaws.com",
     "ghcr.io",
+    "pkg-containers.githubusercontent.com",
+    # Istio images: registry.istio.io redirects to a region-local Artifact
+    # Registry host (e.g. us-west2-docker.pkg.dev).
+    "registry.istio.io",
+    "*.pkg.dev",
+    "gcr.io",
+    # Ryvn's public chart repository and registry.
+    "charts.ryvn.app",
+    "registry.ryvn.app",
     "iam.amazonaws.com",
     # ryvn-init (CodeBuild in the private subnets) pulls the Cilium chart and the
     # nodes pull Cilium images from quay.io; blob downloads redirect to cdnNN.quay.io.
@@ -41,8 +56,11 @@ locals {
     "logs.${var.region}.amazonaws.com",
     # AWS Load Balancer Controller (blocked with a native ALERT in egfw-r7).
     "elasticloadbalancing.${var.region}.amazonaws.com",
+    "shield.us-east-1.amazonaws.com",
     # external-dns and cert-manager DNS-01 (global Route 53 endpoint).
     "route53.amazonaws.com",
+    # cert-manager HTTP-01/DNS-01 ACME issuer.
+    "acme-v02.api.letsencrypt.org",
   ])
   # Caller-supplied hub/collector hostnames join the built-ins; they can add to
   # the baseline but never remove from it.
