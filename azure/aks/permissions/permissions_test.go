@@ -22,6 +22,13 @@ func TestProvisionerRoleParses(t *testing.T) {
 	if !slices.Contains(actions, "Microsoft.ContainerService/managedClusters/listClusterUserCredential/action") {
 		t.Fatal("role must include listClusterUserCredential/action")
 	}
+	// azurerm_kubernetes_cluster manages planned maintenance windows as child maintenanceConfigurations.
+	for _, verb := range []string{"read", "write", "delete"} {
+		action := "Microsoft.ContainerService/managedClusters/maintenanceConfigurations/" + verb
+		if !slices.Contains(actions, action) {
+			t.Errorf("role must include %s", action)
+		}
+	}
 	seen := map[string]bool{}
 	for _, action := range actions {
 		if seen[action] {

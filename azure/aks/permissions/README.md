@@ -6,7 +6,7 @@ environment with this module. The counterparts live in
 
 | File | Purpose |
 |------|---------|
-| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (50 explicit actions). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
+| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (53 explicit actions). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
 | `permissions.go` | Embeds the role so the orchestrator can serve it (same layout as `infra/gke-provision/permissions`) |
 
 ## Identity model
@@ -63,7 +63,7 @@ log entries.
 | Resource group | `ryvn-rg-<env>` | `Microsoft.Resources/subscriptions/resourceGroups/read|write|delete` |
 | Network | VNet (or carve in an existing one), node/appgw/privatelink/postgres subnets, route table association, AKS egress IP lookup | `Microsoft.Network/virtualNetworks/*` (read/write/delete), `virtualNetworks/join/action` (private DNS VNet links), `virtualNetworks/subnets/*` (read/write/delete/join), `routeTables/read|join`, `publicIPAddresses/read` |
 | DNS | public zone, private zones for internal domain, PostgreSQL and Redis, VNet links | `Microsoft.Network/dnszones/read|write|delete`, `dnszones/*/read` (SOA read-back), `privateDnsZones/read|write|delete`, `privateDnsZones/*/read`, `privateDnsZones/virtualNetworkLinks/read|write|delete` |
-| Cluster | AKS with Azure RBAC, workload identity, two node pools | `Microsoft.ContainerService/managedClusters/read|write|delete`, `managedClusters/agentPools/read|write|delete`, `managedClusters/listClusterUserCredential/action` (called by `azurerm_kubernetes_cluster` on every read), `locations/operations/read`, `locations/operationresults/read` (long-running operation polling) |
+| Cluster | AKS with Azure RBAC, workload identity, two node pools | `Microsoft.ContainerService/managedClusters/read|write|delete`, `managedClusters/agentPools/read|write|delete`, `managedClusters/maintenanceConfigurations/read|write|delete` (node OS and auto-upgrade planned maintenance windows), `managedClusters/listClusterUserCredential/action` (called by `azurerm_kubernetes_cluster` on every read), `locations/operations/read`, `locations/operationresults/read` (long-running operation polling) |
 | Identities | ryvn-agent, external-dns (public and private) and cert-manager identities with federated credentials; kubelet identity assignment | `Microsoft.ManagedIdentity/userAssignedIdentities/read|write|delete|assign/action`, `userAssignedIdentities/federatedIdentityCredentials/read|write|delete` |
 | Roles and assignments | agent custom role; Network Contributor / DNS Zone Contributor / Private DNS Zone Contributor / AKS RBAC Cluster Admin assignments | `Microsoft.Authorization/roleDefinitions/read|write|delete`, `roleAssignments/read|write|delete` |
 | Agent bootstrap (hub) | Kubernetes objects over the API server | none: authorised by the module's `Azure Kubernetes Service RBAC Cluster Admin` assignment, evaluated by Azure RBAC for Kubernetes; no `dataActions` |
