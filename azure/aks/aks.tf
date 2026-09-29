@@ -105,13 +105,16 @@ module "aks" {
   source  = "Azure/aks/azurerm"
   version = "11.7.0"
 
-  prefix                    = var.environment_name
-  node_resource_group       = local.node_resource_group_name
-  resource_group_name       = azurerm_resource_group.rg.name
-  location                  = var.location
-  kubernetes_version        = var.cluster_version
-  automatic_channel_upgrade = "patch"
-  agents_availability_zones = length(local.azs) > 0 ? local.azs : null
+  prefix                          = var.environment_name
+  node_resource_group             = local.node_resource_group_name
+  resource_group_name             = azurerm_resource_group.rg.name
+  location                        = var.location
+  kubernetes_version              = var.cluster_version
+  automatic_channel_upgrade       = "patch"
+  node_os_channel_upgrade         = var.node_os_channel_upgrade
+  maintenance_window_node_os      = var.maintenance_window_node_os
+  maintenance_window_auto_upgrade = var.maintenance_window_auto_upgrade
+  agents_availability_zones       = length(local.azs) > 0 ? local.azs : null
 
   # Default node pool configuration (system nodes)
   agents_count                = local.merged_node_pools.system.node_count

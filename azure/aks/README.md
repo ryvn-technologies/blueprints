@@ -50,6 +50,9 @@ public source address is whatever the network appliance NATs to.
 | `location` | Azure region | required |
 | `public_root_domain` / `internal_root_domain` | Domains for the DNS zones | required |
 | `cluster_version` | AKS Kubernetes version | `"1.34"` |
+| `node_os_channel_upgrade` | Node OS image upgrade channel (`None`, `Unmanaged`, `SecurityPatch`, `NodeImage`) | `"NodeImage"` |
+| `maintenance_window_node_os` | Planned maintenance schedule for node OS image upgrades; `null` lets Azure upgrade at any time | Sundays 00:00-08:00 UTC |
+| `maintenance_window_auto_upgrade` | Planned maintenance schedule for Kubernetes patch auto-upgrades; `null` lets Azure upgrade at any time | Sundays 00:00-08:00 UTC |
 | `vnet_cidr` | VNet address space, or the range reserved for Ryvn inside an existing VNet | `"10.0.0.0/16"` |
 | `network_plugin_mode` | `overlay` or `flat`; changing it replaces the cluster | `"overlay"` |
 | `pod_cidr` | Pod range in overlay mode | `"192.168.0.0/16"` |

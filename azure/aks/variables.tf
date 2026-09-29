@@ -22,6 +22,94 @@ variable "cluster_version" {
   default     = "1.34"
 }
 
+variable "node_os_channel_upgrade" {
+  type        = string
+  default     = "NodeImage"
+  nullable    = true
+  description = "Upgrade channel for the node OS image: None, Unmanaged, SecurityPatch or NodeImage. Upgrades on the NodeImage and SecurityPatch channels run inside maintenance_window_node_os."
+
+  validation {
+    condition     = var.node_os_channel_upgrade == null || contains(["None", "Unmanaged", "SecurityPatch", "NodeImage"], var.node_os_channel_upgrade)
+    error_message = "node_os_channel_upgrade must be one of None, Unmanaged, SecurityPatch or NodeImage."
+  }
+}
+
+variable "maintenance_window_node_os" {
+  type = object({
+    frequency    = string
+    interval     = number
+    duration     = number
+    day_of_week  = optional(string)
+    day_of_month = optional(number)
+    week_index   = optional(string)
+    start_time   = optional(string)
+    utc_offset   = optional(string)
+    start_date   = optional(string)
+    not_allowed = optional(set(object({
+      start = string
+      end   = string
+    })))
+  })
+  default = {
+    frequency   = "Weekly"
+    interval    = 1
+    duration    = 8
+    day_of_week = "Sunday"
+    start_time  = "00:00"
+    utc_offset  = "+00:00"
+  }
+  nullable    = true
+  description = "AKS planned maintenance schedule (aksManagedNodeOSUpgradeSchedule) for node OS image upgrades. frequency is Daily, Weekly, AbsoluteMonthly or RelativeMonthly; duration is in hours (4-24); start_time is HH:mm in the utc_offset timezone; not_allowed takes RFC3339 start/end pairs. Defaults to Sundays 00:00-08:00 UTC. Set to null to let Azure upgrade at any time."
+
+  validation {
+    condition     = var.maintenance_window_node_os == null || contains(["Daily", "Weekly", "AbsoluteMonthly", "RelativeMonthly"], try(var.maintenance_window_node_os.frequency, ""))
+    error_message = "maintenance_window_node_os.frequency must be one of Daily, Weekly, AbsoluteMonthly or RelativeMonthly."
+  }
+
+  validation {
+    condition     = var.maintenance_window_node_os == null || (try(var.maintenance_window_node_os.duration, 0) >= 4 && try(var.maintenance_window_node_os.duration, 0) <= 24)
+    error_message = "maintenance_window_node_os.duration must be between 4 and 24 hours."
+  }
+}
+
+variable "maintenance_window_auto_upgrade" {
+  type = object({
+    frequency    = string
+    interval     = number
+    duration     = number
+    day_of_week  = optional(string)
+    day_of_month = optional(number)
+    week_index   = optional(string)
+    start_time   = optional(string)
+    utc_offset   = optional(string)
+    start_date   = optional(string)
+    not_allowed = optional(set(object({
+      start = string
+      end   = string
+    })))
+  })
+  default = {
+    frequency   = "Weekly"
+    interval    = 1
+    duration    = 8
+    day_of_week = "Sunday"
+    start_time  = "00:00"
+    utc_offset  = "+00:00"
+  }
+  nullable    = true
+  description = "AKS planned maintenance schedule (aksManagedAutoUpgradeSchedule) for Kubernetes patch auto-upgrades. frequency is Weekly, AbsoluteMonthly or RelativeMonthly; duration is in hours (4-24); start_time is HH:mm in the utc_offset timezone; not_allowed takes RFC3339 start/end pairs. Defaults to Sundays 00:00-08:00 UTC. Set to null to let Azure upgrade at any time."
+
+  validation {
+    condition     = var.maintenance_window_auto_upgrade == null || contains(["Weekly", "AbsoluteMonthly", "RelativeMonthly"], try(var.maintenance_window_auto_upgrade.frequency, ""))
+    error_message = "maintenance_window_auto_upgrade.frequency must be one of Weekly, AbsoluteMonthly or RelativeMonthly."
+  }
+
+  validation {
+    condition     = var.maintenance_window_auto_upgrade == null || (try(var.maintenance_window_auto_upgrade.duration, 0) >= 4 && try(var.maintenance_window_auto_upgrade.duration, 0) <= 24)
+    error_message = "maintenance_window_auto_upgrade.duration must be between 4 and 24 hours."
+  }
+}
+
 variable "environment_name" {
   type        = string
   description = "The environment name (e.g., dev, staging, prod)"
