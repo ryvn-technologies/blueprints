@@ -62,6 +62,39 @@ Once the endpoint exists, S3 sees requests from this environment arriving from
 the VPC rather than from `outbound_ips`. Bucket policies elsewhere that allow
 the environment by NAT address must switch to an `aws:SourceVpc` condition.
 
+### Managed egress firewall (`egress_firewall.enabled = true`)
+
+Optional default-deny public IPv4 egress for a Ryvn-provisioned VPC: each
+private subnet routes `0.0.0.0/0` through an AZ-local AWS Network Firewall
+endpoint, then an AZ-local NAT gateway; exceptions are named hostname
+(SNI/Host on 443/80) and narrow IP/port rules, compiled into one policy with a
+cluster-only platform baseline. Ryvn-owned external subnet groups
+(`additional_subnet_groups`) can be assigned a policy with
+`egress_attachments`; nothing here accepts customer-chosen CIDRs.
+
+The module ships with `enabled = false` and leaves the legacy network (single
+NAT, one private route table, S3 gateway endpoint) alone. Enabled mode
+requires `cni = "cilium"` and supports only a healthy Cilium ENI dataplane: a
+new environment sets both from the first apply and bootstraps Cilium inside
+the protected topology, an existing VPC-CNI environment needs a coordinated
+CNI migration. `cni = "cilium"` only creates the operator IRSA role and does
+not install Cilium; a one-apply bootstrap needs a composed installer. Enabling
+or disabling replaces NAT gateways, public egress IPs and route ownership and
+removes the S3 gateway endpoint, so on an existing environment it is a
+reviewed maintenance event, not a toggle.
+
+- Feature and module reference (architecture, policy semantics, routing
+  symmetry and drift warnings, `change_protection` scope, lifecycle and
+  migration table, evidence boundaries, Tailscale example):
+  [`egress_network/README.md`](egress_network/README.md).
+- `additional_subnet_groups` sizing and append-only allocation guard:
+  [`workload_subnet_groups/README.md`](workload_subnet_groups/README.md)
+  (the directory keeps its original name; the public input and output are
+  `additional_subnet_groups`).
+- Internal per-customer setup and verification procedure:
+  `docs-internal/guides/aws-egress-firewall-runbook.md`; design contract in
+  `docs-internal/changes/cloud-egress-firewall/`.
+
 ## Key Variables
 
 | Name | Description | Default |
@@ -72,7 +105,7 @@ the environment by NAT address must switch to an `aws:SourceVpc` condition.
 | `public_root_domain` / `internal_root_domain` | Domains for the Route 53 zones | required |
 | `cluster_version` | EKS Kubernetes version | `"1.34"` |
 | `vpc_cidr` | CIDR for the VPC when the module creates it | `"10.0.0.0/16"` |
-| `workload_subnets_per_az` | Workload subnets per AZ (1–4); raise it to add IP capacity | `1` |
+| `workload_subnets_per_az` | Cluster workload subnets per AZ (1–4); raise it to add node/pod IP capacity inside the cluster's discovery, routing and policy | `1` |
 | `existing_vpc_id` | Provision into an existing VPC | `null` |
 | `existing_workload_subnet_ids` | Run nodes in pre-existing subnets, creating no topology | `[]` |
 | `egress_mode` | `create_nat`, `nat_gateway` or `transit_gateway` | `"create_nat"` |
@@ -81,7 +114,11 @@ the environment by NAT address must switch to an `aws:SourceVpc` condition.
 | `create_cluster_kms_key` | Use a customer-managed KMS key as the envelope-encryption KEK | `true` |
 | `eks_managed_node_groups` | Node group overrides, merged with the defaults | `{}` |
 | `cluster_addons` | Add-on overrides, merged with the defaults | `{}` |
-| `cni` | Target CNI; `cilium` adds the Cilium operator's IRSA role and nothing else | `"vpc-cni"` |
+| `cni` | Target CNI; `cilium` adds the Cilium operator's IRSA role and nothing else — it does not install or verify Cilium. Required by an enabled `egress_firewall` | `"vpc-cni"` |
+| `egress_firewall` | Managed default-deny egress (`enabled`, `policies`, `cluster_policy_key`, `change_protection`); see [`egress_network/README.md`](egress_network/README.md) | `{ enabled = false }` |
+| `platform_https_domains` | Extra exact HTTPS/443 hostnames the platform components reach (managing hub API/issuer/token, collector gateways, access tunnel). Added to the built-in AWS/registry baseline (never replacing it), cluster sources only; bare lower-case hostnames, no scheme/path/port/wildcard/IP. The Ryvn AWS blueprint fills this from the managing hub; standalone callers list them. Ignored while disabled | `[]` |
+| `additional_subnet_groups` | Ordered, append-only list of named Ryvn-owned subnet groups for compute **outside** the cluster (`name`, `ipv4_prefix_length`, explicit `availability_zones`, `retired`); one subnet + dedicated local-only route table per group and AZ, no cluster/Karpenter/Cilium discovery, created whether or not the firewall is enabled, allocated from a reserved area separate from the cluster's; see [`workload_subnet_groups/README.md`](workload_subnet_groups/README.md) | `[]` |
+| `egress_attachments` | Named external compute classes: `{ subnet_group_key, policy_key }` assigns one group to one policy (inspected routes + source rules). No CIDRs, no subnet creation; requires the firewall to be enabled | `{}` |
 | `cluster_access_entries` | Extra EKS access entries | `{}` |
 | `pod_identity_associations` | Extra Pod Identity associations | `{}` |
 | `terraform_executor_policies` | Replace the Ryvn agent's default IAM policy | `[]` |
@@ -98,7 +135,11 @@ overrides used when the head of a VPC's range is already occupied.
 `vpc` (a map of ids, CIDRs, AZs, subnet ids and the S3 gateway endpoint id), `karpenter`, `public_domain`,
 `internal_domain`, `outbound_ips` and `outbound_ips_known`, the IAM role ARNs
 for each component, `addons` (per-addon IRSA role ARNs),
-`cluster_secrets_encryption` and `control_plane_logging`.
+`cluster_secrets_encryption`, `control_plane_logging`, `egress_firewall`
+(configured policy, `effective_rules`, `attachments`, firewall/NAT identifiers;
+the same shape with `enabled = false` when disabled) and `additional_subnet_groups`
+(per-group native subnet inventory); both are described in
+[`egress_network/README.md`](egress_network/README.md).
 
 `outbound_ips_known` distinguishes "this environment has no public egress
 addresses" from "its egress is centralized and the addresses live elsewhere" —
@@ -127,3 +168,14 @@ providers:
 ```bash
 terraform init -backend=false -upgrade && terraform test
 ```
+
+`tests/child_module` consumes this root as a child module. Its `init` fails on
+any root-only block (`import`, backend) that the root's own tests cannot see:
+
+```bash
+cd tests/child_module && terraform init -backend=false && terraform validate
+```
+
+`egress_network/tests/` covers the rule compiler and subnet contract, and
+`workload_subnet_groups/tests/` the allocator and geometry guard (`terraform
+init -backend=false && terraform test` in each directory).

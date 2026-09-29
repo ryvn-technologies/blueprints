@@ -59,6 +59,8 @@ locals {
       config,
       # Always ensure labels are properly merged from defaults, user config, and required labels
       {
+        # Nodes wait for the egress firewall routes; the control plane does not.
+        subnet_ids = try(config.subnet_ids, local.node_subnet_ids)
         labels = merge(
           try(local.default_node_groups[name].labels, {}),
           try(config.labels, {}),
@@ -155,7 +157,11 @@ module "eks" {
     } : {}
   )
 
-  vpc_id                   = local.vpc_id
+  vpc_id = local.vpc_id
+  # Deliberately not the egress_network output: routing it through the firewall
+  # module would make the cluster, and everything downstream of it (ryvn-init's
+  # deferred data reads and access-policy association), depend on every rule
+  # change. Only the node groups and the bootstrap job need the routes.
   subnet_ids               = local.private_subnet_ids
   control_plane_subnet_ids = local.control_plane_subnet_ids
 
