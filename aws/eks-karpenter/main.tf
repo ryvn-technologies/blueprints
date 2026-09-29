@@ -39,7 +39,7 @@ moved {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "5.14.0"
+  version = "5.21.0"
 
   count = local.byo_enabled ? 0 : 1
 
@@ -50,10 +50,13 @@ module "vpc" {
   public_subnets  = [for k, v in local.azs : cidrsubnet(var.vpc_cidr, 8, k + 48)]
   intra_subnets   = [for k, v in local.azs : cidrsubnet(var.vpc_cidr, 8, k + 52)]
 
-  enable_nat_gateway   = true
-  single_nat_gateway   = true
-  enable_dns_hostnames = true
-  enable_dns_support   = true
+  enable_nat_gateway     = !local.firewall_enabled
+  single_nat_gateway     = !local.firewall_enabled
+  one_nat_gateway_per_az = local.firewall_enabled
+  # The private default route is aws_route.private_default below in both modes.
+  create_private_nat_gateway_route = false
+  enable_dns_hostnames             = true
+  enable_dns_support               = true
 
   # needed for EKS cluster setup
   map_public_ip_on_launch = true
@@ -76,6 +79,32 @@ module "vpc" {
   }
 
   tags = local.tags
+}
+
+moved {
+  from = module.vpc[0].aws_route.private_nat_gateway[0]
+  to   = aws_route.private_default["0"]
+}
+
+# One owner for the private tables' 0.0.0.0/0 route in both firewall modes.
+# Disabled: the single NAT table (index 0) routes to the VPC module's NAT
+# gateway. Enabled: each AZ table routes to that AZ's firewall endpoint.
+# Switching modes therefore replaces the target of route "0" in place
+# (ec2:ReplaceRoute) instead of destroying one route resource and creating
+# another for the same destination, which cannot be ordered and fails with
+# RouteAlreadyExists. Keyed by AZ index so the disabled-mode legacy address
+# stays stable.
+resource "aws_route" "private_default" {
+  for_each = local.byo_enabled ? {} : { for i, az in local.azs : tostring(i) => az if local.firewall_enabled || i == 0 }
+
+  route_table_id         = module.vpc[0].private_route_table_ids[tonumber(each.key)]
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = local.firewall_enabled ? null : module.vpc[0].natgw_ids[0]
+  vpc_endpoint_id        = local.firewall_enabled ? module.egress_network[0].firewall_endpoint_ids[each.value] : null
+
+  timeouts {
+    create = "5m"
+  }
 }
 
 # Transit Gateway subnets (separate from VPC module since it doesn't support them natively)

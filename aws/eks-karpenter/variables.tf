@@ -47,8 +47,92 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
+variable "egress_firewall" {
+  description = "Optional managed VPC default-deny egress. Disabled mode retains the existing network. Enabled mode requires cni = cilium. policies[*].domain_allow is a map of named rules: a non-empty set of bare DNS names (exact, or a leading *. suffix), protocol https (TLS on 443, matched on SNI) or http (plain HTTP on 80, matched on Host), and optional destination_ports defaulting to that port; v1 accepts only https+443 and http+80. Any other destination needs a named network_allow entry (IPv4 CIDRs, protocol, destination ports, reason). change_protection sets AWS Network Firewall's native delete/subnet-change protection only."
+  type = object({
+    enabled            = bool
+    change_protection  = optional(bool, true)
+    default_action     = optional(string, "deny")
+    cluster_policy_key = optional(string, "cluster")
+    policies = optional(map(object({
+      domain_allow = optional(map(object({
+        domains           = set(string)
+        protocol          = string
+        destination_ports = optional(set(number))
+      })), {})
+      network_allow = optional(map(object({
+        destination_ipv4_cidrs = set(string)
+        protocol               = string
+        destination_ports      = set(number)
+        reason                 = string
+      })), {})
+    })), {})
+  })
+  default = { enabled = false }
+
+  validation {
+    condition     = !var.egress_firewall.enabled || (var.egress_firewall.default_action == "deny" && contains(keys(var.egress_firewall.policies), var.egress_firewall.cluster_policy_key))
+    error_message = "Enabled egress_firewall requires default_action deny and an existing cluster_policy_key."
+  }
+}
+
+variable "platform_https_domains" {
+  description = <<-EOT
+    Additional exact DNS hostnames the cluster's platform components reach over HTTPS/443
+    (the managing Ryvn hub API and issuer, the observability collector's Loki/Mimir gateways
+    and token endpoint, an access tunnel). Added to, never replacing, the built-in AWS and
+    registry baseline; compiled for cluster sources only, so additional_subnet_groups do not
+    inherit them even on the cluster policy key. Bare lower-case hostnames only: no scheme,
+    path, port, wildcard or IP literal. The Ryvn AWS platform blueprint derives these from
+    the managing hub automatically; standalone callers list them explicitly. Ignored while
+    egress_firewall.enabled = false.
+  EOT
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for domain in var.platform_https_domains :
+      can(regex("^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?[.])+[a-z]([a-z0-9-]{0,61}[a-z0-9])?[.]?$", lower(trimspace(domain))))
+    ])
+    error_message = "platform_https_domains entries must be bare multi-label DNS hostnames (e.g. api.hub.example): no scheme, path, port, wildcard or IP literal."
+  }
+}
+
+variable "additional_subnet_groups" {
+  description = <<-EOT
+    Ordered, append-only list of named Ryvn-owned subnet groups for compute that runs OUTSIDE the
+    cluster (one subnet per group and availability zone), allocated deterministically from a
+    reserved area after the cluster's fixed layout. Unlike workload_subnets_per_az, these subnets
+    carry no cluster, Karpenter or Cilium discovery and never join cluster routing or policy.
+    Never edit, reorder, resize, rename or remove an entry once applied (the plan is rejected,
+    and the allocation records carry prevent_destroy): append a new group for more capacity
+    and set retired = true to tombstone one that is no longer used. The tombstone is permanent,
+    its address span stays reserved and is never returned to the budget. Tearing down a whole
+    environment needs the deliberate procedure in workload_subnet_groups/README.md. Groups exist
+    independently of egress_firewall.enabled and have only VPC-local routing until an
+    egress_attachments entry assigns them a policy.
+  EOT
+  type = list(object({
+    name               = string
+    ipv4_prefix_length = number
+    availability_zones = list(string)
+    retired            = optional(bool, false)
+  }))
+  default = []
+}
+
+variable "egress_attachments" {
+  description = "Named external compute classes: each assigns one additional_subnet_groups entry (subnet_group_key) to one egress_firewall policy (policy_key). No CIDRs and no subnet creation here; requires egress_firewall.enabled = true."
+  type = map(object({
+    subnet_group_key = string
+    policy_key       = string
+  }))
+  default = {}
+}
+
 variable "workload_subnets_per_az" {
-  description = "Workload subnets per availability zone (1-4). Raise it to get more IP addresses for nodes and pods. It can't be lowered."
+  description = "Cluster workload subnets per availability zone (1-4). Raise it to get more IP addresses for nodes and pods inside the cluster's discovery, routing and egress policy. It can't be lowered. Subnets for compute outside the cluster are additional_subnet_groups."
   type        = number
   default     = 1
 

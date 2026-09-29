@@ -114,8 +114,41 @@ spec:
   - service: aws-eks-karpenter
     condition: '{{ not (input "legacy") }}'
     config: |
-      # Include the entire environment config since this is how its passed in today
-      {{ .ryvn.env.config | toYaml }}
+      # The whole environment config is passed through. platform_https_domains is
+      # re-emitted as one list: the caller's entries plus the exact HTTPS/443 hosts
+      # the platform reaches on the managing hub (API, issuer/token, access tunnel)
+      # and the collector's effective Loki/Mimir gateways and destinations, chosen
+      # exactly as the ryvn-collector installation below chooses them. Terraform
+      # de-duplicates and ignores the list while egress_firewall.enabled is false.
+      {{- with omit .ryvn.env.config "platform_https_domains" }}
+      {{ toYaml . }}
+      {{- end }}
+      platform_https_domains:
+      {{- with index .ryvn.env.config "platform_https_domains" }}
+      {{- range . }}
+      - {{ . | toJson }}
+      {{- end }}
+      {{- end }}
+      {{- range $host := httpsHostnames (Hub "apiUrl") (Hub "issuerUrl") (Hub "tunnelUrl") (input "lokiUrl" | trim | default (Hub "lokiUrl")) (input "mimirUrl" | trim | default (Hub "mimirUrl")) (input "tokenUrl" | trim | default (Hub "tokenUrl")) }}
+      - {{ $host | toJson }}
+      {{- end }}
+      {{- range $host := httpsHostnames ObservabilityDestinations }}
+      - {{ $host | toJson }}
+      {{- end }}
+      {{- /* Endpoints the firewall cannot express as HTTPS/443 (plain http, other
+             ports, IP literals) are forwarded verbatim while the firewall is
+             enabled so the module's hostname validation refuses them instead of
+             the allowlist silently omitting a platform dependency. */}}
+      {{- with index .ryvn.env.config "egress_firewall" }}
+      {{- if index . "enabled" }}
+      {{- range $endpoint := nonHttpsEndpoints (Hub "apiUrl") (Hub "issuerUrl") (Hub "tunnelUrl") (input "lokiUrl" | trim | default (Hub "lokiUrl")) (input "mimirUrl" | trim | default (Hub "mimirUrl")) (input "tokenUrl" | trim | default (Hub "tokenUrl")) }}
+      - {{ $endpoint | toJson }}
+      {{- end }}
+      {{- range $endpoint := nonHttpsEndpoints ObservabilityDestinations }}
+      - {{ $endpoint | toJson }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
     releaseChannel: stable
   - service: aws-eks-legacy
     condition: '{{ input "legacy" }}'
