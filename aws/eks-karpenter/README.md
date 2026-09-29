@@ -26,6 +26,9 @@ knobs those docs expose.
   Karpenter itself depends on; all other capacity comes from Karpenter.
 - **Add-ons**: VPC CNI, CoreDNS, kube-proxy, EBS CSI, EFS CSI, Pod Identity
   agent, and Karpenter's controller IAM role and interruption queue.
+- **Cilium** (`cni = "cilium"`): no VPC CNI add-on; `ryvn-init` installs
+  Cilium from a CodeBuild run inside the VPC that the apply starts and waits
+  for. See [Cilium bootstrap](#cilium-bootstrap).
 - **IAM**: roles for the Ryvn agent, external-dns, cert-manager, the AWS Load
   Balancer Controller, cluster-autoscaler (opt-in) and the Cilium operator
   (when `cni = "cilium"`). Every role can carry a permissions boundary.
@@ -77,11 +80,10 @@ NAT, one private route table, S3 gateway endpoint) alone. Enabled mode
 requires `cni = "cilium"` and supports only a healthy Cilium ENI dataplane: a
 new environment sets both from the first apply and bootstraps Cilium inside
 the protected topology, an existing VPC-CNI environment needs a coordinated
-CNI migration. `cni = "cilium"` only creates the operator IRSA role and does
-not install Cilium; a one-apply bootstrap needs a composed installer. Enabling
-or disabling replaces NAT gateways, public egress IPs and route ownership and
-removes the S3 gateway endpoint, so on an existing environment it is a
-reviewed maintenance event, not a toggle.
+CNI migration. `ryvn-init` installs Cilium in the same apply (see [Cilium
+bootstrap](#cilium-bootstrap)). Enabling or disabling replaces NAT gateways,
+public egress IPs and route ownership and removes the S3 gateway endpoint, so
+on an existing environment it is a reviewed maintenance event, not a toggle.
 
 - Feature and module reference (architecture, policy semantics, routing
   symmetry and drift warnings, `change_protection` scope, lifecycle and
@@ -114,7 +116,10 @@ reviewed maintenance event, not a toggle.
 | `create_cluster_kms_key` | Use a customer-managed KMS key as the envelope-encryption KEK | `true` |
 | `eks_managed_node_groups` | Node group overrides, merged with the defaults | `{}` |
 | `cluster_addons` | Add-on overrides, merged with the defaults | `{}` |
-| `cni` | Target CNI; `cilium` adds the Cilium operator's IRSA role and nothing else — it does not install or verify Cilium. Required by an enabled `egress_firewall` | `"vpc-cni"` |
+| `cni` | Target CNI; `cilium` drops the VPC CNI add-on and bootstraps Cilium with `ryvn-init`. Required by an enabled `egress_firewall` | `"vpc-cni"` |
+| `ryvn_init_image` / `cilium_chart_version` | Bootstrap image and Cilium chart version used in `cilium` mode | `null`; required with `cilium`, set by the platform blueprint |
+| `cilium_repair` | Force reinstall Cilium, even if a Ryvn installation has adopted it | `false` |
+| `ryvn_init_migration_timeout_seconds` | Extra time to move existing nodes from the VPC CNI to Cilium | `10800` |
 | `egress_firewall` | Managed default-deny egress (`enabled`, `policies`, `cluster_policy_key`, `change_protection`); see [`egress_network/README.md`](egress_network/README.md) | `{ enabled = false }` |
 | `platform_https_domains` | Extra exact HTTPS/443 hostnames the platform components reach (managing hub API/issuer/token, collector gateways, access tunnel). Added to the built-in AWS/registry baseline (never replacing it), cluster sources only; bare lower-case hostnames, no scheme/path/port/wildcard/IP. The Ryvn AWS blueprint fills this from the managing hub; standalone callers list them. Ignored while disabled | `[]` |
 | `additional_subnet_groups` | Ordered, append-only list of named Ryvn-owned subnet groups for compute **outside** the cluster (`name`, `ipv4_prefix_length`, explicit `availability_zones`, `retired`); one subnet + dedicated local-only route table per group and AZ, no cluster/Karpenter/Cilium discovery, created whether or not the firewall is enabled, allocated from a reserved area separate from the cluster's; see [`workload_subnet_groups/README.md`](workload_subnet_groups/README.md) | `[]` |
@@ -144,6 +149,23 @@ the same shape with `enabled = false` when disabled) and `additional_subnet_grou
 `outbound_ips_known` distinguishes "this environment has no public egress
 addresses" from "its egress is centralized and the addresses live elsewhere" —
 consumers should not read an empty `outbound_ips` as the former.
+
+## Cilium Bootstrap
+
+- With `cni = "cilium"` the cluster gets no `vpc-cni` add-on, and new nodes
+  carry the `node.cilium.io/agent-not-ready` taint until Cilium runs on them
+  (managed node groups here, Karpenter node pools through the platform
+  blueprint).
+- [`modules/ryvn-init`](modules/ryvn-init/README.md) installs Cilium from a
+  CodeBuild run inside the VPC, so nothing outside the VPC calls the cluster
+  API. The apply waits for it and stops with the reason on failure; changing
+  the image, chart version or values runs it again.
+- Changing `cni` from `vpc-cni` to `cilium` on an existing cluster moves its
+  nodes to Cilium one at a time in the same apply (cordon, drain, hand over,
+  uncordon). If `ryvn_init_migration_timeout_seconds` runs out first, the next
+  apply continues.
+- If the CNI breaks, apply with `cilium_repair = true`, then set it back to
+  `false`.
 
 ## One-Way Decisions
 

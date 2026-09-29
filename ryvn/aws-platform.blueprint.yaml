@@ -114,15 +114,14 @@ spec:
   - service: aws-eks-karpenter
     condition: '{{ not (input "legacy") }}'
     config: |
-      # The whole environment config is passed through. platform_https_domains is
+      # The whole environment config is passed through, except the ryvn-init image
+      # and Cilium chart version, which this blueprint sets. platform_https_domains is
       # re-emitted as one list: the caller's entries plus the exact HTTPS/443 hosts
       # the platform reaches on the managing hub (API, issuer/token, access tunnel)
       # and the collector's effective Loki/Mimir gateways and destinations, chosen
       # exactly as the ryvn-collector installation below chooses them. Terraform
       # de-duplicates and ignores the list while egress_firewall.enabled is false.
-      {{- with omit .ryvn.env.config "platform_https_domains" }}
-      {{ toYaml . }}
-      {{- end }}
+      {{ merge (dict "ryvn_init_image" "ryvn/init:0.1.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains") | toYaml }}
       platform_https_domains:
       {{- with index .ryvn.env.config "platform_https_domains" }}
       {{- range . }}
@@ -186,7 +185,14 @@ spec:
         subnetIds:
         {{- .ryvn.env.state.vpc.private_subnet_ids | toYaml | nindent 10 }}
         {{- end }}
-      
+      {{- if and .ryvn.env.state.cni (eq .ryvn.env.state.cni "cilium") }}
+      # Cilium's operator removes it once the node's agent is ready.
+      startupTaints:
+        - key: node.cilium.io/agent-not-ready
+          value: "true"
+          effect: NoExecute
+      {{- end }}
+
       {{- if input "customNodeClasses" }}
       nodeClasses:
         {{- input "customNodeClasses" | nindent 2 }}

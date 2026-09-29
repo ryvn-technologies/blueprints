@@ -31,22 +31,33 @@ locals {
     }
   }
 
-  default_cluster_addons = {
+  # Cilium startup taint (https://docs.cilium.io/en/stable/installation/taints/).
+  # NoSchedule, not NoExecute: EKS applies taint changes to existing nodes in place.
+  cilium_node_taints = var.cni == "cilium" ? {
+    cilium_agent_not_ready = {
+      key    = "node.cilium.io/agent-not-ready"
+      value  = "true"
+      effect = "NO_SCHEDULE"
+    }
+  } : {}
+
+  default_cluster_addons = merge({
     coredns                = {}
     eks-pod-identity-agent = {}
     kube-proxy             = {}
-    vpc-cni = {
-      before_compute              = true
-      resolve_conflicts_on_create = "OVERWRITE"
-      resolve_conflicts_on_update = "OVERWRITE"
-    }
     aws-ebs-csi-driver = {
       service_account_role_arn = module.ebs_csi_driver_irsa.iam_role_arn
     }
     aws-efs-csi-driver = {
       service_account_role_arn = module.efs_csi_driver_irsa.iam_role_arn
     }
-  }
+    }, var.cni == "cilium" ? {} : {
+    vpc-cni = {
+      before_compute              = true
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
+  })
 
   # Merge the user provided node groups with defaults, ensuring block_device_mappings are preserved
   eks_managed_node_groups = {
@@ -67,6 +78,10 @@ locals {
           {
             "ryvn.app/node-group-name" = name
           }
+        )
+        taints = merge(
+          try(config.taints, local.default_node_groups[name].taints, {}),
+          local.cilium_node_taints
         )
         # Each node group creates its own IAM role, so the boundary is set per group.
         # The environment-wide value takes precedence; a per-group value applies only
@@ -151,8 +166,8 @@ module "eks" {
   # EKS Addons - deep merge vpc-cni to preserve before_compute and resolve_conflicts settings
   addons = merge(
     local.default_cluster_addons,
-    var.cluster_addons,
-    contains(keys(var.cluster_addons), "vpc-cni") ? {
+    var.cni == "cilium" ? { for name, addon in var.cluster_addons : name => addon if name != "vpc-cni" } : var.cluster_addons,
+    contains(keys(var.cluster_addons), "vpc-cni") && var.cni != "cilium" ? {
       vpc-cni = merge(local.default_cluster_addons["vpc-cni"], var.cluster_addons["vpc-cni"])
     } : {}
   )

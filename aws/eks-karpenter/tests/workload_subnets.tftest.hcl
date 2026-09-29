@@ -37,6 +37,32 @@ mock_provider "aws" {
       ids = []
     }
   }
+
+  # Only read for customer-provided subnets and the VPC they sit in.
+  mock_data "aws_subnet" {
+    defaults = {
+      vpc_id                     = "vpc-0123456789abcdef0"
+      owner_id                   = "123456789012"
+      available_ip_address_count = 4000
+    }
+  }
+
+  mock_data "aws_vpc" {
+    defaults = {
+      cidr_block = "10.0.0.0/16"
+      cidr_block_associations = [{
+        association_id = "vpc-cidr-assoc-0123456789abcdef0"
+        cidr_block     = "10.0.0.0/16"
+        state          = "associated"
+      }]
+    }
+  }
+
+  mock_data "aws_route_table" {
+    defaults = {
+      routes = [{ cidr_block = "0.0.0.0/0" }]
+    }
+  }
 }
 
 mock_provider "random" {}
@@ -45,6 +71,8 @@ mock_provider "time" {}
 mock_provider "null" {}
 mock_provider "cloudinit" {}
 
+# No ryvn_init_image or cilium_chart_version: platform blueprints older than
+# this module don't pass them, and vpc-cni plans must still succeed.
 variables {
   environment_name     = "test"
   account_id           = "123456789012"
@@ -158,7 +186,9 @@ run "enabled_firewall_requires_cilium" {
 run "enabled_firewall_exposes_cni_and_protected_subnets" {
   command = plan
   variables {
-    cni = "cilium"
+    cni                  = "cilium"
+    ryvn_init_image      = "ryvn/init:test"
+    cilium_chart_version = "1.20.2"
     egress_firewall = {
       enabled  = true
       policies = { cluster = {} }
@@ -186,6 +216,8 @@ run "two_per_az_extends_protected_pool_and_reserves_growth" {
   command = plan
   variables {
     cni                     = "cilium"
+    ryvn_init_image         = "ryvn/init:test"
+    cilium_chart_version    = "1.20.2"
     workload_subnets_per_az = 2
     egress_firewall         = { enabled = true, policies = { cluster = {} } }
   }
@@ -203,6 +235,8 @@ run "unknown_attachment_group_is_rejected" {
   command = plan
   variables {
     cni                      = "cilium"
+    ryvn_init_image          = "ryvn/init:test"
+    cilium_chart_version     = "1.20.2"
     egress_firewall          = { enabled = true, policies = { cluster = {} } }
     additional_subnet_groups = [{ name = "external", ipv4_prefix_length = 24, availability_zones = ["us-east-1a"] }]
     egress_attachments       = { external = { policy_key = "cluster", subnet_group_key = "nope" } }
@@ -214,6 +248,8 @@ run "retired_attachment_group_is_rejected" {
   command = plan
   variables {
     cni                      = "cilium"
+    ryvn_init_image          = "ryvn/init:test"
+    cilium_chart_version     = "1.20.2"
     egress_firewall          = { enabled = true, policies = { cluster = {} } }
     additional_subnet_groups = [{ name = "external", ipv4_prefix_length = 24, availability_zones = ["us-east-1a"], retired = true }]
     egress_attachments       = { external = { policy_key = "cluster", subnet_group_key = "external" } }
@@ -225,6 +261,8 @@ run "duplicate_group_assignment_is_rejected_even_with_same_policy" {
   command = plan
   variables {
     cni                      = "cilium"
+    ryvn_init_image          = "ryvn/init:test"
+    cilium_chart_version     = "1.20.2"
     egress_firewall          = { enabled = true, policies = { cluster = {} } }
     additional_subnet_groups = [{ name = "external", ipv4_prefix_length = 24, availability_zones = ["us-east-1a"] }]
     egress_attachments = {
@@ -238,8 +276,10 @@ run "duplicate_group_assignment_is_rejected_even_with_same_policy" {
 run "attached_group_is_routed_and_unattached_group_is_not" {
   command = plan
   variables {
-    cni             = "cilium"
-    egress_firewall = { enabled = true, policies = { cluster = {} } }
+    cni                  = "cilium"
+    ryvn_init_image      = "ryvn/init:test"
+    cilium_chart_version = "1.20.2"
+    egress_firewall      = { enabled = true, policies = { cluster = {} } }
     additional_subnet_groups = [
       { name = "attached", ipv4_prefix_length = 24, availability_zones = ["us-east-1a", "us-east-1b"] },
       { name = "idle", ipv4_prefix_length = 24, availability_zones = ["us-east-1a"] },
@@ -267,7 +307,9 @@ run "attached_group_is_routed_and_unattached_group_is_not" {
 run "shared_policy_does_not_grant_platform_baseline_to_external" {
   command = plan
   variables {
-    cni = "cilium"
+    cni                  = "cilium"
+    ryvn_init_image      = "ryvn/init:test"
+    cilium_chart_version = "1.20.2"
     egress_firewall = {
       enabled            = true
       default_action     = "deny"
@@ -348,6 +390,97 @@ run "four_per_az_on_a_16_uses_blocks_4_to_12" {
       "10.0.160.0/20", "10.0.176.0/20", "10.0.192.0/20",
     ]))
     error_message = "Unexpected subnets: ${jsonencode(sort(values(aws_subnet.additional_workload)[*].cidr_block))}"
+  }
+}
+
+run "cilium_requires_the_blueprint_versions" {
+  command = plan
+
+  variables {
+    cni = "cilium"
+  }
+
+  expect_failures = [var.ryvn_init_image, var.cilium_chart_version]
+}
+
+run "cilium_finds_workload_subnets_by_tag" {
+  command = plan
+
+  variables {
+    cni                  = "cilium"
+    ryvn_init_image      = "ryvn/init:test"
+    cilium_chart_version = "1.20.2"
+  }
+
+  assert {
+    condition = jsonencode(local.cilium_values.eni.nodeSpec) == jsonencode({
+      firstInterfaceIndex = 0
+      subnetIDs           = []
+      subnetTags          = ["karpenter.sh/discovery=ryvn-eks-test"]
+    })
+    error_message = "Unexpected Cilium subnet selection: ${jsonencode(local.cilium_values.eni.nodeSpec)}"
+  }
+}
+
+run "cilium_finds_added_subnets_by_tag" {
+  command = plan
+
+  variables {
+    cni                     = "cilium"
+    ryvn_init_image         = "ryvn/init:test"
+    cilium_chart_version    = "1.20.2"
+    workload_subnets_per_az = 2
+  }
+
+  assert {
+    condition = length(aws_subnet.additional_workload) == 3 && alltrue([
+      for subnet in aws_subnet.additional_workload : alltrue([
+        for key, value in local.workload_subnet_discovery_tags : lookup(subnet.tags, key, null) == value
+      ])
+    ])
+    error_message = "Every added subnet must carry the tags Cilium finds workload subnets by."
+  }
+}
+
+run "cilium_finds_customer_subnets_by_id" {
+  command = plan
+
+  variables {
+    cni                          = "cilium"
+    ryvn_init_image              = "ryvn/init:test"
+    cilium_chart_version         = "1.20.2"
+    existing_vpc_id              = "vpc-0123456789abcdef0"
+    existing_workload_subnet_ids = ["subnet-0aaaaaaaaaaaaaaaa", "subnet-0bbbbbbbbbbbbbbbb"]
+    egress_mode                  = "nat_gateway"
+  }
+
+  override_data {
+    target = data.aws_subnet.byo_provided_workload["subnet-0aaaaaaaaaaaaaaaa"]
+    values = { availability_zone = "us-east-1a", cidr_block = "10.0.0.0/20", vpc_id = "vpc-0123456789abcdef0", available_ip_address_count = 4000 }
+  }
+
+  override_data {
+    target = data.aws_subnet.byo_provided_workload["subnet-0bbbbbbbbbbbbbbbb"]
+    values = { availability_zone = "us-east-1b", cidr_block = "10.0.16.0/20", vpc_id = "vpc-0123456789abcdef0", available_ip_address_count = 4000 }
+  }
+
+  override_data {
+    target = data.aws_subnet.byo_provided_control_plane["subnet-0aaaaaaaaaaaaaaaa"]
+    values = { availability_zone = "us-east-1a", cidr_block = "10.0.0.0/20", vpc_id = "vpc-0123456789abcdef0", available_ip_address_count = 4000 }
+  }
+
+  override_data {
+    target = data.aws_subnet.byo_provided_control_plane["subnet-0bbbbbbbbbbbbbbbb"]
+    values = { availability_zone = "us-east-1b", cidr_block = "10.0.16.0/20", vpc_id = "vpc-0123456789abcdef0", available_ip_address_count = 4000 }
+  }
+
+  assert {
+    condition = jsonencode(local.cilium_values.eni.nodeSpec) == jsonencode({
+      firstInterfaceIndex = 0
+      subnetIDs           = ["subnet-0aaaaaaaaaaaaaaaa", "subnet-0bbbbbbbbbbbbbbbb"]
+      subnetTags          = []
+    })
+    error_message = "Unexpected Cilium subnet selection: ${jsonencode(local.cilium_values.eni.nodeSpec)}"
   }
 }
 

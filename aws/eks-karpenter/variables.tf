@@ -360,7 +360,7 @@ variable "cluster_addons" {
 }
 
 variable "cni" {
-  description = "The cluster's target CNI. vpc-cni (default) changes nothing. cilium creates the IRSA role the Cilium operator needs to manage pod ENIs; it neither installs Cilium nor removes the VPC CNI add-on."
+  description = "Cluster CNI: vpc-cni or cilium."
   type        = string
   default     = "vpc-cni"
 
@@ -368,6 +368,48 @@ variable "cni" {
     condition     = contains(["vpc-cni", "cilium"], var.cni)
     error_message = "cni must be one of: vpc-cni, cilium."
   }
+}
+
+variable "ryvn_init_image" {
+  description = "ryvn-init image used when cni = \"cilium\". Set by the platform blueprint."
+  type        = string
+  # Not required: environments on an older platform blueprint don't pass it.
+  default = null
+
+  validation {
+    condition     = var.cni != "cilium" || var.ryvn_init_image != null
+    error_message = "ryvn_init_image is required when cni is cilium."
+  }
+}
+
+variable "ryvn_init_timeout_seconds" {
+  description = "Deadline for installing Cilium; must stay under EKS's 15-minute NotReady node limit."
+  type        = number
+  default     = 780
+}
+
+variable "ryvn_init_migration_timeout_seconds" {
+  description = "Extra time to move nodes from the VPC CNI to Cilium, one at a time, when cni changes to cilium. Keep it under the lifetime of the credentials Terraform runs with."
+  type        = number
+  default     = 10800
+}
+
+variable "cilium_chart_version" {
+  description = "Cilium chart version (oci://quay.io/cilium/charts/cilium). Set by the platform blueprint."
+  type        = string
+  # Not required: environments on an older platform blueprint don't pass it.
+  default = null
+
+  validation {
+    condition     = var.cni != "cilium" || var.cilium_chart_version != null
+    error_message = "cilium_chart_version is required when cni is cilium."
+  }
+}
+
+variable "cilium_repair" {
+  description = "Force reinstall Cilium, even if a Ryvn installation has adopted it."
+  type        = bool
+  default     = false
 }
 
 variable "enable_transit_gateway_subnets" {
