@@ -17,7 +17,7 @@ spec:
       description: Hostnames, network exposure and hub wiring
       displayName: Endpoint
     - name: capacity
-      description: Sizing profile
+      description: Sizing and pod scheduling
       displayName: Capacity
     - name: retention
       description: How long logs and metrics are kept
@@ -173,7 +173,14 @@ spec:
       type: string
       default: ""
       displayName: Node Group
-      description: Value of the `ryvn.app/node-group-name` label of the node pool that runs Loki and Mimir (for example `observability`). Leave blank to schedule on any node.
+      description: Value of the `ryvn.app/node-group-name` label for LGTM pods, including caches and the managed Grafana database helper (for example `observability`). Leave blank to omit this node selector. Tailscale proxy placement is configured separately through its ProxyClass.
+      group: capacity
+    - name: tolerations
+      type: string
+      default: ""
+      multiline: true
+      displayName: Pod Tolerations
+      description: YAML list of Kubernetes tolerations for LGTM pods and the managed Grafana database helper. Use with Node Group to schedule on a tainted pool. Leave blank to retain chart defaults. Tailscale proxies use their ProxyClass instead.
       group: capacity
     - name: storageClassName
       type: string
@@ -551,8 +558,30 @@ spec:
           replicas: 0
         minio:
           enabled: false
+        {{- if or (input "nodeGroup") (input "tolerations" | trim) }}
+        chunksCache:
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
+        resultsCache:
+          nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
+        {{- end }}
         ingester:
           replicas: 3
+          {{- if input "nodeGroup" }}
+          # Zone-aware ingesters use per-zone selectors instead of ingester.nodeSelector.
+          zoneAwareReplication:
+            zoneA:
+              nodeSelector: {ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}
+            zoneB:
+              nodeSelector: {ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}
+            zoneC:
+              nodeSelector: {ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}
+          {{- end }}
           persistence:
             enabled: true
             claims:
@@ -560,22 +589,37 @@ spec:
                 size: 30Gi
                 storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         distributor:
           replicas: {{ if eq (input "profile") "medium" }}3{{ else }}1{{ end }}
           maxUnavailable: 1
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         querier:
           replicas: {{ if eq (input "profile") "medium" }}3{{ else }}1{{ end }}
           maxUnavailable: 1
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         queryFrontend:
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
           maxUnavailable: 1
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         queryScheduler:
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
           maxUnavailable: 1
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         compactor:
           replicas: 1
           persistence:
@@ -585,17 +629,29 @@ spec:
                 size: 10Gi
                 storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         indexGateway:
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
           maxUnavailable: 1
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         ruler:
           replicas: 1
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         patternIngester:
           replicas: {{ if eq (input "profile") "medium" }}3{{ else }}1{{ end }}
           maxUnavailable: 1
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         gateway:
           enabled: true
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
@@ -628,6 +684,9 @@ spec:
 
               auth_request /auth;
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
     - service: mimir
       name: '{{ ParentInstallationName }}-mimir-svc'
       alias: mimir-svc
@@ -708,19 +767,34 @@ spec:
         chunks-cache:
           enabled: true
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         index-cache:
           enabled: true
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         metadata-cache:
           enabled: true
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         results-cache:
           enabled: true
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         {{- end }}
         distributor:
           replicas: {{ if eq (input "profile") "medium" }}4{{ else }}1{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         ingester:
           replicas: 3
           zoneAwareReplication:
@@ -729,6 +803,9 @@ spec:
             size: 50Gi
             storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         store_gateway:
           replicas: {{ if eq (input "profile") "medium" }}3{{ else }}1{{ end }}
           zoneAwareReplication:
@@ -736,35 +813,62 @@ spec:
           persistentVolume:
             storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         alertmanager:
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
           persistentVolume:
             enabled: true
             storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         compactor:
           replicas: 1
           persistentVolume:
             size: 20Gi
             storageClass: {{ if input "storageClassName" }}'{{ input "storageClassName" }}'{{ else }}null{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         querier:
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         query_frontend:
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         query_scheduler:
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         ruler:
           replicas: 1
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         overrides_exporter:
           replicas: 1
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         rollout_operator:
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
         gateway:
           enabledNonEnterprise: true
           replicas: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
@@ -798,6 +902,9 @@ spec:
 
                 auth_request /auth;
           nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+          {{- if input "tolerations" | trim }}
+          tolerations:{{ input "tolerations" | nindent 4 }}
+          {{- end }}
     - service: auth-proxy
       name: '{{ ParentInstallationName }}-auth-proxy'
       alias: auth-proxy
@@ -806,6 +913,9 @@ spec:
       config: |
         replicaCount: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        {{- if input "tolerations" | trim }}
+        tolerations:{{ input "tolerations" | nindent 2 }}
+        {{- end }}
         # Hub API mode: authorization decisions come from the hub at hubUrl, never from a
         # database connection, so this child never receives RYVN_DATABASE_URL.
         env:
@@ -869,6 +979,9 @@ spec:
       config: |
         replicaCount: {{ if eq (input "profile") "medium" }}2{{ else }}1{{ end }}
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        {{- if input "tolerations" | trim }}
+        tolerations:{{ input "tolerations" | nindent 2 }}
+        {{- end }}
         hostingEnvironmentName: '{{ EnvironmentName }}'
         # Hub API mode: authorization decisions come from the managing hub's API, never
         # from a database connection, so this child never receives RYVN_DATABASE_URL.
@@ -939,6 +1052,9 @@ spec:
       config: |
         replicas: 1
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        {{- if input "tolerations" | trim }}
+        tolerations:{{ input "tolerations" | nindent 2 }}
+        {{- end }}
         resources:
           requests:
             cpu: {{ if eq (input "profile") "medium" }}500m{{ else }}100m{{ end }}
@@ -1067,6 +1183,9 @@ spec:
       config: |
         replicas: 1
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        {{- if input "tolerations" | trim }}
+        tolerations:{{ input "tolerations" | nindent 2 }}
+        {{- end }}
         resources:
           requests:
             cpu: {{ if eq (input "profile") "medium" }}500m{{ else }}100m{{ end }}
@@ -1241,6 +1360,9 @@ spec:
         failedJobsHistoryLimit: 3
         ttlSecondsAfterFinished: 86400
         nodeSelector: {{ if input "nodeGroup" }}{ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}{{ else }}{}{{ end }}
+        {{- if input "tolerations" | trim }}
+        tolerations:{{ input "tolerations" | nindent 2 }}
+        {{- end }}
         resources:
           requests:
             cpu: 50m
@@ -1378,6 +1500,12 @@ spec:
       alias: grafana-db
       condition: '{{ not (input "useExternalGrafanaDatabase") }}'
       inputs:
+        - name: nodeGroup
+          valueFromInput:
+            name: nodeGroup
+        - name: tolerations
+          valueFromInput:
+            name: tolerations
         - name: databaseName
           value: grafana
         - name: username

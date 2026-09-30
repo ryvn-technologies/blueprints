@@ -34,10 +34,26 @@ spec:
     - name: metrics
       description: Database metrics collection
       displayName: Metrics
+    - name: scheduling
+      description: Placement of in-cluster database helpers
+      displayName: Pod Scheduling
     - name: networking
       description: Tailnet access
       displayName: Networking
   inputs:
+    - name: nodeGroup
+      type: string
+      default: ""
+      displayName: Node Group
+      description: Value of the `ryvn.app/node-group-name` label for the database user provisioner and metrics exporter pods. Leave blank to omit this node selector. Does not affect the managed database or Tailscale proxies.
+      group: scheduling
+    - name: tolerations
+      type: string
+      default: ""
+      multiline: true
+      displayName: Pod Tolerations
+      description: YAML list of Kubernetes tolerations for the database user provisioner and metrics exporter pods. Leave blank to retain chart defaults. Does not affect the managed database or Tailscale proxies.
+      group: scheduling
     - name: version
       type: string
       default: "16"
@@ -447,6 +463,12 @@ spec:
           valueFromInput:
             name: monitorPassword
       config: |
+        {{- if input "nodeGroup" }}
+        nodeSelector: {ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}
+        {{- end }}
+        {{- if input "tolerations" | trim }}
+        tolerations:{{ input "tolerations" | nindent 2 }}
+        {{- end }}
         concurrencyPolicy: Forbid
         backoffLimit: 2
         successfulJobsHistoryLimit: 3
@@ -475,6 +497,12 @@ spec:
               valueFromInput:
                 name: monitorPassword
       config: |
+        {{- if input "nodeGroup" }}
+        nodeSelector: {ryvn.app/node-group-name: '{{ input "nodeGroup" }}'}
+        {{- end }}
+        {{- if input "tolerations" | trim }}
+        tolerations:{{ input "tolerations" | nindent 2 }}
+        {{- end }}
         config:
           datasource:
             host: '{{ (serviceInstallation "postgres").outputs.host }}'
@@ -483,7 +511,7 @@ spec:
             database: '{{ input "databaseName" }}'
             sslmode: require
             passwordSecret:
-              name: {{ k8sSecretName "monitor-password" }}
+              name: '{{ k8sSecretName "monitor-password" }}'
               key: password
           extraArgs:
             - --no-collector.stat_user_tables
