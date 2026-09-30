@@ -34,11 +34,12 @@ variable "subnet_ids" {
 }
 
 variable "cilium" {
-  description = "Cilium chart version and Helm values to install. repair = true reinstalls them even when Ryvn manages the release."
+  description = "Cilium chart version and Helm values to install. repair = true reinstalls them even when Ryvn manages the release. restart_pods_blocked_by_disruption_budgets = true deletes pods whose PodDisruptionBudgets never allow evicting them instead of failing, which takes their workloads down."
   type = object({
-    chart_version = string
-    values        = any
-    repair        = optional(bool, false)
+    chart_version                              = string
+    values                                     = any
+    repair                                     = optional(bool, false)
+    restart_pods_blocked_by_disruption_budgets = optional(bool, false)
   })
 }
 

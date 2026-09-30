@@ -103,9 +103,10 @@ module "ryvn_init" {
   migration_timeout_seconds          = var.ryvn_init_migration_timeout_seconds
 
   cilium = {
-    chart_version = var.cilium_chart_version
-    values        = local.cilium_values
-    repair        = var.cilium_repair
+    chart_version                              = var.cilium_chart_version
+    values                                     = local.cilium_values
+    repair                                     = var.cilium_repair
+    restart_pods_blocked_by_disruption_budgets = var.cilium_restart_pods_blocked_by_disruption_budgets
   }
 
   iam_permissions_boundary_arn = var.iam_permissions_boundary_arn

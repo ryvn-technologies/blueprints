@@ -32,13 +32,16 @@ locals {
       apiServerEndpoint        = var.cluster_endpoint
       certificateAuthorityData = var.cluster_certificate_authority_data
     }
-    cilium = {
-      install          = true
-      chartVersion     = var.cilium.chart_version
-      values           = var.cilium.values
-      repair           = var.cilium.repair
-      migrationTimeout = "${var.migration_timeout_seconds}s"
-    }
+    cilium = merge(
+      {
+        install          = true
+        chartVersion     = var.cilium.chart_version
+        values           = var.cilium.values
+        repair           = var.cilium.repair
+        migrationTimeout = "${var.migration_timeout_seconds}s"
+      },
+      var.cilium.restart_pods_blocked_by_disruption_budgets ? { restartPodsBlockedByDisruptionBudgets = true } : {},
+    )
     aws = {
       region                      = local.region
       eksClusterName              = var.cluster_name

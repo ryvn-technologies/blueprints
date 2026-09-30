@@ -119,6 +119,7 @@ on an existing environment it is a reviewed maintenance event, not a toggle.
 | `cni` | Target CNI; `cilium` drops the VPC CNI add-on and bootstraps Cilium with `ryvn-init`. Required by an enabled `egress_firewall` | `"vpc-cni"` |
 | `ryvn_init_image` / `cilium_chart_version` | Bootstrap image and Cilium chart version used in `cilium` mode | `null`; required with `cilium`, set by the platform blueprint |
 | `cilium_repair` | Force reinstall Cilium, even if a Ryvn installation has adopted it | `false` |
+| `cilium_restart_pods_blocked_by_disruption_budgets` | When moving nodes to Cilium, delete pods whose PodDisruptionBudgets never allow evicting them instead of failing the apply. Bypasses those budgets and takes the workloads down; only for a move agreed with the customer | `false` |
 | `ryvn_init_migration_timeout_seconds` | Extra time to move existing nodes from the VPC CNI to Cilium | `10800` |
 | `egress_firewall` | Managed default-deny egress (`enabled`, `policies`, `cluster_policy_key`, `change_protection`); see [`egress_network/README.md`](egress_network/README.md) | `{ enabled = false }` |
 | `platform_https_domains` | Extra exact HTTPS/443 hostnames the platform components reach (managing hub API/issuer/token, collector gateways, access tunnel). Added to the built-in AWS/registry baseline (never replacing it), cluster sources only; bare lower-case hostnames, no scheme/path/port/wildcard/IP. The Ryvn AWS blueprint fills this from the managing hub; standalone callers list them. Ignored while disabled | `[]` |
@@ -166,6 +167,10 @@ consumers should not read an empty `outbound_ips` as the former.
   apply continues.
 - If the CNI breaks, apply with `cilium_repair = true`, then set it back to
   `false`.
+- If PodDisruptionBudgets never allow moving some pods, the apply fails before
+  changing anything. For a move agreed with the customer, apply with
+  `cilium_restart_pods_blocked_by_disruption_budgets = true` to delete those
+  pods instead, which takes their workloads down, then set it back to `false`.
 
 ## One-Way Decisions
 

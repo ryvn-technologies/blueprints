@@ -31,6 +31,19 @@ aws codebuild start-build --project-name ryvn-init-<environment_name> \
   --environment-variables-override name=RYVN_INIT_REPAIR,value=true
 ```
 
+If PodDisruptionBudgets never allow evicting some pods, the run fails before
+changing anything and names them. For a move agreed with the customer, set
+`cilium.restart_pods_blocked_by_disruption_budgets = true` and apply, or start
+the build below, to delete those pods once their node is cordoned instead.
+Their workloads are down until the replacements are ready, and again if a
+replacement lands on a node that hasn't moved yet. Pods without a controller
+don't come back.
+
+```bash
+aws codebuild start-build --project-name ryvn-init-<environment_name> \
+  --environment-variables-override name=RYVN_INIT_RESTART_PODS_BLOCKED_BY_DISRUPTION_BUDGETS,value=true
+```
+
 ## Requirements
 
 - Terraform 1.16 or later and AWS provider 6.15 or later.
@@ -50,7 +63,7 @@ aws codebuild start-build --project-name ryvn-init-<environment_name> \
 | `cluster_name` / `cluster_endpoint` / `cluster_certificate_authority_data` | Cluster to bootstrap | required |
 | `cluster_security_group_id` | Security group on the cluster's API endpoint | required |
 | `vpc_id` / `subnet_ids` | Where the build runs | required |
-| `cilium` | `chart_version`, `values`, optional `repair` | required |
+| `cilium` | `chart_version`, `values`, optional `repair` and `restart_pods_blocked_by_disruption_budgets` | required |
 | `image` | ryvn-init image | required |
 | `timeout_seconds` | Deadline for installing Cilium | `780` |
 | `migration_timeout_seconds` | Extra time to move nodes from the VPC CNI to Cilium | `10800` |

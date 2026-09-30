@@ -412,6 +412,12 @@ variable "cilium_repair" {
   default     = false
 }
 
+variable "cilium_restart_pods_blocked_by_disruption_budgets" {
+  description = "When moving nodes to Cilium, delete pods whose PodDisruptionBudgets never allow evicting them instead of failing the apply. This bypasses those budgets and takes the workloads down; use it only for a move agreed with the customer."
+  type        = bool
+  default     = false
+}
+
 variable "enable_transit_gateway_subnets" {
   description = "Enable creation of Transit Gateway subnets. When enabled, creates /28 subnets (14 usable IPs each) following AWS best practices."
   type        = bool

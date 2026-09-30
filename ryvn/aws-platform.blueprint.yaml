@@ -114,14 +114,9 @@ spec:
   - service: aws-eks-karpenter
     condition: '{{ not (input "legacy") }}'
     config: |
-      # The whole environment config is passed through, except the ryvn-init image
-      # and Cilium chart version, which this blueprint sets. platform_https_domains is
-      # re-emitted as one list: the caller's entries plus the exact HTTPS/443 hosts
-      # the platform reaches on the managing hub (API, issuer/token, access tunnel)
-      # and the collector's effective Loki/Mimir gateways and destinations, chosen
-      # exactly as the ryvn-collector installation below chooses them. Terraform
-      # de-duplicates and ignores the list while egress_firewall.enabled is false.
-      {{ merge (dict "ryvn_init_image" "ryvn/init:0.1.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains") | toYaml }}
+      # The ryvn-init image and Cilium version here override the environment config. Keep the Loki,
+      # Mimir and token hosts below in sync with the ryvn-collector installation.
+      {{ merge (dict "ryvn_init_image" "ryvn/init:0.2.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains") | toYaml }}
       platform_https_domains:
       {{- with index .ryvn.env.config "platform_https_domains" }}
       {{- range . }}
@@ -134,10 +129,8 @@ spec:
       {{- range $host := httpsHostnames ObservabilityDestinations }}
       - {{ $host | toJson }}
       {{- end }}
-      {{- /* Endpoints the firewall cannot express as HTTPS/443 (plain http, other
-             ports, IP literals) are forwarded verbatim while the firewall is
-             enabled so the module's hostname validation refuses them instead of
-             the allowlist silently omitting a platform dependency. */}}
+      {{- /* Non-HTTPS/443 endpoints are passed on so the module's validation rejects them,
+             instead of the firewall silently leaving out a platform dependency. */}}
       {{- with index .ryvn.env.config "egress_firewall" }}
       {{- if index . "enabled" }}
       {{- range $endpoint := nonHttpsEndpoints (Hub "apiUrl") (Hub "issuerUrl") (Hub "tunnelUrl") (input "lokiUrl" | trim | default (Hub "lokiUrl")) (input "mimirUrl" | trim | default (Hub "mimirUrl")) (input "tokenUrl" | trim | default (Hub "tokenUrl")) }}
