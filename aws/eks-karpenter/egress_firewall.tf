@@ -32,6 +32,10 @@ locals {
     "d5l0dvt14r5h8.cloudfront.net",
     "auth.docker.io",
     "registry-1.docker.io",
+    # Hub canonicalizes Docker Hub OCI chart repos to index.docker.io
+    # (pkg/registry.CanonicalHost); docker.io is the same registry's short name.
+    "index.docker.io",
+    "docker.io",
     "production.cloudflare.docker.com",
     "production.cloudfront.docker.com",
     "docker-images-prod.s3.dualstack.${var.region}.amazonaws.com",

@@ -84,6 +84,8 @@ run "baseline_covers_hosts_observed_blocked_during_cilium_migration" {
       "charts.ryvn.app",
       "registry.ryvn.app",
       "acme-v02.api.letsencrypt.org",
+      "index.docker.io",
+      "docker.io",
     ], local.builtin_platform_https_domains)) == 0
     error_message = "The built-in baseline includes the registry, CDN and global-endpoint hosts platform components need; us-east-1-only APIs stay pinned to us-east-1 in other regions."
   }
