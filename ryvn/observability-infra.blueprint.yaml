@@ -8,11 +8,13 @@ spec:
 
     `provisioningMode` selects who the stack serves. `hub`: every organization of the hub it is installed beside; sign-in through the environment's `zitadel` installation, organizations and datasources created by that hub's orchestrator, mapped with `hubOrgs`. `dedicated`: the single organization owning the installation; the managing hub issues the OAuth client and gateway identity, Grafana organization 1 is provisioned statically and named `organizationDisplayName`, and `grafanaExposure` chooses the public or internal ingress.
 
+    In dedicated mode, `exposure: private` disables public access and serves the stack through internal Routes. Optional `exposeToTailnet`, with `tailnetDomain` and `tailnetHostnamePrefix`, adds HTTPS access for humans. Grafana login uses its tailnet hostname; collector URLs, internal Routes and PrivateLink configuration are unchanged by the toggle. Tailscale Operator 1.84.0+ and tailnet HTTPS must already be configured. By default, one shared ingress ProxyGroup runs two replicas for the three endpoints; tailnetProxyGroup can reuse an existing ingress group.
+
     Supported on GCP (GCS + Workload Identity Federation for GKE), AWS (S3 + EKS Pod Identity) and Azure (Blob + Workload Identity). On other providers the buckets and the Grafana database are still created, but Loki, Mimir, the auth-proxy and Grafana are not deployed and the URL outputs are not published. Collectors are deployed separately and reach the stack through the `connectionName`, `lokiIngestUrl` and `mimirIngestUrl` outputs.
   displayName: LGTM Stack
   inputGroups:
     - name: endpoint
-      description: Public hostname and hub wiring
+      description: Hostnames, network exposure and hub wiring
       displayName: Endpoint
     - name: capacity
       description: Sizing profile
@@ -44,7 +46,7 @@ spec:
     - name: domain
       type: string
       displayName: Domain
-      description: Root hostname for the stack, without a scheme. Loki, Mimir and Grafana are exposed as `loki.`, `mimir.` and `grafana.` under it.
+      description: Public root hostname for the stack, without a scheme. Public endpoints use `loki.`, `mimir.` and `grafana.` under it. Private stacks use the environment internal domain automatically; this input can retain its existing value.
       group: endpoint
       immutable: true
     - name: hubUrl
@@ -62,11 +64,59 @@ spec:
 
         Must be a valid label value: at most 63 characters of letters, digits, `-`, `_` or `.`, starting and ending with a letter or digit. A generated default that is too long is rejected rather than shortened; set the name explicitly in that case.
       group: endpoint
+    - name: exposure
+      type: string
+      default: public
+      displayName: Stack Exposure
+      description: Dedicated stacks only. Public keeps the existing Ingress/Route options. Private disables legacy Ingresses and serves all three services through internal Routes on the environment internal domain. Connected Private Service Consumers resolve these names through their private links. Tailscale does not change collector endpoints.
+      group: endpoint
+      condition: '{{ eq (input "provisioningMode") "dedicated" }}'
+      options:
+        - label: Public
+          value: public
+        - label: Private
+          value: private
+    - name: exposeToTailnet
+      type: boolean
+      default: false
+      displayName: Expose to Tailnet
+      description: |
+        Available only when Stack Exposure is Private. Add Tailscale HTTPS access to Grafana and the authenticated Loki/Mimir gateways for human access. Does not alter internal Routes, collector endpoints or PrivateLink configuration. Grafana login uses its tailnet URL.
+
+        Requires Tailscale Operator 1.84.0+ with current CRDs and Services write permission, tailnet HTTPS, service advertisement approval (autoApprovers.services), and client access rules. Creates an ingress ProxyGroup with two replicas by default, or reuses the existing ingress group named by tailnetProxyGroup. Use at least two eligible nodes for node-failure resilience. Collectors use the environment's internal gateway and must have network and DNS access to it.
+      group: endpoint
+      condition: '{{ and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") }}'
+    - name: tailnetDomain
+      type: string
+      displayName: Tailnet Domain
+      description: Tailnet DNS suffix, for example example.ts.net, without a scheme or trailing dot. Must match the tailnet used by the Kubernetes operator.
+      group: endpoint
+      condition: '{{ and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") (input "exposeToTailnet") }}'
+    - name: tailnetHostnamePrefix
+      type: string
+      displayName: Tailnet Hostname Prefix
+      description: Unique prefix for the three Tailscale Services and any blueprint-created ProxyGroup, for example hs-lgtm-cp. Creates <prefix>-grafana, <prefix>-loki and <prefix>-mimir. Use at most 53 lowercase letters, digits or hyphens, starting and ending with a letter or digit; these service names must be unused on the tailnet.
+      group: endpoint
+      condition: '{{ and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") (input "exposeToTailnet") }}'
+    - name: tailnetProxyGroup
+      type: string
+      default: ""
+      displayName: Existing Tailnet Proxy Group
+      description: Existing ProxyGroup in this cluster with type ingress, managed outside this installation. Leave blank to create a dedicated group with two replicas. When set, LGTM creates only Ingresses and uses the group's existing class, replicas, tags and scheduling. Kubernetes API and egress groups cannot be reused for ingress.
+      group: endpoint
+      condition: '{{ and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") (input "exposeToTailnet") }}'
+    - name: tailnetProxyClass
+      type: string
+      default: ""
+      displayName: Tailnet Proxy Class
+      description: Existing ProxyClass to use when creating a group. Ignored when tailnetProxyGroup is set. Set this if your operator relies on custom scheduling or security settings; those settings are not inherited by the generated class. Leave blank to create a class that prefers separate nodes. An existing class should configure replica spreading.
+      group: endpoint
+      condition: '{{ and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") (input "exposeToTailnet") (not (input "tailnetProxyGroup")) }}'
     - name: grafanaExposure
       type: string
       default: public
       displayName: Grafana Exposure
-      description: Applies to `dedicated` mode only; in `hub` mode Grafana is always published at `grafana.<domain>` because the `zitadel` installation registers that callback. Public publishes Grafana at `grafana.<domain>` on the ingress class below. Private publishes it on the `internal-nginx` ingress class under the environment's internal domain, reachable only from inside the network; hub sign-in stays enabled either way.
+      description: Applies to `dedicated` mode only; in `hub` mode Grafana is always published at `grafana.<domain>` because the `zitadel` installation registers that callback. Ignored when Stack Exposure is Private. Public publishes Grafana at `grafana.<domain>` on the ingress class below. Private publishes it on the `internal-nginx` ingress class under the environment's internal domain, reachable only from inside the network; hub sign-in stays enabled either way.
       group: endpoint
       condition: '{{ eq (input "provisioningMode") "dedicated" }}'
       options:
@@ -88,13 +138,13 @@ spec:
       type: boolean
       default: true
       displayName: Create Ingresses
-      description: Create Ingress resources for Loki, Mimir and Grafana.
+      description: Create Ingress resources for Loki, Mimir and Grafana. Disabled when Stack Exposure is Private; Tailscale Ingresses are controlled separately.
       group: endpoint
     - name: routesEnabled
       type: boolean
       default: false
       displayName: Create Ryvn Routes
-      description: Publish Loki, Mimir and Grafana through Ryvn Routes (ryvn-routes) on the managed gateway.
+      description: Publish Loki, Mimir and Grafana through Ryvn Routes (ryvn-routes) on the managed gateway. When Stack Exposure is Private, internal Routes are always created and public Routes are disabled, independently of Tailscale.
       group: endpoint
     - name: ingressClassName
       type: string
@@ -199,32 +249,44 @@ spec:
     - name: lokiIngestUrl
       type: string
       condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
-      from: 'https://loki.{{ input "domain" }}'
+      from: 'https://loki.{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") }}{{ EnvironmentInternalDomain }}{{ else }}{{ input "domain" }}{{ end }}'
       description: Base URL remote collectors push logs to.
       displayName: Loki Ingest URL
     - name: mimirIngestUrl
       type: string
       condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
-      from: 'https://mimir.{{ input "domain" }}'
+      from: 'https://mimir.{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") }}{{ EnvironmentInternalDomain }}{{ else }}{{ input "domain" }}{{ end }}'
       description: Base URL remote collectors push metrics to.
       displayName: Mimir Ingest URL
     - name: lokiUrl
       type: string
       condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
-      from: 'https://loki.{{ input "domain" }}'
-      description: Public Loki endpoint behind the auth-proxy. Set it as the platform blueprint's `lokiUrl` input in each workload environment whose collector should ship here.
+      from: 'https://loki.{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") }}{{ EnvironmentInternalDomain }}{{ else }}{{ input "domain" }}{{ end }}'
+      description: Loki endpoint behind the auth-proxy. Tailscale does not change this URL. Set it as the platform blueprint's `lokiUrl` input in each workload environment whose collector should ship here.
       displayName: Loki URL
     - name: mimirUrl
       type: string
       condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
-      from: 'https://mimir.{{ input "domain" }}'
-      description: Public Mimir endpoint behind the auth-proxy. Set it as the platform blueprint's `mimirUrl` input in each workload environment whose collector should ship here.
+      from: 'https://mimir.{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") }}{{ EnvironmentInternalDomain }}{{ else }}{{ input "domain" }}{{ end }}'
+      description: Mimir endpoint behind the auth-proxy. Tailscale does not change this URL. Set it as the platform blueprint's `mimirUrl` input in each workload environment whose collector should ship here.
       displayName: Mimir URL
+    - name: lokiTailnetUrl
+      type: string
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") (input "exposeToTailnet") }}'
+      from: 'https://{{ input "tailnetHostnamePrefix" }}-loki.{{ input "tailnetDomain" }}'
+      description: HTTPS tailnet endpoint for loki through the tenant auth-proxy. Existing API credentials are still required.
+      displayName: Loki Tailnet URL
+    - name: mimirTailnetUrl
+      type: string
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") (input "exposeToTailnet") }}'
+      from: 'https://{{ input "tailnetHostnamePrefix" }}-mimir.{{ input "tailnetDomain" }}'
+      description: HTTPS tailnet endpoint for mimir through the tenant auth-proxy. Existing API credentials are still required.
+      displayName: Mimir Tailnet URL
     - name: grafanaUrl
       type: string
       condition: '{{ or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
-      from: '{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "grafanaExposure") "private") }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}'
-      description: Grafana URL on the public domain, or on the environment's internal domain when a dedicated stack's Grafana exposure is private. In hub mode it must match the `grafanaUrl` input of the zitadel installation so the OAuth redirect is accepted.
+      from: '{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") (input "exposeToTailnet") }}https://{{ input "tailnetHostnamePrefix" }}-grafana.{{ input "tailnetDomain" }}{{ else if and (eq (input "provisioningMode") "dedicated") (or (eq (input "exposure") "private") (eq (input "grafanaExposure") "private")) }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}'
+      description: Canonical Grafana URL on the tailnet when exposeToTailnet is enabled, otherwise on the public domain, or on the environment's internal domain when a dedicated stack's Grafana exposure is private. In hub mode it must match the `grafanaUrl` input of the zitadel installation so the OAuth redirect is accepted.
       displayName: Grafana URL
     - name: lokiBucketName
       type: string
@@ -540,7 +602,7 @@ spec:
           service:
             type: ClusterIP
           ingress:
-            enabled: {{ input "ingressEnabled" }}
+            enabled: {{ and (input "ingressEnabled") (not (and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private"))) }}
             ingressClassName: '{{ input "ingressClassName" }}'
             annotations:
               cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
@@ -709,7 +771,7 @@ spec:
           service:
             type: ClusterIP
           ingress:
-            enabled: {{ input "ingressEnabled" }}
+            enabled: {{ and (input "ingressEnabled") (not (and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private"))) }}
             ingressClassName: '{{ input "ingressClassName" }}'
             annotations:
               cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
@@ -981,7 +1043,7 @@ spec:
         enabled: true
         secretName: grafana-oauth
         redirectUris:
-          - '{{ if eq (input "grafanaExposure") "private" }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}/login/generic_oauth'
+          - '{{ if and (eq (input "exposure") "private") (input "exposeToTailnet") }}https://{{ input "tailnetHostnamePrefix" }}-grafana.{{ input "tailnetDomain" }}{{ else if or (eq (input "exposure") "private") (eq (input "grafanaExposure") "private") }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}/login/generic_oauth'
       lifecycle:
         postInstall:
           - run: '{{ ParentInstallationName }}-grafana-bootstrap'
@@ -1072,7 +1134,7 @@ spec:
                 type: loki
                 access: proxy
                 orgId: 1
-                url: https://loki.{{ input "domain" }}
+                url: {{ if eq (input "exposure") "private" }}http://{{ ParentInstallationName }}-loki-svc-gateway.observability.svc.cluster.local{{ else }}https://loki.{{ input "domain" }}{{ end }}
                 basicAuth: true
                 basicAuthUser: grafana
                 editable: false
@@ -1087,7 +1149,7 @@ spec:
                 type: prometheus
                 access: proxy
                 orgId: 1
-                url: https://mimir.{{ input "domain" }}/prometheus
+                url: {{ if eq (input "exposure") "private" }}http://{{ ParentInstallationName }}-mimir-svc-gateway.observability.svc.cluster.local{{ else }}https://mimir.{{ input "domain" }}{{ end }}/prometheus
                 basicAuth: true
                 basicAuthUser: grafana
                 editable: false
@@ -1101,7 +1163,7 @@ spec:
                   basicAuthPassword: $RYVN_DATASOURCE_SECRET
         grafana.ini:
           server:
-            root_url: {{ if eq (input "grafanaExposure") "private" }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}
+            root_url: {{ if and (eq (input "exposure") "private") (input "exposeToTailnet") }}https://{{ input "tailnetHostnamePrefix" }}-grafana.{{ input "tailnetDomain" }}{{ else if or (eq (input "exposure") "private") (eq (input "grafanaExposure") "private") }}https://grafana.{{ EnvironmentInternalDomain }}{{ else }}https://grafana.{{ input "domain" }}{{ end }}
           database:
             type: postgres
             ssl_mode: require
@@ -1137,7 +1199,7 @@ spec:
             use_pkce: true
             use_refresh_token: true
         ingress:
-          enabled: {{ input "ingressEnabled" }}
+          enabled: {{ and (input "ingressEnabled") (not (and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private"))) }}
           ingressClassName: '{{ if eq (input "grafanaExposure") "private" }}internal-nginx{{ else }}{{ input "ingressClassName" }}{{ end }}'
           annotations:
             cert-manager.io/cluster-issuer: '{{ input "clusterIssuer" }}'
@@ -1199,18 +1261,87 @@ spec:
               -H 'Content-Type: application/json' \
               --data "$payload" "$GRAFANA_URL/api/orgs/1"
             echo
+    # HTTPS keeps Grafana's canonical URL and OAuth callback on the operator's
+    # TLS endpoint. Loki/Mimir still pass through tenant auth.
+    - service: tailscale-resources
+      name: '{{ ParentInstallationName }}-ts'
+      alias: tailscale
+      namespace: observability
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") (input "exposeToTailnet") }}'
+      config: |
+        proxyGroups:
+          {{- if input "tailnetProxyGroup" }}
+          []
+          {{- else }}
+          - name: '{{ input "tailnetHostnamePrefix" }}-ingress'
+            spec:
+              type: ingress
+              replicas: 2
+              proxyClass: '{{ if input "tailnetProxyClass" }}{{ input "tailnetProxyClass" }}{{ else }}{{ input "tailnetHostnamePrefix" }}-ingress{{ end }}'
+          {{- end }}
+        proxyClasses:
+          {{- if or (input "tailnetProxyGroup") (input "tailnetProxyClass") }}
+          []
+          {{- else }}
+          - name: '{{ input "tailnetHostnamePrefix" }}-ingress'
+            spec:
+              statefulSet:
+                pod:
+                  labels:
+                    ryvn.app/tailnet-proxy-group: '{{ input "tailnetHostnamePrefix" }}-ingress'
+                  affinity:
+                    podAntiAffinity:
+                      preferredDuringSchedulingIgnoredDuringExecution:
+                        - weight: 100
+                          podAffinityTerm:
+                            topologyKey: kubernetes.io/hostname
+                            labelSelector:
+                              matchLabels:
+                                ryvn.app/tailnet-proxy-group: '{{ input "tailnetHostnamePrefix" }}-ingress'
+          {{- end }}
+        ingresses:
+          - name: '{{ ParentInstallationName }}-loki'
+            annotations:
+              tailscale.com/proxy-group: '{{ or (input "tailnetProxyGroup") (printf "%s-ingress" (input "tailnetHostnamePrefix")) }}'
+            hosts:
+              - host: '{{ input "tailnetHostnamePrefix" }}-loki.{{ input "tailnetDomain" }}'
+                paths:
+                  - path: /
+                    service:
+                      name: '{{ ParentInstallationName }}-loki-svc-gateway'
+                      port: 80
+          - name: '{{ ParentInstallationName }}-mimir'
+            annotations:
+              tailscale.com/proxy-group: '{{ or (input "tailnetProxyGroup") (printf "%s-ingress" (input "tailnetHostnamePrefix")) }}'
+            hosts:
+              - host: '{{ input "tailnetHostnamePrefix" }}-mimir.{{ input "tailnetDomain" }}'
+                paths:
+                  - path: /
+                    service:
+                      name: '{{ ParentInstallationName }}-mimir-svc-gateway'
+                      port: 80
+          - name: '{{ ParentInstallationName }}-grafana'
+            annotations:
+              tailscale.com/proxy-group: '{{ or (input "tailnetProxyGroup") (printf "%s-ingress" (input "tailnetHostnamePrefix")) }}'
+            hosts:
+              - host: '{{ input "tailnetHostnamePrefix" }}-grafana.{{ input "tailnetDomain" }}'
+                paths:
+                  - path: /
+                    service:
+                      name: '{{ ParentInstallationName }}-grafana'
+                      port: 80
     - service: ryvn-routes
       name: '{{ ParentInstallationName }}-routes'
       alias: routes
       namespace: observability
-      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (input "routesEnabled") }}'
+      condition: '{{ and (or (eq EnvironmentProviderType "gcp") (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure")) (or (input "routesEnabled") (and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private"))) }}'
       config: |
         routes:
           - name: '{{ ParentInstallationName }}-loki'
             spec:
-              exposure: [public]
+              exposure: [{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") }}internal{{ else }}public{{ end }}]
               domains:
-                - 'loki.{{ input "domain" }}'
+                - 'loki.{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") }}{{ EnvironmentInternalDomain }}{{ else }}{{ input "domain" }}{{ end }}'
               rules:
                 - path: /
                   to:
@@ -1218,9 +1349,9 @@ spec:
                       port: 80
           - name: '{{ ParentInstallationName }}-mimir'
             spec:
-              exposure: [public]
+              exposure: [{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") }}internal{{ else }}public{{ end }}]
               domains:
-                - 'mimir.{{ input "domain" }}'
+                - 'mimir.{{ if and (eq (input "provisioningMode") "dedicated") (eq (input "exposure") "private") }}{{ EnvironmentInternalDomain }}{{ else }}{{ input "domain" }}{{ end }}'
               rules:
                 - path: /
                   to:
@@ -1228,15 +1359,11 @@ spec:
                       port: 80
           - name: '{{ ParentInstallationName }}-grafana'
             spec:
-              {{- if eq (input "provisioningMode") "dedicated" }}{{ if eq (input "grafanaExposure") "private" }}
+              {{- if and (eq (input "provisioningMode") "dedicated") (or (eq (input "exposure") "private") (eq (input "grafanaExposure") "private")) }}
               exposure: [internal]
               domains:
                 - 'grafana.{{ EnvironmentInternalDomain }}'
               {{- else }}
-              exposure: [public]
-              domains:
-                - 'grafana.{{ input "domain" }}'
-              {{- end }}{{ else }}
               exposure: [public]
               domains:
                 - 'grafana.{{ input "domain" }}'
