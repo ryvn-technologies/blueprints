@@ -3,7 +3,8 @@ data "azurerm_client_config" "current" {}
 locals {
   cluster_name                  = "aks-${var.environment_name}"
   aks_managed_outbound_ip_count = 1
-  use_udr_egress                = var.existing_route_table_id != null
+  use_udr_egress                = var.existing_route_table_id != null || var.egress_firewall.enabled
+  udr_route_table_id            = var.egress_firewall.enabled ? local.egress_route_table_id : var.existing_route_table_id
   tags = merge({
     Environment = var.environment_name
     Terraform   = "true"
@@ -201,6 +202,8 @@ module "aks" {
     azurerm_subnet.existing_vnet_appgw,
     azurerm_subnet.existing_vnet_privatelink,
     azurerm_subnet_route_table_association.node_pool,
+    azurerm_subnet_route_table_association.egress_node_pool,
+    module.egress_firewall,
     azurerm_user_assigned_identity.ryvn_agent
   ]
 }
@@ -241,14 +244,14 @@ resource "azurerm_role_assignment" "aks_network_contributor" {
   ]
 }
 
-# Grant Network Contributor on the caller-supplied route table when UDR egress is
-# enabled. Required by AKS so the control plane can read the route table during
-# cluster operations; the role assignment on the VNet does not extend to a route
-# table that may live in a different resource group.
+# Grant Network Contributor on the UDR route table (caller-supplied or managed
+# egress firewall). AKS needs permissions on the custom outbound route table;
+# the VNet role assignment does not extend to a separately scoped route table.
+# Azure CNI Overlay does not program per-node pod CIDR routes here.
 # https://learn.microsoft.com/en-us/azure/aks/egress-outboundtype
 resource "azurerm_role_assignment" "aks_route_table_contributor" {
   count                = local.use_udr_egress ? 1 : 0
-  scope                = var.existing_route_table_id
+  scope                = local.udr_route_table_id
   role_definition_name = "Network Contributor"
   principal_id         = module.aks.cluster_identity.principal_id
 

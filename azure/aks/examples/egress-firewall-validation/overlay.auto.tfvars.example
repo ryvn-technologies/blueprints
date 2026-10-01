@@ -1,0 +1,46 @@
+location             = "eastus2"
+environment_name     = "egfwEXAMPLE"
+internal_root_domain = "egfwEXAMPLE.internal.example"
+public_root_domain   = "egfwEXAMPLE.public.example"
+cost_analysis_enabled = false
+network_plugin_mode  = "overlay"
+zones                = ["1", "2"]
+tags = {
+  Owner      = "devin-egress-firewall-validation"
+  Disposable = "true"
+  Session    = "<session-id>"
+}
+aks_node_pools = {
+  system      = { node_count = 1, min_count = 1, max_count = 2 }
+  application = { node_count = 1, min_count = 1, max_count = 2 }
+}
+egress_firewall = {
+  enabled            = true
+  cluster_policy_key = "cluster"
+  tier               = "Standard"
+  policies = {
+    cluster = {
+      domain_allow = {
+        https = { domains = ["*.customer.example", "api.github.com", "*.gstatic.com"], protocol = "https" }
+        http  = { domains = ["neverssl.com"], protocol = "http" }
+      }
+      network_allow = {
+        dns_quad9 = {
+          destination_ipv4_cidrs = ["9.9.9.9/32"]
+          protocol               = "tcp"
+          destination_ports      = [53]
+          reason                 = "validation: narrow tcp pinhole"
+        }
+      }
+    }
+    vm = {
+      domain_allow = {
+        https = { domains = ["example.com"], protocol = "https" }
+      }
+    }
+  }
+}
+additional_subnet_groups = [{ name = "api_clients", ipv4_prefix_length = 24 }]
+egress_attachments = {
+  probe_vms = { policy_key = "vm", subnet_group_key = "api_clients" }
+}

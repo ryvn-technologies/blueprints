@@ -6,7 +6,7 @@ environment with this module. The counterparts live in
 
 | File | Purpose |
 |------|---------|
-| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (53 explicit actions). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
+| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (79 explicit actions, including managed egress). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
 | `permissions.go` | Embeds the role so the orchestrator can serve it (same layout as `infra/gke-provision/permissions`) |
 
 ## Identity model
@@ -34,8 +34,9 @@ created *by* the provisioner and is out of scope here (see "IAM-write actions").
 
 ## How the role was derived
 
-Live-validated in a scratch subscription with a fresh managed identity holding only this
-role (no Owner, Contributor, User Access Administrator, or the old wildcard role), federated
+The original 50-action role was live-validated in a scratch subscription with a fresh
+managed identity holding only that role (no Owner, Contributor, User Access Administrator,
+or the old wildcard role), federated
 to a Google service account exactly as above:
 
 1. `terraform apply` of this module (37 resources) with `cluster_bootstrap_perms = true`.
@@ -55,6 +56,12 @@ not record successful reads, so the read actions that remain are justified by th
 code paths (a resource's `Read` after every create, plus refresh on re-apply) rather than by
 log entries.
 
+Managed egress adds explicit firewall/policy, route, public-IP and diagnostics
+permissions to that baseline. Round 7 validated firewall behavior using the fixture
+identity; it does not establish the expanded role's least-privilege E2E coverage.
+Validate the real provisioner identity in the new/existing Ryvn E2E rollout;
+do not substitute administrator credentials for that check.
+
 ## What the provisioner does
 
 | Step | Resources | Actions |
@@ -62,6 +69,8 @@ log entries.
 | Provider bootstrap | subscription, locations (`Azure/regions` module), provider metadata | `Microsoft.Resources/subscriptions/read`, `subscriptions/locations/read`, `providers/read` |
 | Resource group | `ryvn-rg-<env>` | `Microsoft.Resources/subscriptions/resourceGroups/read|write|delete` |
 | Network | VNet (or carve in an existing one), node/appgw/privatelink/postgres subnets, route table association, AKS egress IP lookup | `Microsoft.Network/virtualNetworks/*` (read/write/delete), `virtualNetworks/join/action` (private DNS VNet links), `virtualNetworks/subnets/*` (read/write/delete/join), `routeTables/read|join`, `publicIPAddresses/read` |
+| Managed egress | Firewall, policies, rule collections, public IP and UDRs | Explicit `azureFirewalls`, `firewallPolicies`, `firewallPolicies/ruleCollectionGroups` read/write/delete; policy/public-IP join; route-table/route read/write/delete; public-IP write/delete |
+| Egress diagnostics | Log Analytics workspace and firewall diagnostic setting | `Microsoft.Insights/diagnosticSettings/read|write|delete`, `Microsoft.OperationalInsights/workspaces/read|write|delete|sharedKeys/action` |
 | DNS | public zone, private zones for internal domain, PostgreSQL and Redis, VNet links | `Microsoft.Network/dnszones/read|write|delete`, `dnszones/*/read` (SOA read-back), `privateDnsZones/read|write|delete`, `privateDnsZones/*/read`, `privateDnsZones/virtualNetworkLinks/read|write|delete` |
 | Cluster | AKS with Azure RBAC, workload identity, two node pools | `Microsoft.ContainerService/managedClusters/read|write|delete`, `managedClusters/agentPools/read|write|delete`, `managedClusters/maintenanceConfigurations/read|write|delete` (node OS and auto-upgrade planned maintenance windows), `managedClusters/listClusterUserCredential/action` (called by `azurerm_kubernetes_cluster` on every read), `locations/operations/read`, `locations/operationresults/read` (long-running operation polling) |
 | Identities | ryvn-agent, external-dns (public and private) and cert-manager identities with federated credentials; kubelet identity assignment | `Microsoft.ManagedIdentity/userAssignedIdentities/read|write|delete|assign/action`, `userAssignedIdentities/federatedIdentityCredentials/read|write|delete` |
@@ -72,8 +81,15 @@ log entries.
 Not needed and deliberately absent: `Microsoft.Resources/deployments/*` (no ARM templates),
 resource provider registration (`resource_provider_registrations = "none"`),
 `Microsoft.Compute/*`, `Microsoft.Storage/*`, `Microsoft.KeyVault/*`,
-`Microsoft.OperationalInsights/*`, `Microsoft.Insights/*`, `Microsoft.Authorization/locks/*`,
+`Microsoft.Authorization/locks/*`,
 `Microsoft.Authorization/policyAssignments/*`, DNS record-set writes.
+
+Managed egress also uses explicit `Microsoft.Network/azureFirewalls` and
+`firewallPolicies/ruleCollectionGroups` lifecycle actions, policy join permissions,
+public-IP write/delete/join and route-table/route write/delete permissions.
+Diagnostics require `Microsoft.Insights/diagnosticSettings` read/write/delete and
+`Microsoft.OperationalInsights/workspaces` read/write/delete/sharedKeys actions.
+The JSON is the authoritative complete action list.
 
 ## Why `cluster_bootstrap_perms` must be true
 
@@ -114,7 +130,9 @@ the environment wizard, `GET .../environments/provisioning/azure-setup?subscript
 or `ryvn get azure-setup-script --subscription <id>`; template in
 `internal/provision/azure_setup.go`). It creates or updates the role, then either a
 managed identity with a federated credential (GCP-rooted hub) or a service principal
-(otherwise), and assigns the role at subscription scope. Everything it does is idempotent.
+(otherwise), and assigns the role at subscription scope. Role/federation setup can
+be rerun; secret-backed setup resets the password, which must also be updated in
+the Ryvn connection.
 
 Custom role names are unique per Entra tenant, so the script names the role
 `ryvn-aks-provision-<first 8 chars of the lowercase subscription ID>`. To do the same by
@@ -150,6 +168,17 @@ Subscriptions set up before this role granted `actions: ["*"]` under the plain n
 environments provisioned under it keep using it, new identities get the narrowed role.
 Narrow or delete the legacy role only after every environment in the subscription has been
 re-applied as described below.
+
+### Enabling managed egress on an existing subscription
+
+The setup script embeds this JSON at orchestrator build time. Ship an orchestrator
+release containing the new role before generating updated setup instructions;
+merging Terraform alone does not update a running hub or a customer's role.
+Update the existing custom role before enabling the firewall. Prefer a role-only
+update: rerunning the secret-backed full setup rotates the service-principal
+password and requires updating the Ryvn connection. Provider registration remains
+customer-owned; ensure Network, Insights and OperationalInsights are registered.
+The [egress runbook](../modules/egress-firewall/RUNBOOK.md) covers rollout.
 
 ### Existing clusters: upgrade the module before narrowing the legacy role
 

@@ -43,3 +43,44 @@ func TestProvisionerRoleParses(t *testing.T) {
 		t.Error("role must not grant dataActions")
 	}
 }
+
+// The managed egress firewall (egress_firewall.enabled) needs full lifecycle
+// permissions on the firewall, its policy, SNAT public IP, route table and
+// verdict-log destinations. Each resource type must carry read/write/delete
+// explicitly rather than via wildcards.
+func TestProvisionerRoleCoversEgressFirewallLifecycle(t *testing.T) {
+	role, err := ProvisionerRole()
+	if err != nil {
+		t.Fatalf("ProvisionerRole: %v", err)
+	}
+	actions := role.Permissions[0].Actions
+	lifecycle := []string{
+		"Microsoft.Network/azureFirewalls",
+		"Microsoft.Network/firewallPolicies",
+		"Microsoft.Network/firewallPolicies/ruleCollectionGroups",
+		"Microsoft.Network/publicIPAddresses",
+		"Microsoft.Network/routeTables",
+		"Microsoft.Network/routeTables/routes",
+		"Microsoft.Insights/diagnosticSettings",
+		"Microsoft.OperationalInsights/workspaces",
+	}
+	for _, resource := range lifecycle {
+		for _, verb := range []string{"read", "write", "delete"} {
+			if action := resource + "/" + verb; !slices.Contains(actions, action) {
+				t.Errorf("role must include %q", action)
+			}
+		}
+	}
+	for _, action := range []string{
+		"Microsoft.Network/virtualNetworks/subnets/join/action",
+		"Microsoft.Network/routeTables/join/action",
+		"Microsoft.Network/publicIPAddresses/join/action",
+		"Microsoft.Network/firewallPolicies/join/action",
+		"Microsoft.OperationalInsights/workspaces/sharedKeys/action",
+		"Microsoft.Resources/subscriptions/providers/read",
+	} {
+		if !slices.Contains(actions, action) {
+			t.Errorf("role must include %q", action)
+		}
+	}
+}

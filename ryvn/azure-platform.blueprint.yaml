@@ -75,7 +75,7 @@ spec:
   - service: azure-aks
     config: |
       {{- range $key, $value := .ryvn.env.config }}
-      {{- if ne $key "ebpf_data_plane" }}
+      {{- if and (ne $key "ebpf_data_plane") (ne $key "platform_https_domains") }}
       {{ dict $key $value | toYaml }}
       {{- end }}
       {{- end }}
@@ -83,6 +83,38 @@ spec:
       ebpf_data_plane: cilium
       {{- else }}
       ebpf_data_plane: null
+      {{- end }}
+      platform_https_domains:
+      {{- with index .ryvn.env.config "platform_https_domains" }}
+      {{- range . }}
+      - {{ . | toJson }}
+      {{- end }}
+      {{- end }}
+      {{- range $host := httpsHostnames (Hub "apiUrl") (Hub "issuerUrl") (Hub "tunnelUrl") (input "lokiUrl" | trim | default (Hub "lokiUrl")) (input "mimirUrl" | trim | default (Hub "mimirUrl")) }}
+      - {{ $host | toJson }}
+      {{- end }}
+      {{- if or (input "tokenUrl" | trim) (input "projectId" | trim) (Hub "lokiUrl") }}
+      {{- range $host := httpsHostnames (input "tokenUrl" | trim | default (Hub "tokenUrl")) }}
+      - {{ $host | toJson }}
+      {{- end }}
+      {{- end }}
+      {{- range $host := httpsHostnames ObservabilityDestinations }}
+      - {{ $host | toJson }}
+      {{- end }}
+      {{- with index .ryvn.env.config "egress_firewall" }}
+      {{- if index . "enabled" }}
+      {{- range $endpoint := nonHttpsEndpoints (Hub "apiUrl") (Hub "issuerUrl") (Hub "tunnelUrl") (input "lokiUrl" | trim | default (Hub "lokiUrl")) (input "mimirUrl" | trim | default (Hub "mimirUrl")) }}
+      - {{ $endpoint | toJson }}
+      {{- end }}
+      {{- if or (input "tokenUrl" | trim) (input "projectId" | trim) (Hub "lokiUrl") }}
+      {{- range $endpoint := nonHttpsEndpoints (input "tokenUrl" | trim | default (Hub "tokenUrl")) }}
+      - {{ $endpoint | toJson }}
+      {{- end }}
+      {{- end }}
+      {{- range $endpoint := nonHttpsEndpoints ObservabilityDestinations }}
+      - {{ $endpoint | toJson }}
+      {{- end }}
+      {{- end }}
       {{- end }}
     releaseChannel: stable
   - service: ryvn-admission

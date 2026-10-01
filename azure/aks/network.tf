@@ -227,13 +227,19 @@ resource "azurerm_subnet" "main" {
   for_each = local.use_existing_vnet ? {} : {
     for idx, name in local.subnet_names : name => {
       address_prefixes = [local.subnet_cidrs[idx]]
-      service_endpoints = contains(local.node_pool_subnet_names, name) ? [
+      # Service endpoints install routes more specific than the firewall UDR and
+      # would bypass egress inspection, so managed firewall mode drops them from
+      # node-pool subnets (use private endpoints in privatelink-subnet instead).
+      service_endpoints = contains(local.node_pool_subnet_names, name) && !local.egress_firewall_enabled ? [
         "Microsoft.Storage",
         "Microsoft.ContainerRegistry",
         "Microsoft.Sql",
         "Microsoft.KeyVault"
       ] : []
       private_endpoint_network_policies = name == "privatelink-subnet" ? "Disabled" : "Enabled"
+      # Disable implicit outbound for newly allocated NICs. Existing nodes need
+      # supported replacement/maintenance to remove that fallback; see the runbook.
+      default_outbound_access_enabled = !(contains(local.node_pool_subnet_names, name) && local.egress_firewall_enabled)
     }
   }
 
@@ -243,6 +249,7 @@ resource "azurerm_subnet" "main" {
   address_prefixes                  = each.value.address_prefixes
   service_endpoints                 = each.value.service_endpoints
   private_endpoint_network_policies = each.value.private_endpoint_network_policies
+  default_outbound_access_enabled   = each.value.default_outbound_access_enabled
 }
 
 # ============================================================================

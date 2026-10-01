@@ -90,22 +90,30 @@ output "cert_manager_identity" {
   description = "The managed identity used by cert-manager"
 }
 
-data "azapi_resource" "aks_outbound_public_ip" {
+# AKS creates its managed outbound public IPs in the node resource group with an
+# auto-generated name and tags them aks-managed-type=aks-slb-managed-outbound-ip.
+# Listing the node resource group (instead of indexing the cluster's
+# effective_outbound_ips) keeps the lookup valid across an outbound-type change:
+# the prior state's UDR profile has no outbound IPs yet, and the list runs after
+# the cluster update because of depends_on.
+data "azapi_resource_list" "aks_node_rg_public_ips" {
   # No managed outbound IPs exist when outbound type is userDefinedRouting; egress
   # source IP is whatever the network virtual appliance NATs to.
-  count = local.use_udr_egress ? 0 : local.aks_managed_outbound_ip_count
+  count = local.use_udr_egress ? 0 : 1
 
   type                   = "Microsoft.Network/publicIPAddresses@2023-09-01"
-  resource_id            = tolist(module.aks.network_profile[0].load_balancer_profile[0].effective_outbound_ips)[count.index]
-  response_export_values = ["properties.ipAddress"]
+  parent_id              = module.aks.node_resource_group_id
+  response_export_values = ["value"]
 
   depends_on = [module.aks]
 }
 
 locals {
-  aks_outbound_public_ips = compact([
-    for public_ip in data.azapi_resource.aks_outbound_public_ip :
-    try(public_ip.output.properties.ipAddress, "")
+  aks_slb_managed_outbound_ip_tag = "aks-slb-managed-outbound-ip"
+  aks_outbound_public_ips = var.egress_firewall.enabled ? module.egress_firewall[0].public_ip_addresses : compact([
+    for public_ip in try(one(data.azapi_resource_list.aks_node_rg_public_ips).output.value, []) :
+    try(public_ip.properties.ipAddress, "")
+    if try(public_ip.tags["aks-managed-type"], "") == local.aks_slb_managed_outbound_ip_tag
   ])
 }
 
@@ -183,6 +191,6 @@ output "vnet" {
 }
 
 output "outbound_ips" {
-  description = "Public IPs used for outbound internet traffic from workloads in this environment."
+  description = "Public IPs used for outbound internet traffic from workloads in this environment. With egress_firewall enabled these are the firewall SNAT IPs."
   value       = local.aks_outbound_public_ips
 }

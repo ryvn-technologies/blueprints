@@ -18,12 +18,24 @@ Setting `existing_route_table_id` switches the cluster's outbound type to
 table's UDRs decide where traffic goes. `outbound_ips` is then empty, because the
 public source address is whatever the network appliance NATs to.
 
+For root-owned VNets, `egress_firewall.enabled = true` instead creates an Azure
+Firewall with default-deny external IPv4 egress and source-scoped AKS and
+external policy classes. The cluster uses UDR outbound; its platform HTTPS/443
+hosts are supplied separately from customer rules. `additional_subnet_groups`
+allocates ordered, append-only external subnets independently of the firewall;
+`egress_attachments` maps a group to a named policy. Unattached groups have
+`0.0.0.0/0 -> None` and Azure default outbound access disabled. See the
+[egress firewall reference](modules/egress-firewall/README.md) and
+[operator runbook](modules/egress-firewall/RUNBOOK.md) for inputs, limits, migration
+and teardown.
+
 ## What's Included
 
-- **Network**: a VNet (or a carve inside an existing one) with per-AZ private
-  node subnets plus subnets for Application Gateway and private endpoints,
-  service endpoints for the managed data services, and route table
-  associations. `NETWORKING_EXAMPLES.md` works through the address math for
+- **Network**: a VNet (or a carve inside an existing one) with regional node-pool
+  subnets plus subnets for Application Gateway and private endpoints,
+  service endpoints in the default networking mode, and route-table
+  associations. Managed firewall mode removes node-subnet service endpoints.
+  `NETWORKING_EXAMPLES.md` works through the address math for
   `/16`, `/20` and `/23` ranges in both CNI modes.
 - **Cluster**: AKS Standard with Azure CNI (overlay by default), Azure network
   policy, Azure Policy, OIDC issuer and Workload Identity, Entra-integrated
@@ -64,13 +76,19 @@ public source address is whatever the network appliance NATs to.
 | `key_vault_secrets_provider_enabled` | Key Vault Secrets Store CSI add-on | `true` |
 | `cluster_bootstrap_perms` | Grant the Terraform identity cluster admin for bootstrap | `false` |
 | `tags` | Extra tags, merged with the module's own | `{}` |
+| `egress_firewall` | Managed default-deny policy, named HTTP/HTTPS and IPv4 network rules, Standard/Premium tier | disabled |
+| `platform_https_domains` | Exact additional HTTPS/443 platform hosts for cluster sources | `[]` |
+| `additional_subnet_groups` | Ordered subnet allocation ledger (name, IPv4 prefix, retired flag) | `[]` |
+| `egress_attachments` | Named policy assignments to active allocated subnet groups | `{}` |
 
 ## Outputs
 
 `cluster` (name, endpoint, CA data, OIDC issuer and node resource group),
 `vnet`, `resource_group`, `subscription`, `public_domain`, `internal_domain`,
 `outbound_ips`, and the client IDs of the Ryvn agent, external-dns and
-cert-manager identities.
+cert-manager identities. `additional_subnet_groups` lists active allocated
+subnets even with the firewall disabled; `egress_firewall` reports enabled
+status, protected attachments, native Azure references and effective rules.
 
 ## Provisioner Permissions
 
@@ -87,7 +105,10 @@ Entra token evaluated by Azure RBAC for Kubernetes.
 `network_plugin_mode`, the VNet address space and the subnet layout are fixed
 after creation — switching CNI modes or resizing the carve means replacing the
 cluster. Because the node resource group name is derived from the environment
-name, renaming an environment is also a replacement.
+name, renaming an environment is also a replacement. Applied `additional_subnet_groups`
+entries cannot be renamed, reordered or resized; retirement reserves their space.
+Their allocation records deliberately block ordinary environment destruction until
+explicitly released; see the [egress runbook](modules/egress-firewall/RUNBOOK.md).
 
 The module is synced to `ryvn-technologies/blueprints` under `azure/aks` on
 every merge to `main`.
