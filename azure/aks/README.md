@@ -49,6 +49,10 @@ and teardown.
   custom subscription-scoped role), external-dns (public and private zones
   separately) and cert-manager, each federated to its in-cluster service
   account.
+- **Control-plane logs**: a Log Analytics workspace and an AKS diagnostic setting
+  collect `kube-apiserver`, `kube-controller-manager`, `kube-scheduler`,
+  `cluster-autoscaler`, `guard`, and full `kube-audit` logs automatically.
+  Logs use the resource-specific `AKSControlPlane` and `AKSAudit` tables.
 - **DNS**: a public DNS zone, a private zone for the internal domain, and
   private zones for PostgreSQL Flexible Server and Redis so the managed
   data-service blueprints can attach private endpoints. All private zones are
@@ -72,6 +76,7 @@ and teardown.
 | `existing_route_table_id` | Associate node subnets with an existing route table and use UDR egress | `null` |
 | `aks_node_pools` | Node pool overrides, merged with the defaults | `{}` |
 | `zones` | Availability zones for the node pools | `null` (all zones in the region) |
+| `control_plane_log_retention_days` | Retention for control-plane and full audit logs, in whole days from 30 to 730 | `30` |
 | `cost_analysis_enabled` | AKS cost analysis add-on | `true` |
 | `key_vault_secrets_provider_enabled` | Key Vault Secrets Store CSI add-on | `true` |
 | `cluster_bootstrap_perms` | Grant the Terraform identity cluster admin for bootstrap | `false` |
@@ -89,6 +94,20 @@ and teardown.
 cert-manager identities. `additional_subnet_groups` lists active allocated
 subnets even with the firewall disabled; `egress_firewall` reports enabled
 status, protected attachments, native Azure references and effective rules.
+
+## Control-plane logging
+
+The workspace is in the environment's resource group, uses Entra
+workspace permissions for access, and retains logs for 30 days by default.
+Full `kube-audit` includes read events and incurs Log Analytics ingestion and
+retention charges. Azure's managed audit policy still determines which requests
+and details are recorded.
+
+The workspace belongs to the environment lifecycle. A long-term archive must
+be managed separately if its logs need to outlive environment deletion.
+Container Insights, workload collection, and metrics are unchanged. Before
+upgrading an existing environment, update its provisioner role and register the
+logging providers as described in [Provisioner permissions](permissions/README.md).
 
 ## Provisioner Permissions
 

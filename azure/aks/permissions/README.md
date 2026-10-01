@@ -6,7 +6,7 @@ environment with this module. The counterparts live in
 
 | File | Purpose |
 |------|---------|
-| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (79 explicit actions, including managed egress). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
+| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (80 explicit actions, including managed egress and control-plane logging). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
 | `permissions.go` | Embeds the role so the orchestrator can serve it (same layout as `infra/gke-provision/permissions`) |
 
 ## Identity model
@@ -73,6 +73,7 @@ do not substitute administrator credentials for that check.
 | Egress diagnostics | Log Analytics workspace and firewall diagnostic setting | `Microsoft.Insights/diagnosticSettings/read|write|delete`, `Microsoft.OperationalInsights/workspaces/read|write|delete|sharedKeys/action` |
 | DNS | public zone, private zones for internal domain, PostgreSQL and Redis, VNet links | `Microsoft.Network/dnszones/read|write|delete`, `dnszones/*/read` (SOA read-back), `privateDnsZones/read|write|delete`, `privateDnsZones/*/read`, `privateDnsZones/virtualNetworkLinks/read|write|delete` |
 | Cluster | AKS with Azure RBAC, workload identity, two node pools | `Microsoft.ContainerService/managedClusters/read|write|delete`, `managedClusters/agentPools/read|write|delete`, `managedClusters/maintenanceConfigurations/read|write|delete` (node OS and auto-upgrade planned maintenance windows), `managedClusters/listClusterUserCredential/action` (called by `azurerm_kubernetes_cluster` on every read), `locations/operations/read`, `locations/operationresults/read` (long-running operation polling) |
+| Control-plane logs | Log Analytics workspace `log-aks-<env>`, diagnostic setting on the cluster (`logging.tf`) | `Microsoft.OperationalInsights/workspaces/read|write|delete`, `workspaces/sharedKeys/action` (diagnostic destination attachment), `deletedworkspaces/read` (the provider lists soft-deleted workspaces before create), `Microsoft.Insights/diagnosticSettings/read|write|delete` |
 | Identities | ryvn-agent, external-dns (public and private) and cert-manager identities with federated credentials; kubelet identity assignment | `Microsoft.ManagedIdentity/userAssignedIdentities/read|write|delete|assign/action`, `userAssignedIdentities/federatedIdentityCredentials/read|write|delete` |
 | Roles and assignments | agent custom role; Network Contributor / DNS Zone Contributor / Private DNS Zone Contributor / AKS RBAC Cluster Admin assignments | `Microsoft.Authorization/roleDefinitions/read|write|delete`, `roleAssignments/read|write|delete` |
 | Agent bootstrap (hub) | Kubernetes objects over the API server | none: authorised by the module's `Azure Kubernetes Service RBAC Cluster Admin` assignment, evaluated by Azure RBAC for Kubernetes; no `dataActions` |
@@ -81,8 +82,22 @@ do not substitute administrator credentials for that check.
 Not needed and deliberately absent: `Microsoft.Resources/deployments/*` (no ARM templates),
 resource provider registration (`resource_provider_registrations = "none"`),
 `Microsoft.Compute/*`, `Microsoft.Storage/*`, `Microsoft.KeyVault/*`,
-`Microsoft.Authorization/locks/*`,
-`Microsoft.Authorization/policyAssignments/*`, DNS record-set writes.
+workspace query actions or `dataActions`, `Microsoft.Insights/diagnosticSettingsCategories/*`,
+`Microsoft.Authorization/locks/*`, `Microsoft.Authorization/policyAssignments/*`, DNS
+record-set writes.
+
+`Microsoft.OperationalInsights/workspaces/sharedKeys/action` is required with
+`workspaces/read` to attach the workspace as a diagnostic-settings destination, as
+[Microsoft documents in custom role example 3](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/manage-access#custom-role-examples).
+AzureRM reads the shared keys and stores them in Terraform state. The control-plane workspace sets `local_authentication_enabled = false`, so its keys
+cannot authenticate ingestion. It also disables resource-only log access and grants no
+workspace query actions or `dataActions` to the provisioner.
+
+`Microsoft.OperationalInsights` and `Microsoft.Insights` must be registered in the
+subscription before provisioning. The customer-run setup registers both namespaces on
+every run and waits for completion. Registration is safe to repeat; a failed registration
+stops setup. The hub's provisioner receives no registration permission;
+`resource_provider_registrations = "none"` remains set.
 
 Managed egress also uses explicit `Microsoft.Network/azureFirewalls` and
 `firewallPolicies/ruleCollectionGroups` lifecycle actions, policy join permissions,
@@ -128,11 +143,11 @@ mistakes and against blast radius outside the actions listed. Levers, cheapest f
 The orchestrator renders a setup script from this role for a subscription (Azure panel in
 the environment wizard, `GET .../environments/provisioning/azure-setup?subscriptionId=`,
 or `ryvn get azure-setup-script --subscription <id>`; template in
-`internal/provision/azure_setup.go`). It creates or updates the role, then either a
-managed identity with a federated credential (GCP-rooted hub) or a service principal
-(otherwise), and assigns the role at subscription scope. Role/federation setup can
-be rerun; secret-backed setup resets the password, which must also be updated in
-the Ryvn connection.
+`internal/provision/azure_setup.go`). It first registers the logging resource providers,
+then creates or updates the role, then either a managed identity with a federated
+credential (GCP-rooted hub) or a service principal (otherwise), and assigns the role at
+subscription scope. Provider registration and role updates are idempotent. Re-running
+the client-secret path creates a new password, which must be updated in Ryvn.
 
 Custom role names are unique per Entra tenant, so the script names the role
 `ryvn-aks-provision-<first 8 chars of the lowercase subscription ID>`. To do the same by
@@ -144,6 +159,8 @@ ROLE_NAME="ryvn-aks-provision-$(printf %.8s "$SUBSCRIPTION_ID")"
 jq --arg n "$ROLE_NAME" --arg s "$SUBSCRIPTION_ID" \
   '. + {name: $n, roleName: $n, assignableScopes: ["/subscriptions/\($s)"]}' \
   provisioner-role.json > /tmp/ryvn-aks-provision.json
+az provider register --namespace Microsoft.OperationalInsights --wait -o none
+az provider register --namespace Microsoft.Insights --wait -o none
 az role definition create --role-definition @/tmp/ryvn-aks-provision.json \
   || az role definition update --role-definition @/tmp/ryvn-aks-provision.json
 ```
@@ -168,6 +185,30 @@ Subscriptions set up before this role granted `actions: ["*"]` under the plain n
 environments provisioned under it keep using it, new identities get the narrowed role.
 Narrow or delete the legacy role only after every environment in the subscription has been
 re-applied as described below.
+
+### Upgrading existing subscriptions
+
+Before applying the module with automatic control-plane logging, existing subscriptions
+must register both logging providers. Provisioners using the narrowed role also need the
+logging actions in the current role definition. Run the commands below as the subscription owner with the
+updated `provisioner-role.json`. They update permissions without creating an identity or
+rotating its secret:
+
+```bash
+SUBSCRIPTION_ID=$(az account show --query id -o tsv | tr 'A-Z' 'a-z')
+ROLE_NAME="ryvn-aks-provision-$(printf %.8s "$SUBSCRIPTION_ID")"
+az provider register --namespace Microsoft.OperationalInsights --wait -o none
+az provider register --namespace Microsoft.Insights --wait -o none
+jq --arg n "$ROLE_NAME" --arg s "$SUBSCRIPTION_ID" \
+  '. + {name: $n, roleName: $n, assignableScopes: ["/subscriptions/\($s)"]}' \
+  provisioner-role.json > /tmp/ryvn-aks-provision.json
+az role definition update --role-definition @/tmp/ryvn-aks-provision.json
+```
+
+For identities still assigned to the legacy wildcard role, register both providers and
+leave that role unchanged until the cluster migration below is complete. Re-running the
+full setup script also applies the logging prerequisites, but its client-secret path
+rotates the password and requires updating the saved credentials in Ryvn.
 
 ### Enabling managed egress on an existing subscription
 

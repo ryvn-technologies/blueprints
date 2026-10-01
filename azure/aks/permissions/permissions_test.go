@@ -44,6 +44,42 @@ func TestProvisionerRoleParses(t *testing.T) {
 	}
 }
 
+// Logging resources must survive create, destination attachment, refresh and
+// teardown. Shared-key access is required for diagnostic destination attachment;
+// workspace queries, data access and provider registration remain ungranted.
+func TestProvisionerRoleControlPlaneLogging(t *testing.T) {
+	role, err := ProvisionerRole()
+	if err != nil {
+		t.Fatalf("ProvisionerRole: %v", err)
+	}
+	actions := role.Permissions[0].Actions
+	loggingActions := []string{
+		"Microsoft.OperationalInsights/workspaces/read",
+		"Microsoft.OperationalInsights/workspaces/write",
+		"Microsoft.OperationalInsights/workspaces/delete",
+		"Microsoft.OperationalInsights/workspaces/sharedKeys/action",
+		"Microsoft.OperationalInsights/deletedworkspaces/read",
+		"Microsoft.Insights/diagnosticSettings/read",
+		"Microsoft.Insights/diagnosticSettings/write",
+		"Microsoft.Insights/diagnosticSettings/delete",
+	}
+	for _, action := range loggingActions {
+		if !slices.Contains(actions, action) {
+			t.Errorf("role must include %s", action)
+		}
+	}
+	for _, action := range actions {
+		if strings.HasPrefix(action, "Microsoft.OperationalInsights/") || strings.HasPrefix(action, "Microsoft.Insights/") {
+			if !slices.Contains(loggingActions, action) {
+				t.Errorf("role grants unnecessary logging action %q", action)
+			}
+		}
+		if strings.HasSuffix(strings.ToLower(action), "/register/action") {
+			t.Errorf("role grants provider registration action %q", action)
+		}
+	}
+}
+
 // The managed egress firewall (egress_firewall.enabled) needs full lifecycle
 // permissions on the firewall, its policy, SNAT public IP, route table and
 // verdict-log destinations. Each resource type must carry read/write/delete

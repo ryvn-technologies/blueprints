@@ -1,6 +1,6 @@
 {
   "roleName": "ryvn-aks-provision",
-  "description": "Provisions and deprovisions Ryvn AKS environments: resource group, VNet, DNS zones, AKS, managed identities and their role assignments.",
+  "description": "Provisions and deprovisions Ryvn AKS environments: resource group, VNet, DNS zones, AKS, control-plane logging, managed identities and their role assignments.",
   "assignableScopes": [
     "/subscriptions/<subscriptionId>"
   ],
@@ -73,6 +73,7 @@
         "Microsoft.ContainerService/managedClusters/maintenanceConfigurations/delete",
         "Microsoft.ContainerService/locations/operations/read",
         "Microsoft.ContainerService/locations/operationresults/read",
+        "Microsoft.OperationalInsights/deletedworkspaces/read",
         "Microsoft.ManagedIdentity/userAssignedIdentities/read",
         "Microsoft.ManagedIdentity/userAssignedIdentities/write",
         "Microsoft.ManagedIdentity/userAssignedIdentities/delete",

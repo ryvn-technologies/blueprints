@@ -134,6 +134,26 @@ variable "key_vault_secrets_provider_enabled" {
   description = "Enable the Azure Key Vault Provider for Secrets Store CSI Driver add-on, letting workloads mount Key Vault secrets as CSI volumes. Installs the CSI driver and Azure provider on the cluster and creates an addon-owned managed identity in the node resource group. Does not create or modify any Key Vault. Secret rotation is left at the module defaults (disabled, 2m poll)."
 }
 
+variable "control_plane_log_retention_days" {
+  type        = number
+  default     = 30
+  nullable    = false
+  description = "Days to retain AKS control-plane and full audit logs in Log Analytics. Must be a whole number from 30 to 730."
+
+  validation {
+    condition = (
+      var.control_plane_log_retention_days >= 30 &&
+      var.control_plane_log_retention_days <= 730
+    )
+    error_message = "control_plane_log_retention_days must be between 30 and 730."
+  }
+
+  validation {
+    condition     = floor(var.control_plane_log_retention_days) == var.control_plane_log_retention_days
+    error_message = "control_plane_log_retention_days must be a whole number."
+  }
+}
+
 variable "aks_node_pools" {
   description = "Map of AKS node pool definitions to create. Values will be merged with defaults if not specified."
   type = map(object({
