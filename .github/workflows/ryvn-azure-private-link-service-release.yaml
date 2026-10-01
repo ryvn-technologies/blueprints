@@ -1,0 +1,24 @@
+name: Build & Release azure-private-link-service
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "azure/private-link-service/**"
+      - ".github/workflows/ryvn-azure-private-link-service-release.yaml"
+  pull_request:
+    paths:
+      - "azure/private-link-service/**"
+      - ".github/workflows/ryvn-azure-private-link-service-release.yaml"
+
+jobs:
+  release:
+    uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
+    with:
+      service_name: azure-private-link-service
+      tag_prefix: azure-private-link-service@
+    permissions:
+      contents: write
+      id-token: write
