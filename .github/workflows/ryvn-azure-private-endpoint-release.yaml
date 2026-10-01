@@ -1,0 +1,24 @@
+name: Build & Release azure-private-endpoint
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "azure/private-endpoint/**"
+      - ".github/workflows/ryvn-azure-private-endpoint-release.yaml"
+  pull_request:
+    paths:
+      - "azure/private-endpoint/**"
+      - ".github/workflows/ryvn-azure-private-endpoint-release.yaml"
+
+jobs:
+  release:
+    uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
+    with:
+      service_name: azure-private-endpoint
+      tag_prefix: azure-private-endpoint@
+    permissions:
+      contents: write
+      id-token: write
