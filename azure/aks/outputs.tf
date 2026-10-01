@@ -186,3 +186,8 @@ output "outbound_ips" {
   description = "Public IPs used for outbound internet traffic from workloads in this environment."
   value       = local.aks_outbound_public_ips
 }
+
+output "cni" {
+  description = "Network plugin: azure, or cilium for Azure CNI Powered by Cilium."
+  value       = var.ebpf_data_plane == "cilium" ? "cilium" : "azure"
+}

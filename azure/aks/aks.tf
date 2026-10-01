@@ -205,6 +205,38 @@ module "aks" {
   ]
 }
 
+# From Kubernetes 1.37 AKS turns LocalDNS on by default, moving pod DNS to a node address Ryvn network policy doesn't
+# allow, so Cilium clusters keep it off. Changing the setting reimages the pool. The module's own LocalDNS inputs apply
+# once and miss a pool it replaces under a new name, so this applies again whenever a pool's name or config changes.
+locals {
+  local_dns_disabled_pools = { for name, pool in local.merged_node_pools : name => pool if var.ebpf_data_plane == "cilium" }
+}
+
+resource "terraform_data" "local_dns_pool" {
+  for_each = local.local_dns_disabled_pools
+
+  input = {
+    name   = each.key == "system" ? each.value.name : module.aks.node_pool_name[each.key]
+    config = each.value
+  }
+}
+
+resource "azapi_update_resource" "local_dns_disabled" {
+  for_each = local.local_dns_disabled_pools
+
+  type        = "Microsoft.ContainerService/managedClusters/agentPools@2025-09-01"
+  resource_id = "${module.aks.aks_id}/agentPools/${terraform_data.local_dns_pool[each.key].output.name}"
+  body = {
+    properties = {
+      localDNSProfile = { mode = "Disabled" }
+    }
+  }
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.local_dns_pool[each.key]]
+  }
+}
+
 # Grant cluster admin permissions to the terraform executor if bootstrap perms are enabled
 resource "azurerm_role_assignment" "cluster_admin" {
   count                = var.cluster_bootstrap_perms ? 1 : 0

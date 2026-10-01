@@ -69,8 +69,8 @@ public source address is whatever the network appliance NATs to.
 
 `cluster` (name, endpoint, CA data, OIDC issuer and node resource group),
 `vnet`, `resource_group`, `subscription`, `public_domain`, `internal_domain`,
-`outbound_ips`, and the client IDs of the Ryvn agent, external-dns and
-cert-manager identities.
+`outbound_ips`, `cni` (`azure`, or `cilium` with managed Cilium), and the client
+IDs of the Ryvn agent, external-dns and cert-manager identities.
 
 ## Provisioner Permissions
 

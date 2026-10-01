@@ -42,6 +42,11 @@ run "legacy_networking_is_the_default" {
     )
     error_message = "The default must preserve legacy networking without enabling ACNS."
   }
+
+  assert {
+    condition     = output.cni == "azure"
+    error_message = "Without managed Cilium the cni output must be azure."
+  }
 }
 
 run "managed_cilium_configures_data_plane_and_policy" {
@@ -67,6 +72,38 @@ run "managed_cilium_configures_data_plane_and_policy" {
   assert {
     condition     = try(module.aks.network_profile[0].advanced_networking[0].observability_enabled, false)
     error_message = "Managed Cilium must enable ACNS observability for Hubble network metrics."
+  }
+
+  assert {
+    condition     = output.cni == "cilium"
+    error_message = "Managed Cilium must report cni cilium, which the gateway blueprint reads to declare the azure-cilium network-policy dataplane."
+  }
+}
+
+run "managed_cilium_disables_local_dns_on_every_pool" {
+  command = plan
+
+  variables {
+    ebpf_data_plane = "cilium"
+  }
+
+  assert {
+    condition     = toset(keys(azapi_update_resource.local_dns_disabled)) == toset(["system", "application"])
+    error_message = "Managed Cilium must pin LocalDNS on the system pool and every other pool."
+  }
+
+  assert {
+    condition     = alltrue([for pool in values(azapi_update_resource.local_dns_disabled) : pool.body.properties.localDNSProfile.mode == "Disabled"])
+    error_message = "LocalDNS must be Disabled, which AKS keeps on Kubernetes 1.37 and later."
+  }
+}
+
+run "legacy_networking_leaves_local_dns_alone" {
+  command = plan
+
+  assert {
+    condition     = length(azapi_update_resource.local_dns_disabled) == 0
+    error_message = "Without managed Cilium no pool's LocalDNS setting may change."
   }
 }
 
