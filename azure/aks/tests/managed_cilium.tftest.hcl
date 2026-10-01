@@ -42,6 +42,11 @@ run "legacy_networking_is_the_default" {
     )
     error_message = "The default must preserve legacy networking without enabling ACNS."
   }
+
+  assert {
+    condition     = output.cni == "azure"
+    error_message = "Without managed Cilium the cni output must be azure."
+  }
 }
 
 run "managed_cilium_configures_data_plane_and_policy" {
@@ -67,6 +72,11 @@ run "managed_cilium_configures_data_plane_and_policy" {
   assert {
     condition     = try(module.aks.network_profile[0].advanced_networking[0].observability_enabled, false)
     error_message = "Managed Cilium must enable ACNS observability for Hubble network metrics."
+  }
+
+  assert {
+    condition     = output.cni == "cilium"
+    error_message = "Managed Cilium must report cni cilium, which the gateway blueprint reads to declare the azure-cilium network-policy dataplane."
   }
 }
 
