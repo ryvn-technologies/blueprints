@@ -6,12 +6,12 @@ spec:
   description: |
     Shares this environment's internal services with other environments over a private link.
 
-    This blueprint is opinionated. It attaches a private link (Private Service Connect on GCP, PrivateLink on AWS) to the internal load balancer in front of Ryvn's managed internal gateway, and the gateway routes each request to a service by hostname. Connected environments call a service at the same internal URL it has here, like `https://<name>.<publisherDomain>`, and traffic stays on the cloud's private network.
+    This blueprint is opinionated. It attaches a private link (Private Service Connect on GCP, PrivateLink on AWS, or Azure Private Link) to the internal load balancer in front of Ryvn's managed internal gateway, and the gateway routes each request to a service by hostname. Connected environments call a service at the same internal URL it has here, like `https://<name>.<publisherDomain>`, and traffic stays on the cloud's private network.
 
     ## Setup
 
     1. Install this blueprint once, on the environment that runs the services.
-    2. Allow the environments that will connect. They must be on the same cloud as this environment, and on GCP in the same region. Environments in this GCP project or AWS account are allowed by default. List other projects in `gcpAllowedProjects`, or other accounts in `awsAllowedPrincipals`. On AWS, list other regions in `awsAllowedConsumerRegions`.
+    2. Allow the environments that will connect. They must be on the same cloud as this environment, and on GCP in the same region. Environments in this GCP project, AWS account, or Azure subscription are allowed by default. List other projects in `gcpAllowedProjects`, other accounts in `awsAllowedPrincipals`, or other subscriptions in `azureAllowedSubscriptions`. On AWS, list other regions in `awsAllowedConsumerRegions`.
     3. Install Private Service Consumer on each connecting environment with this installation's `publisherId` and `publisherDomain` outputs.
 
     To add an environment later, allow it here before you install Private Service Consumer there.
@@ -25,7 +25,7 @@ spec:
     - The link carries HTTP, including gRPC. It doesn't carry other protocols, like direct database connections.
     - Every internal Route here is reachable from every connected environment.
     - Requests arrive from the link's addresses, so services can't tell callers apart by IP. Use authentication to control who can call a service.
-    - To disconnect an environment, uninstall Private Service Consumer there, then remove it from the allowed lists. On AWS, removing it from the lists alone doesn't disconnect it.
+    - To disconnect an environment, uninstall Private Service Consumer there, then remove it from the allowed lists. On AWS and Azure, removing it from the lists alone doesn't disconnect it.
     - Uninstall Private Service Consumer everywhere before you uninstall this blueprint or delete this environment.
   displayName: Private Service Publisher
   inputs:
@@ -47,6 +47,12 @@ spec:
       description: Other AWS regions that connecting environments may be in. This environment's own region is always allowed.
       displayName: Allowed Consumer Regions
       condition: '{{ eq EnvironmentProviderType "aws" }}'
+    - name: azureAllowedSubscriptions
+      type: array
+      default: []
+      description: Azure subscription IDs allowed to connect. Leave empty to allow only this environment's subscription. If you set it, list this subscription too when environments in it connect.
+      displayName: Allowed Subscriptions
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
     - name: gcpNatSubnetCidr
       type: string
       default: 198.18.0.0/28
@@ -57,7 +63,7 @@ spec:
   outputs:
     - name: publisherId
       type: string
-      from: '{{ if eq EnvironmentProviderType "aws" }}{{ (serviceInstallation "link").outputs.endpoint_service_name }}{{ else }}{{ (serviceInstallation "link").outputs.publisher_id }}{{ end }}'
+      from: '{{ if eq EnvironmentProviderType "aws" }}{{ (serviceInstallation "link").outputs.endpoint_service_name }}{{ else if eq EnvironmentProviderType "azure" }}{{ (serviceInstallation "link").outputs.private_link_service_id }}{{ else }}{{ (serviceInstallation "link").outputs.publisher_id }}{{ end }}'
       description: Set as `publisherId` on Private Service Consumer.
       displayName: Publisher ID
     - name: publisherDomain
@@ -95,5 +101,24 @@ spec:
         acceptance_required: false
         allowed_principals: {{ input "awsAllowedPrincipals" | toJson }}
         supported_regions: {{ input "awsAllowedConsumerRegions" | toJson }}
+      releaseChannel: stable
+    - service: azure-private-link-service
+      name: '{{ ParentInstallationName }}'
+      alias: link
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        name_prefix: '{{ ParentInstallationName }}'
+        location: '{{ .ryvn.env.state.resource_group.location }}'
+        resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
+        virtual_network_id: '{{ .ryvn.env.state.vnet.id }}'
+        nat_subnet_address_range: '{{ .ryvn.env.state.vnet.service_subnet_pool_cidr }}'
+        visibility_subscription_ids: {{ input "azureAllowedSubscriptions" | toJson }}
+        auto_approval_subscription_ids: {{ if input "azureAllowedSubscriptions" }}{{ input "azureAllowedSubscriptions" | toJson }}{{ else }}['{{ .ryvn.env.state.subscription.subscription_id }}']{{ end }}
+        load_balancer_name: kubernetes-internal
+        kubernetes_service:
+          cluster_id: '{{ .ryvn.env.state.cluster.id }}'
+          namespace: ryvn-system
+          name: internal-ryvn-istio
       releaseChannel: stable
   distribution: marketplace-managed

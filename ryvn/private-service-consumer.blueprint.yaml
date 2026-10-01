@@ -6,13 +6,13 @@ spec:
   description: |
     Connects this environment to a Private Service Publisher, so installations here can call services in the publisher's environment over a private link.
 
-    The link runs over the cloud's private network (Private Service Connect on GCP, PrivateLink on AWS) to the internal gateway of the publisher's environment. Installations here call a service at the same internal URL it has there, like `https://<name>.<publisherDomain>`.
+    The link runs over the cloud's private network (Private Service Connect on GCP, PrivateLink on AWS, or Azure Private Link) to the internal gateway of the publisher's environment. Installations here call a service at the same internal URL it has there, like `https://<name>.<publisherDomain>`.
 
     ## Setup
 
-    1. Get the `publisherId` and `publisherDomain` outputs of the Private Service Publisher you want to reach. It must be on the same cloud as this environment, and on GCP in the same region. If this environment is in another GCP project or AWS account, or in another AWS region, the publisher must allow it first.
+    1. Get the `publisherId` and `publisherDomain` outputs of the Private Service Publisher you want to reach. It must be on the same cloud as this environment, and on GCP in the same region. If this environment is in another GCP project, AWS account, or Azure subscription, or in another AWS region, the publisher must allow it first.
     2. Install this blueprint with those two values, copied exactly.
-    3. Check `linkState`. It shows `ACCEPTED` on GCP or `available` on AWS once the publisher accepts the connection.
+    3. Check `linkState`. It shows `ACCEPTED` on GCP, `available` on AWS, or `Approved` on Azure once the publisher accepts the connection.
 
     Each install connects to one publisher. To reach more, install this once per publisher.
 
@@ -40,12 +40,12 @@ spec:
   outputs:
     - name: consumerId
       type: string
-      from: '{{ if eq EnvironmentProviderType "aws" }}{{ (serviceInstallation "link").outputs.vpc_endpoint_id }}{{ else }}{{ (serviceInstallation "link").outputs.consumer_id }}{{ end }}'
+      from: '{{ if eq EnvironmentProviderType "aws" }}{{ (serviceInstallation "link").outputs.vpc_endpoint_id }}{{ else if eq EnvironmentProviderType "azure" }}{{ (serviceInstallation "link").outputs.private_endpoint_id }}{{ else }}{{ (serviceInstallation "link").outputs.consumer_id }}{{ end }}'
       description: Endpoint this environment connects through.
       displayName: Consumer ID
     - name: linkState
       type: string
-      from: '{{ if eq EnvironmentProviderType "aws" }}{{ (serviceInstallation "link").outputs.vpc_endpoint_state }}{{ else }}{{ (serviceInstallation "link").outputs.link_state }}{{ end }}'
+      from: '{{ if eq EnvironmentProviderType "aws" }}{{ (serviceInstallation "link").outputs.vpc_endpoint_state }}{{ else if eq EnvironmentProviderType "azure" }}{{ (serviceInstallation "link").outputs.private_endpoint_connection_state }}{{ else }}{{ (serviceInstallation "link").outputs.link_state }}{{ end }}'
       description: Whether the publisher accepted the connection.
       displayName: Link State
   installations:
@@ -75,5 +75,19 @@ spec:
         name_prefix: '{{ ParentInstallationName }}'
         endpoint_service_name: '{{ input "publisherId" | trim }}'
         private_hosted_zone_name: '{{ input "publisherDomain" | trim }}'
+      releaseChannel: stable
+    - service: azure-private-endpoint
+      name: '{{ ParentInstallationName }}'
+      alias: link
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        name_prefix: '{{ ParentInstallationName }}'
+        location: '{{ .ryvn.env.state.resource_group.location }}'
+        resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
+        virtual_network_id: '{{ .ryvn.env.state.vnet.id }}'
+        subnet_id: '{{ .ryvn.env.state.vnet.private_endpoint_subnet.id }}'
+        private_link_service_id: '{{ input "publisherId" | trim }}'
+        private_dns_zone_name: '{{ input "publisherDomain" | trim }}'
       releaseChannel: stable
   distribution: marketplace-managed
