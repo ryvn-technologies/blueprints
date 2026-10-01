@@ -406,6 +406,45 @@ variable "cilium_chart_version" {
   }
 }
 
+variable "cilium_values" {
+  description = "Cilium Helm values. Set by the platform blueprint; this module adds the cluster's own details."
+  type        = any
+  # Not required: environments on an older platform blueprint don't pass it.
+  default = null
+
+  validation {
+    condition     = var.cni != "cilium" || var.cilium_values != null
+    error_message = "cilium_values is required when cni is cilium."
+  }
+
+  validation {
+    condition     = var.cilium_values == null || can(keys(var.cilium_values))
+    error_message = "cilium_values must be a map of Helm values."
+  }
+
+  validation {
+    condition = var.cilium_values == null || alltrue([
+      try(var.cilium_values.eni.iamRole, null) == null,
+      try(var.cilium_values.eni.gcTags["io.cilium/cluster-name"], null) == null,
+      try(var.cilium_values.eni.nodeSpec.subnetIDs, null) == null,
+      try(var.cilium_values.eni.nodeSpec.subnetTags, null) == null,
+      try(var.cilium_values.k8sServiceHost, null) == null,
+      try(var.cilium_values.k8sServicePort, null) == null,
+      alltrue([for env in try(var.cilium_values.operator.extraEnv, []) : try(env.name, null) != "AWS_DEFAULT_REGION"]),
+    ])
+    error_message = <<-EOT
+      cilium_values sets a reserved key. Reserved keys are set automatically during provisioning:
+        - eni.iamRole
+        - eni.gcTags["io.cilium/cluster-name"]
+        - eni.nodeSpec.subnetIDs
+        - eni.nodeSpec.subnetTags
+        - k8sServiceHost
+        - k8sServicePort
+        - operator.extraEnv entry named AWS_DEFAULT_REGION
+    EOT
+  }
+}
+
 variable "cilium_repair" {
   description = "Force reinstall Cilium, even if a Ryvn installation has adopted it."
   type        = bool

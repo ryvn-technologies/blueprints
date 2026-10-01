@@ -114,9 +114,9 @@ spec:
   - service: aws-eks-karpenter
     condition: '{{ not (input "legacy") }}'
     config: |
-      # The ryvn-init image and Cilium version here override the environment config. Keep the Loki,
-      # Mimir and token hosts below in sync with the ryvn-collector installation.
-      {{ merge (dict "ryvn_init_image" "ryvn/init:0.2.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains") | toYaml }}
+      # The ryvn-init image, Cilium version and Cilium values here override the environment config.
+      {{ merge (dict "ryvn_init_image" "ryvn/init:0.2.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains" "cilium_values") | toYaml }}
+      # Keep the Loki, Mimir and token hosts in sync with the ryvn-collector installation.
       platform_https_domains:
       {{- with index .ryvn.env.config "platform_https_domains" }}
       {{- range . }}
@@ -141,6 +141,74 @@ spec:
       {{- end }}
       {{- end }}
       {{- end }}
+      # Cilium's Helm values, except the cluster-specific ones the EKS module and ryvn-init add.
+      cilium_values:
+        eni:
+          enabled: true
+          awsReleaseExcessIPs: true
+          awsEnablePrefixDelegation: false
+          gcTags:
+            io.cilium/cilium-managed: "true"
+          nodeSpec:
+            firstInterfaceIndex: 0
+        ipam:
+          mode: eni
+        routingMode: native
+        # Istio ambient chains its own CNI plugin, and BPF masquerading breaks its
+        # health probes: https://istio.io/latest/docs/ambient/install/platform-prerequisites/#cilium
+        cni:
+          exclusive: false
+        bpf:
+          masquerade: false
+        # For Istio once kube-proxy replacement is on; no effect until then:
+        # https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/#socket-loadbalancer-bypass-in-pod-namespace
+        socketLB:
+          hostNamespaceOnly: true
+        # Keeps EKS's kube-proxy, since we haven't tested replacing it. Quoted: the chart rejects a boolean.
+        kubeProxyReplacement: "false"
+        policyEnforcementMode: default
+        l7Proxy: true
+        k8sNetworkPolicy:
+          enabled: true
+        k8sClusterNetworkPolicy:
+          enabled: true
+        nodeSelectorLabels: true
+        hubble:
+          enabled: false
+        ingressController:
+          enabled: false
+        gatewayAPI:
+          enabled: false
+        # Agents read these values only at startup; restart them when they change.
+        rollOutCiliumPods: true
+        # Nodes still on the VPC CNI keep it until ryvn-init moves them to Cilium.
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: io.cilium/aws-node-enabled
+                  operator: NotIn
+                  values: ["true"]
+        # Envoy is intentionally off for now: domain rules only need the agent's DNS proxy.
+        # TODO(NominalTrajectory): if we ever need to run Envoy here, we need to fix the startup deadlock
+        # first, since Helm waits for Envoy pods that can't schedule on nodes still on the VPC CNI.
+        envoy:
+          enabled: false
+        operator:
+          hostNetwork: true
+          dnsPolicy: Default
+          # It would restart CoreDNS pods on nodes still on the VPC CNI; ryvn-init moves those nodes.
+          unmanagedPodWatcher:
+            restart: false
+          # Chart defaults plus the last two; Helm replaces lists.
+          tolerations:
+          - {key: node-role.kubernetes.io/control-plane, operator: Exists}
+          - {key: node-role.kubernetes.io/master, operator: Exists}
+          - {key: node.kubernetes.io/not-ready, operator: Exists}
+          - {key: node.cloudprovider.kubernetes.io/uninitialized, operator: Exists}
+          - {key: CriticalAddonsOnly, operator: Exists}
+          - {key: node.cilium.io/agent-not-ready, operator: Exists}
     releaseChannel: stable
   - service: aws-eks-legacy
     condition: '{{ input "legacy" }}'

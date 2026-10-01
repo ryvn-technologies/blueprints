@@ -118,6 +118,7 @@ on an existing environment it is a reviewed maintenance event, not a toggle.
 | `cluster_addons` | Add-on overrides, merged with the defaults | `{}` |
 | `cni` | Target CNI; `cilium` drops the VPC CNI add-on and bootstraps Cilium with `ryvn-init`. Required by an enabled `egress_firewall` | `"vpc-cni"` |
 | `ryvn_init_image` / `cilium_chart_version` | Bootstrap image and Cilium chart version used in `cilium` mode | `null`; required with `cilium`, set by the platform blueprint |
+| `cilium_values` | Cilium Helm values used in `cilium` mode. The module adds the operator role, the `io.cilium/cluster-name` GC tag, the workload subnets and `AWS_DEFAULT_REGION`, and rejects values that set those or the API server address | `null`; required with `cilium`, set by the platform blueprint |
 | `cilium_repair` | Force reinstall Cilium, even if a Ryvn installation has adopted it | `false` |
 | `cilium_restart_pods_blocked_by_disruption_budgets` | When moving nodes to Cilium, delete pods whose PodDisruptionBudgets never allow evicting them instead of failing the apply. Bypasses those budgets and takes the workloads down; only for a move agreed with the customer | `false` |
 | `ryvn_init_migration_timeout_seconds` | Extra time to move existing nodes from the VPC CNI to Cilium | `10800` |
@@ -161,6 +162,8 @@ consumers should not read an empty `outbound_ips` as the former.
   CodeBuild run inside the VPC, so nothing outside the VPC calls the cluster
   API. The apply waits for it and stops with the reason on failure; changing
   the image, chart version or values runs it again.
+- The platform blueprint owns the Cilium values. The module adds only the
+  cluster's own details before passing them to `ryvn-init`.
 - Changing `cni` from `vpc-cni` to `cilium` on an existing cluster moves its
   nodes to Cilium one at a time in the same apply (cordon, drain, hand over,
   uncordon). If `ryvn_init_migration_timeout_seconds` runs out first, the next
