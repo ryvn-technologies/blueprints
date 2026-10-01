@@ -178,8 +178,7 @@ The VPC CIDR and subnet layout, the cluster name (derived from
 `environment_name`), and the choice of envelope-encryption key cannot be
 changed in place. Switching between networking modes on a live environment
 means replacing the cluster. `workload_subnets_per_az` can be raised but not
-lowered. An environment without a `cni` line can add `cni: cilium` later, but
-once `cni` is set it can't change, so the move to Cilium can't be undone.
+lowered.
 
 ## Tests
 
