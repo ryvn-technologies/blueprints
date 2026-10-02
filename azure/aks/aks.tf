@@ -165,6 +165,8 @@ module "aks" {
   private_cluster_enabled                         = false
 
   # ACNS enables FQDN filtering and network observability for managed Cilium.
+  # TODO(NominalTrajectory): set LocalDNS to Disabled on every node pool before moving to Kubernetes 1.37, where AKS
+  # enables it by default and pod DNS goes to a node address Ryvn network policy doesn't allow. Needs azurerm local_dns_profile.
   network_profile_advanced_networking = var.ebpf_data_plane == "cilium" ? {
     security_enabled      = true
     observability_enabled = true
