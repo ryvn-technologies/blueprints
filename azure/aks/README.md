@@ -86,6 +86,40 @@ and teardown.
 | `additional_subnet_groups` | Ordered subnet allocation ledger (name, IPv4 prefix, retired flag) | `[]` |
 | `egress_attachments` | Named policy assignments to active allocated subnet groups | `{}` |
 
+### Additional-pool upgrade settings
+
+`aks_node_pools.<name>.upgrade_settings` is an optional pass-through to pinned
+Azure/aks 11.7.0 for regular additional pools, including `application`. Omitted
+or `null` preserves existing behavior: `application` keeps 10% surge, 30-minute
+drain and 5-minute soak; custom pools have no configured upgrade-settings block.
+The embedded `system` pool uses separate upstream surge-only inputs; providing
+`system.upgrade_settings` is rejected.
+
+An explicit block replaces the entire pool default. Set exactly one nonempty
+`max_surge` or `max_unavailable` string and leave the other omitted or `null`.
+No default surge is merged into an unavailable strategy. Optional
+`drain_timeout_in_minutes`, `node_soak_duration_in_minutes` (numbers) and
+`undrainable_node_behavior` (string) pass through unchanged. Omitted fields in an
+explicit block pass through as `null`; provider/Azure defaults apply rather than
+inheriting the application's 30-minute drain and 5-minute soak. This also applies
+when overriding `application`.
+
+```hcl
+aks_node_pools = {
+  sandbox = {
+    vm_size          = "Standard_D4als_v7"
+    min_count        = 0
+    max_count        = 2
+    upgrade_settings = { max_surge = "10%" }
+  }
+}
+```
+
+Run `bash infra/azure-aks-provision/tests/check_node_pool_upgrade_settings.sh`
+from the repository root after `terraform init -backend=false` in this module.
+It checks the actual upstream node-pool resource plans and input validation with
+mock providers.
+
 ## Outputs
 
 `cluster` (name, endpoint, CA data, OIDC issuer and node resource group),
