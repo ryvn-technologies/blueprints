@@ -165,33 +165,8 @@ variable "aks_node_pools" {
     os_sku          = optional(string) # Ubuntu (default), AzureLinux, Windows2019, Windows2022
     labels          = optional(map(string))
     taints          = optional(list(string)) # Only supported on non-system pools
-    upgrade_settings = optional(object({
-      max_surge                     = optional(string)
-      max_unavailable               = optional(string)
-      drain_timeout_in_minutes      = optional(number)
-      node_soak_duration_in_minutes = optional(number)
-      undrainable_node_behavior     = optional(string)
-    }))
   }))
   default = {}
-
-  validation {
-    condition     = try(var.aks_node_pools.system.upgrade_settings, null) == null
-    error_message = "aks_node_pools.system.upgrade_settings is not supported; upgrade_settings only applies to additional pools."
-  }
-
-  validation {
-    condition = alltrue([
-      for name, pool in var.aks_node_pools : pool.upgrade_settings == null ? true : (
-        (pool.upgrade_settings.max_surge != null) != (pool.upgrade_settings.max_unavailable != null) &&
-        alltrue([
-          for strategy in [pool.upgrade_settings.max_surge, pool.upgrade_settings.max_unavailable] :
-          strategy == null ? true : trimspace(strategy) != ""
-        ])
-      ) if name != "system"
-    ])
-    error_message = "Each explicit aks_node_pools upgrade_settings block must set exactly one nonempty max_surge or max_unavailable; leave the other null or omitted."
-  }
 }
 
 # Network configuration
