@@ -65,7 +65,7 @@ output "vpc" {
       region = var.region
     }]
     nat_public_ips = [google_compute_address.nat.address]
-    outbound_ips   = [google_compute_address.nat.address]
+    outbound_ips   = local.outbound_ips
 
     # GCP-specific secondary ranges for GKE
     secondary_ranges = {
@@ -82,8 +82,8 @@ output "vpc" {
 }
 
 output "outbound_ips" {
-  description = "Public IPs used for outbound internet traffic from workloads in this environment."
-  value       = [google_compute_address.nat.address]
+  description = "Stable root Cloud NAT public IPs for direct tuples and inspected web traffic; unaffected by egress firewall toggles."
+  value       = local.outbound_ips
 }
 
 # DNS outputs

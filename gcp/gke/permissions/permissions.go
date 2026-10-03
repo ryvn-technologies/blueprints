@@ -35,6 +35,8 @@ var RequiredAPIs = []string{
 	"servicenetworking.googleapis.com",
 	"dns.googleapis.com",
 	"cloudkms.googleapis.com",
+	"networksecurity.googleapis.com",
+	"privateca.googleapis.com",
 }
 
 // Role mirrors the file format accepted by `gcloud iam roles create --file`.
