@@ -19,8 +19,8 @@ module "gcp-network" {
       subnet_name                      = local.subnet_name
       subnet_ip                        = var.subnet_cidr
       subnet_region                    = var.region
-      private_ip_google_access         = true # Keep this enabled for better performance when accessing Google APIs
-      subnet_private_access            = true
+      private_ip_google_access         = !local.egress_firewall_enabled
+      subnet_private_access            = !local.egress_firewall_enabled
       subnet_flow_logs                 = var.flow_logs.enable
       subnet_flow_logs_interval        = var.flow_logs.interval
       subnet_flow_logs_sampling        = var.flow_logs.sampling
@@ -44,7 +44,11 @@ module "gcp-network" {
     ]
   }
 
-  firewall_rules = [
+  # Managed egress evaluates its firewall policy before classic rules and
+  # replaces the allow-all egress rule; disabled mode keeps both unchanged.
+  network_firewall_policy_enforcement_order = local.egress_firewall_enabled ? "BEFORE_CLASSIC_FIREWALL" : null
+
+  firewall_rules = concat([
     {
       name        = "allow-internal-${var.environment}"
       description = "Allow internal traffic for ${var.environment}"
@@ -62,8 +66,8 @@ module "gcp-network" {
           protocol = "icmp"
           ports    = []
       }]
-    },
-    {
+    }],
+    local.egress_firewall_enabled ? [] : [{
       name        = "allow-egress-${var.environment}"
       description = "Allow all egress traffic"
       direction   = "EGRESS"
@@ -80,8 +84,8 @@ module "gcp-network" {
           protocol = "icmp"
           ports    = []
       }]
-    }
-  ]
+    }],
+  )
 }
 
 resource "google_project_service" "service_networking" {
@@ -115,6 +119,9 @@ resource "google_compute_address" "nat" {
   region       = var.region
   address_type = "EXTERNAL"
   network_tier = "PREMIUM"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_compute_router" "router" {
@@ -123,16 +130,40 @@ resource "google_compute_router" "router" {
   network = module.gcp-network.network_self_link
 }
 
+# Disabled mode without subnet groups keeps NAT on every subnet. Otherwise NAT
+# serves the cluster subnet plus, with managed egress, attached groups, and
+# carries both inspected web and network_allow tuples. Unattached groups stay
+# local-only. Address ownership never depends on firewall or optional layers.
+locals {
+  outbound_ips = [google_compute_address.nat.address]
+
+  nat_all_subnetworks = !local.egress_firewall_enabled && length(local.active_subnet_groups) == 0
+  nat_subnetworks = merge(
+    { cluster = module.gcp-network.subnets_self_links[0] },
+    local.egress_firewall_enabled ? {
+      for key, attachment in var.egress_attachments : key => google_compute_subnetwork.additional_group[attachment.subnet_group_key].self_link
+    } : {},
+  )
+}
+
 resource "google_compute_router_nat" "nat" {
   name                               = "nat-gateway-${var.environment}"
   router                             = google_compute_router.router.name
   region                             = google_compute_router.router.region
   nat_ip_allocate_option             = "MANUAL_ONLY"
   nat_ips                            = [google_compute_address.nat.self_link]
-  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+  source_subnetwork_ip_ranges_to_nat = local.nat_all_subnetworks ? "ALL_SUBNETWORKS_ALL_IP_RANGES" : "LIST_OF_SUBNETWORKS"
+
+  dynamic "subnetwork" {
+    for_each = local.nat_all_subnetworks ? {} : local.nat_subnetworks
+    content {
+      name                    = subnetwork.value
+      source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+    }
+  }
 
   log_config {
     enable = true
-    filter = "ERRORS_ONLY"
+    filter = local.egress_firewall_enabled ? "ALL" : "ERRORS_ONLY"
   }
 }

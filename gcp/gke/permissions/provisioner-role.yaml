@@ -26,6 +26,7 @@ includedPermissions:
   - serviceusage.services.enable
   - serviceusage.services.get
   - serviceusage.services.list
+  - serviceusage.services.use
   - serviceusage.operations.get
   # Compute reads and long-running operation polling
   - compute.projects.get
@@ -43,6 +44,7 @@ includedPermissions:
   - compute.networks.list
   - compute.networks.update
   - compute.networks.updatePolicy
+  - compute.networks.setFirewallPolicy
   - compute.networks.use
   - compute.networks.addPeering
   - compute.networks.removePeering
@@ -59,6 +61,40 @@ includedPermissions:
   - compute.firewalls.get
   - compute.firewalls.list
   - compute.firewalls.update
+  # Cloud NGFW base: project-scoped policy, URL profiles and zonal endpoints.
+  # Source-reviewed only; the additions need a fresh least-privilege live run.
+  - compute.firewallPolicies.create
+  - compute.firewallPolicies.delete
+  - compute.firewallPolicies.get
+  - compute.firewallPolicies.list
+  - compute.firewallPolicies.update
+  - compute.firewallPolicies.use
+  - compute.networks.getEffectiveFirewalls
+  - networksecurity.firewallEndpoints.create
+  - networksecurity.firewallEndpoints.delete
+  - networksecurity.firewallEndpoints.get
+  - networksecurity.firewallEndpoints.list
+  - networksecurity.firewallEndpoints.update
+  - networksecurity.firewallEndpoints.use
+  - networksecurity.firewallEndpointAssociations.create
+  - networksecurity.firewallEndpointAssociations.delete
+  - networksecurity.firewallEndpointAssociations.get
+  - networksecurity.firewallEndpointAssociations.list
+  - networksecurity.firewallEndpointAssociations.update
+  - networksecurity.securityProfiles.create
+  - networksecurity.securityProfiles.delete
+  - networksecurity.securityProfiles.get
+  - networksecurity.securityProfiles.list
+  - networksecurity.securityProfiles.update
+  - networksecurity.securityProfiles.use
+  - networksecurity.securityProfileGroups.create
+  - networksecurity.securityProfileGroups.delete
+  - networksecurity.securityProfileGroups.get
+  - networksecurity.securityProfileGroups.list
+  - networksecurity.securityProfileGroups.update
+  - networksecurity.securityProfileGroups.use
+  - networksecurity.operations.get
+  - networksecurity.operations.list
   # Cloud NAT: reserved external address, Cloud Router, NAT config
   - compute.addresses.create
   - compute.addresses.delete
