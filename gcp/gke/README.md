@@ -97,6 +97,14 @@ operations on existing resources but not their creation.
 
 ## Outputs
 
+Managed default-deny egress is opt-in. The native NGFW base and its protocol,
+zone-coverage and readiness limitations are documented in
+[gcp-ngfw-base.md](../../docs-internal/changes/cloud-egress-firewall/gcp-ngfw-base.md).
+It uses the stable root NAT address for both web inspection and exact tuples,
+not mandatory Secure Web Proxy. The address has no destroy guard. Environments
+with additional subnet allocation records still require the explicit destroy-only
+helper documented there; their ordinary update guards remain.
+
 `cluster_endpoint`, `cluster_endpoint_dns`, `cluster_ca_certificate`,
 `cluster_name`, `cluster_region`, `cluster_secrets_encryption`,
 `deletion_protection`, `vpc` (network, subnets and secondary ranges),

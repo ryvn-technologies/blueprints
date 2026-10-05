@@ -91,7 +91,8 @@ locals {
 
 # GKE cluster
 module "gke" {
-  source = "terraform-google-modules/kubernetes-engine/google//modules/beta-private-cluster"
+  depends_on = [module.egress_firewall, terraform_data.network_layout_contract]
+  source     = "terraform-google-modules/kubernetes-engine/google//modules/beta-private-cluster"
   # Exact pin: the dependency lock file does not cover modules, so this is what
   # makes the module version reproducible. Bumping a major is a reviewed change.
   version             = "45.0.0"

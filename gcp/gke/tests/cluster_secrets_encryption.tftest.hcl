@@ -1,4 +1,9 @@
 mock_provider "google" {
+  mock_resource "google_compute_global_address" {
+    defaults = {
+      address = "10.21.0.0"
+    }
+  }
   mock_data "google_client_openid_userinfo" {
     defaults = {
       email = "terraform@example.iam.gserviceaccount.com"
