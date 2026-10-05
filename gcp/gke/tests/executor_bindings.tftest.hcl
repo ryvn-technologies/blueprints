@@ -1,4 +1,10 @@
 mock_provider "google" {
+  mock_data "google_container_engine_versions" {
+    defaults = {
+      release_channel_default_version = { REGULAR = "1.36.3-gke.1640000" }
+      release_channel_latest_version  = { REGULAR = "1.36.3-gke.1767000" }
+    }
+  }
   mock_data "google_client_openid_userinfo" {
     defaults = {
       email = "terraform@example.iam.gserviceaccount.com"
