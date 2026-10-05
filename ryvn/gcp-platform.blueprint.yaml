@@ -79,10 +79,52 @@ spec:
   - service: gcp-gke
     condition: '{{ not (input "legacy") }}'
     config: |
-      {{- if input "dataplaneV2" -}}
-      {{ merge (dict "datapath_provider" "ADVANCED_DATAPATH") .ryvn.env.config | toYaml }}
-      {{- else -}}
-      {{ .ryvn.env.config | toYaml }}
+      {{- range $key, $value := .ryvn.env.config }}
+      {{- if and (ne $key "datapath_provider") (ne $key "platform_https_domains") }}
+      {{ dict $key $value | toYaml }}
+      {{- end }}
+      {{- end }}
+      {{- with index .ryvn.env.config "datapath_provider" }}
+      {{- if not (input "dataplaneV2") }}
+      datapath_provider: {{ . | toJson }}
+      {{- end }}
+      {{- end }}
+      {{- if input "dataplaneV2" }}
+      datapath_provider: ADVANCED_DATAPATH
+      {{- end }}
+      # Keep the Loki, Mimir and token hosts in sync with the ryvn-collector installation.
+      platform_https_domains:
+      {{- with index .ryvn.env.config "platform_https_domains" }}
+      {{- range . }}
+      - {{ . | toJson }}
+      {{- end }}
+      {{- end }}
+      {{- range $host := httpsHostnames (Hub "apiUrl") (Hub "issuerUrl") (Hub "tunnelUrl") (input "lokiUrl" | trim | default (Hub "lokiUrl")) (input "mimirUrl" | trim | default (Hub "mimirUrl")) }}
+      - {{ $host | toJson }}
+      {{- end }}
+      {{- if or (input "tokenUrl" | trim) (input "projectId" | trim) (Hub "lokiUrl") }}
+      {{- range $host := httpsHostnames (input "tokenUrl" | trim | default (Hub "tokenUrl")) }}
+      - {{ $host | toJson }}
+      {{- end }}
+      {{- end }}
+      {{- range $host := httpsHostnames ObservabilityDestinations }}
+      - {{ $host | toJson }}
+      {{- end }}
+      {{- /* Forwarded while enabled so validation rejects endpoints the firewall can't express. */}}
+      {{- with index .ryvn.env.config "egress_firewall" }}
+      {{- if index . "enabled" }}
+      {{- range $endpoint := nonHttpsEndpoints (Hub "apiUrl") (Hub "issuerUrl") (Hub "tunnelUrl") (input "lokiUrl" | trim | default (Hub "lokiUrl")) (input "mimirUrl" | trim | default (Hub "mimirUrl")) }}
+      - {{ $endpoint | toJson }}
+      {{- end }}
+      {{- if or (input "tokenUrl" | trim) (input "projectId" | trim) (Hub "lokiUrl") }}
+      {{- range $endpoint := nonHttpsEndpoints (input "tokenUrl" | trim | default (Hub "tokenUrl")) }}
+      - {{ $endpoint | toJson }}
+      {{- end }}
+      {{- end }}
+      {{- range $endpoint := nonHttpsEndpoints ObservabilityDestinations }}
+      - {{ $endpoint | toJson }}
+      {{- end }}
+      {{- end }}
       {{- end }}
     releaseChannel: stable
   - service: gcp-gke-legacy
