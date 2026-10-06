@@ -324,6 +324,29 @@ spec:
         serviceAccount:
           name: {{ .ryvn.installation.name }}
     releaseChannel: stable
+  - service: cert-manager
+    name: cert-manager
+    namespace: cert-manager
+    releaseChannel: stable
+    config: |
+      crds:
+        enabled: true
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+      webhook:
+        tolerations:
+          - key: CriticalAddonsOnly
+            operator: Exists
+      cainjector:
+        tolerations:
+          - key: CriticalAddonsOnly
+            operator: Exists
+      startupapicheck:
+        enabled: false
+      # self-check DNS-01 propagation via public resolvers: in-cluster resolvers see the same-named private zone (split-view DNS), not the public TXT
+      dns01RecursiveNameservers: "8.8.8.8:53,1.1.1.1:53"
+      dns01RecursiveNameserversOnly: true
   - service: keda
     namespace: kube-system
     config: |

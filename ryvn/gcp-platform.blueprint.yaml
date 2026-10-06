@@ -145,6 +145,32 @@ spec:
       organizationId: '{{ .ryvn.env.organizationId }}'
       environmentId: '{{ .ryvn.env.id }}'
       installationId: '{{ .ryvn.installation.id }}'
+  - service: cert-manager
+    name: cert-manager
+    namespace: cert-manager
+    releaseChannel: stable
+    config: |
+      crds:
+        enabled: true
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+      webhook:
+        tolerations:
+          - key: CriticalAddonsOnly
+            operator: Exists
+      cainjector:
+        tolerations:
+          - key: CriticalAddonsOnly
+            operator: Exists
+      startupapicheck:
+        enabled: false
+      # self-check DNS-01 propagation via public resolvers: in-cluster resolvers see the same-named private zone (split-view DNS), not the public TXT
+      dns01RecursiveNameservers: "8.8.8.8:53,1.1.1.1:53"
+      dns01RecursiveNameserversOnly: true
+      serviceAccount:
+        annotations:
+          iam.gke.io/gcp-service-account: '{{ .ryvn.env.state.cert_manager_identity.email }}'
   - service: keda
     namespace: kube-system
     config: |
