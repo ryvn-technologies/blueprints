@@ -19,8 +19,9 @@ knobs those docs expose.
   pods and services, a reserved range for Private Service Access (so managed
   Cloud SQL and Memorystore instances can be peered in), a Cloud Router and a
   Cloud NAT with a static external IP, and firewall rules allowing traffic
-  within the subnet, pod and service ranges plus all egress. Flow logs are on by
-  default.
+  within the subnet, pod and service ranges. Public egress is unrestricted by
+  this module by default; opt-in native Cloud NGFW adds domain filtering and
+  exact TCP/UDP exceptions with the limitations below. Flow logs are on by default.
 - **Cluster**: regional GKE with private nodes and a private control-plane
   endpoint, reached over the IAM-gated DNS-based endpoint, Workload Identity
   with `GKE_METADATA` on every node, and secure boot and integrity monitoring on
@@ -42,6 +43,27 @@ knobs those docs expose.
   record restricting issuance to Let's Encrypt and Google Trust Services
   (`pki.goog`).
 
+## Native managed egress (opt-in)
+
+Omitting `egress_firewall`, or setting `enabled: false`, preserves legacy egress
+and creates no NGFW resources. Upgrading to a release containing this feature
+does **not** itself enable filtering. Review the entire Terraform upgrade plan:
+other GKE settings, version reconciliation and IAM changes can still occur.
+
+**First activation requires a maintenance window.** In a controlled
+existing-environment validation, fresh allowed HTTPS and collector token refresh
+were impaired during an approximately **55-minute activation task window**.
+This was not a measured uninterrupted outage for every workload or a startup
+SLA. Plan **at least an hour plus contingency**, with no guaranteed upper bound
+or zero-downtime promise. Startup can be lengthy; API readiness and existing
+pods being Ready do not prove fresh egress availability.
+
+Ordinary HTTP Host / visible HTTPS SNI allow/deny, wildcards and exact tuples
+worked at steady state in the tested active zones. This is not an HTTPS-only,
+destination-ownership or universal fail-closed control. Read the
+[egress-firewall module reference](modules/egress-firewall/README.md) for
+configuration, activation, limits, checks, costs and rollback before adopting it.
+
 ## Key Variables
 
 | Name | Description | Default |
@@ -50,7 +72,7 @@ knobs those docs expose.
 | `project_id` | GCP project to provision into | required |
 | `region` | GCP region | required |
 | `public_root_domain` / `internal_root_domain` | Domains for the Cloud DNS zones | required |
-| `zones` | Zones for the cluster's node pools | `[]` (all zones in the region) |
+| `zones` | Zones for node pools; NGFW covers these zones, or discovers all available regional zones when omitted | `[]` |
 | `subnet_cidr` | Primary subnet range | `"10.0.0.0/17"` |
 | `pod_cidr` / `service_cidr` | Secondary ranges for pods and services | `"192.168.0.0/18"` / `"192.168.64.0/18"` |
 | `node_pools` | Node pool overrides, merged with the defaults | `{}` |
@@ -62,6 +84,18 @@ knobs those docs expose.
 | `terraform_executor_policies` | Replace the Ryvn agent's default grants with `roles`, `permissions`, and/or conditional `bindings` | `{}` |
 | `cluster_bootstrap_perms` | Grant the Terraform identity cluster admin for bootstrap | `false` |
 | `skip_dns_provisioning` | Skip both Cloud DNS zones | `false` |
+| `egress_firewall` | Native NGFW policy: `enabled`, deny-only `default_action`, `cluster_policy_key`, `policies` (`domain_allow` / `network_allow`), and `additional_workload_zones`. See the [parent configuration](modules/egress-firewall/README.md#parent-interface-environmentroot-configuration) | `{}` (`enabled = false`) |
+| `platform_https_domains` | Additional exact HTTPS/443 platform hostnames for cluster sources; adds to the built-in baseline. The platform blueprint also derives hub/collector hosts | `[]` |
+| `egress_firewall.additional_workload_zones` | Extra endpoint zones for external workloads in the same region; declare before placing workloads there | `[]` |
+| `additional_subnet_groups` | Optional ordered, append-only external-compute subnet allocations; not required for ordinary GKE use | `[]` |
+| `additional_subnet_groups_cidr` | Fixed allocation range for those groups; must not overlap existing ranges | `"10.0.192.0/19"` |
+| `egress_attachments` | Optional map assigning an active group (`subnet_group_key`) to a policy (`policy_key`); requires NGFW enabled | `{}` |
+
+The authoritative input types and validation are in [variables.tf](variables.tf).
+Additional groups without attachments have VPC-local connectivity but no Cloud
+NAT. Applied allocation entries cannot be removed, reordered, renamed, resized
+or moved; retire a group to remove its subnet while reserving its range. See
+[allocation and teardown caveats](modules/egress-firewall/README.md#optional-external-compute).
 
 ### Overriding the agent's permissions
 
@@ -97,19 +131,24 @@ operations on existing resources but not their creation.
 
 ## Outputs
 
-Managed default-deny egress is opt-in. The native NGFW base and its protocol,
-zone-coverage and readiness limitations are documented in
-[gcp-ngfw-base.md](../../docs-internal/changes/cloud-egress-firewall/gcp-ngfw-base.md).
-It uses the stable root NAT address for both web inspection and exact tuples,
-not mandatory Secure Web Proxy. The address has no destroy guard. Environments
-with additional subnet allocation records still require the explicit destroy-only
-helper documented there; their ordinary update guards remain.
-
 `cluster_endpoint`, `cluster_endpoint_dns`, `cluster_ca_certificate`,
 `cluster_name`, `cluster_region`, `cluster_secrets_encryption`,
 `deletion_protection`, `vpc` (network, subnets and secondary ranges),
 `outbound_ips`, `public_domain`, `internal_domain`, and the service account
 emails and details for the Ryvn agent, external-dns and cert-manager.
+
+`egress_firewall` publishes `enabled`, the cluster policy key, `platform_baseline`,
+`effective_rules`, source `attachments`, `configured_scope`, `compiled_policy`,
+`enforcement_refs`, `log_refs`, `readiness`, `capabilities` and `exclusions`.
+Its enabled-mode `nat_public_ips` and `web_egress_ips` are the same existing root
+NAT address as `outbound_ips`, not a second web address. Disabled-mode firewall
+address lists are empty; use `outbound_ips` in either mode. Readiness is an
+API-state check, with `traffic_validated = false`, not traffic acceptance.
+
+`additional_subnet_groups` publishes active external subnet IDs, CIDRs, prefix
+lengths and region independently of firewall membership. Only attached groups
+appear in `egress_firewall.attachments`. See [egress_firewall.tf](egress_firewall.tf)
+for the complete output contract.
 
 ## One-Way Decisions
 
