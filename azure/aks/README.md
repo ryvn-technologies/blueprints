@@ -29,6 +29,13 @@ allocates ordered, append-only external subnets independently of the firewall;
 [operator runbook](modules/egress-firewall/RUNBOOK.md) for inputs, limits, migration
 and teardown.
 
+Public TCP ingress can opt into the platform-owned [Application Gateway module](modules/application-gateway/README.md).
+Set `application_gateway_enabled: true` to provision AppGW and its dedicated frontend
+subnet/IP. The enabled external gateway automatically consumes platform output. For managed
+egress, explicitly enable the independent `egress_firewall.enabled` setting too.
+Helm/ryvn-agent deploys the separate private external-Istio Service, and AKS reconciles its frontend.
+See the Ryvn monorepo's [activation and rollback runbook](https://github.com/ryvn-technologies/ryvn/blob/main/docs-internal/runbooks/azure-application-gateway-ingress.md); internal docs are not copied into the published blueprints repository.
+
 ## What's Included
 
 - **Network**: a VNet (or a carve inside an existing one) with regional node-pool

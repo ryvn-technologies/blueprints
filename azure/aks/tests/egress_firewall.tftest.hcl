@@ -129,6 +129,10 @@ run "disabled_mode_rejects_attachments" {
 
 run "enabled_routes_every_node_pool_subnet_through_firewall" {
   command = plan
+  assert {
+    condition     = !output.application_gateway_network.enabled && output.application_gateway_network.gateway == null && length(azurerm_subnet.ingress_frontend) == 0
+    error_message = "Enabling managed egress alone must not provision AppGW or its frontend."
+  }
 
   assert {
     condition     = module.aks.network_profile[0].outbound_type == "userDefinedRouting"

@@ -152,10 +152,13 @@ apply, then apply consumers. JSON IDs carry no Terraform ordering or health guar
   until a supported node replacement/maintenance step; verify that fallback is
   removed ([Azure behavior](https://learn.microsoft.com/en-us/azure/virtual-network/ip-services/default-outbound-access)).
   Convergence is not an atomic traffic cutover.
-- **Ingress:** the default egress route can make public LoadBalancer return traffic
-  asymmetric. This module does not configure firewall DNAT or ingress routing.
-  Design and test internal-LB/private ingress or a reviewed firewall DNAT path
-  before customer activation; an egress allowlist does not solve ingress.
+- **Ingress:** for managed public ingress, explicitly enable both
+  `egress_firewall.enabled` and `application_gateway_enabled` and retain the
+  existing external gateway. The platform owns AppGW; its output automatically
+  configures the Helm/ryvn-agent private Service for AKS to reconcile. Firewall
+  enablement does not enable AppGW; this child owns only egress. See the
+  [Application Gateway module](../application-gateway/README.md). Private-only
+  ingress may leave AppGW disabled.
 - **Tier:** Standard is the default. Selecting Premium does not enable TLS
   inspection or IDPS. Tier changes replace the child policy while retaining the
   base/API exception; capacity and migration failures can interrupt service.
@@ -197,16 +200,23 @@ hosted-service exclusions remain stricter than the PSL.
 
 ## Validation boundary
 
-Direct-cloud Round 7 validated Standard in West US 2 with Azure CNI overlay and
+Historical direct-cloud Round 7 validated Standard in West US 2 with Azure CNI overlay and
 Azure dataplane: enabled-first bootstrap, ordinary/hostNetwork pod and VM traffic,
 57/57 native verdict matches, registry/blob pulls, source isolation, attachment
 changes, append/detach/restore and final no-op plans. A subnet/policy race was fixed
 by ordering subnet writes before firewall operations and associations afterward.
 This ordering does not serialize external writers.
 
-Ryvn new/existing-environment E2E is a post-merge gate before customer activation:
-Cilium, agent reconnect/Connect, certificate issuance, full add-on rollout, public
-or private ingress as selected, and populated-state migration remain to be tested.
+Separately, [Guava AppGW implementation evidence](https://github.com/ryvn-technologies/ryvn/pull/9197)
+covers an isolated platform-root apply before the Service exists, Helm/ryvn-agent
+Service recovery at the planned IP, healthy backends, public/protected HTTPS and
+Private Link coexistence. See the [AppGW rollout runbook](https://github.com/ryvn-technologies/ryvn/blob/main/docs-internal/runbooks/azure-application-gateway-ingress.md).
+
+Full published platform/gateway blueprint reconciliation, real environment-state
+plans, DNS/certificate ownership and issuance/renewal remain rollout gates, along
+with Cilium, agent reconnect/Connect and full add-on acceptance. Private verified
+TLS remains UNVERIFIED; secure private gRPC/streaming/mTLS is DEFERRED to separately
+authorized Handshake validation. These are not completed E2E acceptance.
 Flat networking has deterministic topology coverage; the latest live round used
 overlay. Direct `registry.istio.io` pull was incomplete (auth HTTP 404); the
 GAR-backed Istio image pull passed. No promise of production readiness or atomic

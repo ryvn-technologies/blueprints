@@ -1,3 +1,11 @@
+output "application_gateway_network" {
+  description = "Configured AppGW and planned backend contract for the external Helm gateway and DNS operator. enabled is infrastructure configuration, not backend health. AKS allocates the IP at runtime."
+  value = merge(local.application_gateway_network, {
+    enabled = local.ingress_frontend_enabled
+    gateway = module.application_gateway.application_gateway
+  })
+}
+
 output "ryvn_agent_role" {
   value = {
     id           = azurerm_user_assigned_identity.ryvn_agent.id

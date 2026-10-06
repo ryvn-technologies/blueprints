@@ -16,8 +16,11 @@ fixture IDs and historical retries belong in the internal validation report.
    as a hostname-inspection bypass. Confirm shared-registry baseline breadth.
 3. Review the rendered `platform_https_domains` from hub context, including the
    actual collector endpoints. Direct module callers supply these themselves.
-4. Decide the ingress path. A public LoadBalancer with a default route through
-   the firewall is not automatically supported; account for asymmetric replies.
+4. For managed public ingress, explicitly set `egress_firewall.enabled = true`
+   and `application_gateway_enabled = true` and retain the existing external
+   gateway. Follow the [AppGW setup](../application-gateway/README.md) and
+   [activation/rollback runbook](https://github.com/ryvn-technologies/ryvn/blob/main/docs-internal/runbooks/azure-application-gateway-ingress.md).
+   Private-only ingress may leave AppGW disabled.
 5. Publish/register the Terraform module and updated Azure platform blueprint,
    and deploy an orchestrator release containing the embedded Azure role JSON.
    Update the subscription's existing role before activation; the running hub does
@@ -77,7 +80,10 @@ before the full root apply (including the post-cluster API rule) completes.
 
 ## Acceptance before customer activation
 
-Run these on both a new and an existing Ryvn test environment after merge:
+The [validation boundary](README.md#validation-boundary) separates historical
+direct-cloud and Guava AppGW evidence from outstanding release, real-state and
+DNS/certificate renewal gates. Run these on both a new and an existing Ryvn test
+environment after merge:
 
 - Use the actual scoped provisioner identity (not admin) for create, update and
   teardown permission checks.
