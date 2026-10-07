@@ -324,6 +324,22 @@ spec:
         serviceAccount:
           name: {{ .ryvn.installation.name }}
     releaseChannel: stable
+  - service: aws-load-balancer-controller
+    name: aws-load-balancer-controller
+    namespace: kube-system
+    releaseChannel: stable
+    config: |
+      vpcId: '{{ .ryvn.env.state.vpc.id }}'
+      region: '{{ .ryvn.env.state.cluster_region }}'
+      clusterName: '{{ .ryvn.env.state.cluster_name }}'
+      webhookConfig:
+        disableIngressValidation: true
+      serviceAccount:
+        annotations:
+          "eks.amazonaws.com/role-arn": '{{ .ryvn.env.state.aws_load_balancer_controller_role_arn }}'
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
   - service: cert-manager
     name: cert-manager
     namespace: cert-manager
