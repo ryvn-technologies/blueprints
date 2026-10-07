@@ -93,9 +93,8 @@ on an existing environment it is a reviewed maintenance event, not a toggle.
   [`workload_subnet_groups/README.md`](workload_subnet_groups/README.md)
   (the directory keeps its original name; the public input and output are
   `additional_subnet_groups`).
-- Internal per-customer setup and verification procedure:
-  `docs-internal/guides/aws-egress-firewall-runbook.md`; design contract in
-  `docs-internal/changes/cloud-egress-firewall/`.
+- Deployment-specific setup and verification procedures are maintained privately;
+  review the [public module guide](egress_network/README.md) for limitations.
 
 ## Key Variables
 

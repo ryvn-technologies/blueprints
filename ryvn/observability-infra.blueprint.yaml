@@ -131,7 +131,7 @@ spec:
       description: |
         Maps hub (Zitadel) organization ids to Grafana organization ids. Members of a hub organization sign in to Grafana as Editors of the mapped Grafana organization. The Grafana organizations and their Loki/Mimir datasources are created by the hub's orchestrator; look up the ids under Server admin → Organizations.
 
-        Example: `"298765826054437928": "2"`.
+        Synthetic example: `"111111111111111111": "2"`.
       group: endpoint
       condition: '{{ eq (input "provisioningMode") "hub" }}'
     - name: ingressEnabled

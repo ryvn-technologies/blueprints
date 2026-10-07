@@ -209,7 +209,7 @@ spec:
       # telemetry ingest through the observability gateways.
       role: collector
   - service: access-operator
-    # Native access RBAC projector (docs-internal/access-naming.md). The child
+    # Native access RBAC projector. The child
     # name and every chart identity value come from immutable database rows
     # resolved server-side, never from inputs, environment config or Helm
     # values; ordinary release/channel resolution selects the released chart.

@@ -3,8 +3,7 @@
 Feature reference for the `azure-aks-provision` root module. Configure the root
 inputs below; this child is an internal compiler/resource boundary and relies on
 root validation and routing. For customer setup and recovery, use the
-[operator runbook](RUNBOOK.md). Historical test evidence is in the Ryvn monorepo's
-[Azure validation report](https://github.com/ryvn-technologies/ryvn/blob/main/docs-internal/changes/cloud-egress-firewall/azure-validation.md).
+[operator runbook](RUNBOOK.md). Deployment-specific validation evidence is maintained privately.
 
 ## Architecture and ownership
 
@@ -209,16 +208,16 @@ changes, append/detach/restore and final no-op plans. A subnet/policy race was f
 by ordering subnet writes before firewall operations and associations afterward.
 This ordering does not serialize external writers.
 
-Separately, [Guava AppGW implementation evidence](https://github.com/ryvn-technologies/ryvn/pull/9197)
+Separately, isolated AppGW implementation tests
 covers an isolated platform-root apply before the Service exists, Helm/ryvn-agent
 Service recovery at the planned IP, healthy backends, public/protected HTTPS and
-Private Link coexistence. See the [AppGW rollout runbook](https://github.com/ryvn-technologies/ryvn/blob/main/docs-internal/runbooks/azure-application-gateway-ingress.md).
+Private Link coexistence. See the [AppGW module guide](../application-gateway/README.md).
 
 Full published platform/gateway blueprint reconciliation, real environment-state
 plans, DNS/certificate ownership and issuance/renewal remain rollout gates, along
 with Cilium, agent reconnect/Connect and full add-on acceptance. Private verified
 TLS remains UNVERIFIED; secure private gRPC/streaming/mTLS is DEFERRED to separately
-authorized Handshake validation. These are not completed E2E acceptance.
+authorized customer-environment validation. These are not completed E2E acceptance.
 Flat networking has deterministic topology coverage; the latest live round used
 overlay. Direct `registry.istio.io` pull was incomplete (auth HTTP 404); the
 GAR-backed Istio image pull passed. No promise of production readiness or atomic

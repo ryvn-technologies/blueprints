@@ -119,7 +119,7 @@ Backend-health POSTs (`applicationGateways/backendhealth/action` and
 are optional operator diagnostics. AzureRM does not call them for this resource graph;
 they remain ungranted. Provisioning completes before Helm backend readiness. An authorized operator
 must verify health and cutover readiness as described in the
-[AppGW runbook](../modules/application-gateway/RUNBOOK.md).
+[AppGW guide](../modules/application-gateway/README.md).
 
 `Microsoft.OperationalInsights/workspaces/sharedKeys/action` is required with
 `workspaces/read` to attach the workspace as a diagnostic-settings destination, as
@@ -276,12 +276,12 @@ The [egress runbook](../modules/egress-firewall/RUNBOOK.md) covers rollout.
    definition and effective assignments for the actual provisioner principal. Confirm
    the new actions and correct subscription scope, including inherited assignments and
    any conditions/deny assignments, before enabling `application_gateway_enabled`.
-   Apply the [AppGW rollout gates](../modules/application-gateway/RUNBOOK.md) separately;
+   Apply the [AppGW rollout gates](../modules/application-gateway/README.md) separately;
    permission readiness does not establish backend, TLS or DNS readiness.
 
 ### Restricted-role validation
 
-The retained Guava AppGW tests prove networking and ownership behavior; they do **not**
+Prior isolated AppGW tests establish networking and ownership behavior; they do **not**
 prove create/update/delete or DNS publication under this restricted role. The action audit,
 embedded-role regression and both generated setup-script variants cover source only.
 
@@ -303,7 +303,7 @@ The remaining scoped validation is:
 4. Delete only disposable resources with reviewed retirement steps for `prevent_destroy`,
    retain operation/authorization evidence, and verify no leftovers. Neither a no-op
    refresh nor a broad-identity apply establishes these lifecycle permissions. Preserve
-   the retained Guava fixtures and keep Handshake read-only.
+   existing validation fixtures; customer-environment validation requires separate authorization.
 
 ### Existing clusters: upgrade the module before narrowing the legacy role
 

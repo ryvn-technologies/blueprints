@@ -19,10 +19,10 @@ fixture IDs and historical retries belong in the internal validation report.
 4. For managed public ingress, explicitly set `egress_firewall.enabled = true`
    and `application_gateway_enabled = true` and retain the existing external
    gateway. Follow the [AppGW setup](../application-gateway/README.md) and
-   [activation/rollback runbook](https://github.com/ryvn-technologies/ryvn/blob/main/docs-internal/runbooks/azure-application-gateway-ingress.md).
+   arrange an owner-approved activation/rollback procedure before applying.
    Private-only ingress may leave AppGW disabled. ExternalDNS remains the DNS
    owner; cutover follows gateway reconciliation. Check actual backend readiness
-   separately and use the AppGW runbook for any applied Terraform DNS handoff.
+   separately and use the approved AppGW rollout procedure for any applied Terraform DNS handoff.
 5. Publish/register the Terraform module and updated Azure platform blueprint,
    and deploy an orchestrator release containing the embedded Azure role JSON.
    Update the subscription's existing role before activation; the running hub does
@@ -65,8 +65,8 @@ field remains Terraform-managed and does not ignore later autoscaler changes.
 
 For additional pools, preserve intended live upgrade settings explicitly with
 `aks_node_pools.<pool>.upgrade_settings` when the migration plan would otherwise
-remove them. For example, Guava `azure-dev` uses
-`sandbox.upgrade_settings: { max_surge: "10%" }`. This is an environment-specific
+remove them. For example, a synthetic pool may use
+`example_pool.upgrade_settings: { max_surge: "10%" }`. This is an environment-specific
 opt-in; omitted/null settings retain the module's previous behavior. An explicit
 block is a complete override with exactly one `max_surge` or `max_unavailable`
 strategy; omitted optional fields use the provider defaults described in the
@@ -83,7 +83,7 @@ before the full root apply (including the post-cluster API rule) completes.
 ## Acceptance before customer activation
 
 The [validation boundary](README.md#validation-boundary) separates historical
-direct-cloud and Guava AppGW evidence from outstanding release, real-state and
+direct-cloud and isolated AppGW test results from outstanding release, real-state and
 DNS/certificate renewal gates. Run these on both a new and an existing Ryvn test
 environment after merge:
 

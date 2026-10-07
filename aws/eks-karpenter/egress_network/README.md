@@ -3,12 +3,9 @@
 Feature and module reference for `egress_firewall.enabled = true` in
 `aws-provision-karpenter`: AWS Network Firewall + per-AZ NAT with default-deny
 public IPv4 egress and a Suricata rule set generated from the common
-`egress_firewall` policy contract
-(`docs-internal/changes/cloud-egress-firewall/contract.md`). The root README
-keeps only the overview and input/output rows; the per-customer procedure is
-`docs-internal/guides/aws-egress-firewall-runbook.md`; historical test rounds
-and raw evidence stay in
-`docs-internal/changes/cloud-egress-firewall/aws-validation.md`.
+`egress_firewall` policy contract. The root README keeps the overview and
+input/output rows; deployment-specific procedures and raw validation evidence
+are maintained privately.
 
 Contents: [architecture](#architecture-and-traffic-path) ·
 [root configuration](#root-configuration-and-consumer-wiring) ·
@@ -270,13 +267,12 @@ and return packets pass through the same firewall endpoint
 This module configures that routing for every protected subnet and AZ in one
 resource graph; review each plan for route/association replacements, because
 resource dependencies alone do not make a transition traffic-safe for nodes
-that are already running (see the migration limitations in
-`docs-internal/changes/cloud-egress-firewall/aws-validation.md`). Out-of-band changes to the routes, route-table associations, firewall
+that are already running. Out-of-band changes to the routes, route-table associations, firewall
 policy, firewall endpoints/interfaces, or any alternate egress (extra NAT,
 IGW route, second NIC, IPv6) can bypass inspection or drop traffic, and
 **default-deny is not a guarantee after such a change**. This is a measured
-result, not a general AWS statement: in validation
-(`aws-validation.md`, r3) deleting only the cluster's per-subnet return route in
+result, not a general AWS statement: in isolated validation,
+deleting only the cluster's per-subnet return route in
 one NAT table — everything else intact — let a fresh, normally-forbidden TLS
 connection reach its origin and return HTTP 200. Keep protected routing and
 policy under one Terraform owner, restrict changes to reviewed provisioning
@@ -340,9 +336,7 @@ associations, and a disable run must be preceded by `change_protection = false`
 or it removes the routes and NAT before failing on `DeleteFirewall`. Disabling
 also deletes the firewall log groups; export the alert/flow evidence first.
 The current boolean input does not expose build-only or per-AZ cutover stages.
-An existing environment needs a reviewed maintenance plan and rollback; see
-the migration section of
-`docs-internal/changes/cloud-egress-firewall/aws-validation.md`.
+An existing environment needs a reviewed maintenance plan and rollback.
 
 Activation order: this module merges and ships with `enabled = false`, which
 leaves the existing egress path alone. The only supported dataplane behind an
@@ -379,7 +373,7 @@ the replacement, but the cost is only visible if you know to look:
 |--------|--------|
 | Renaming an `egress_attachments` key or its `subnet_group_key` | Only firewall routes and source rules change; the group's subnets keep their IDs. Changing `policy_key` alone is a rule-only change |
 | Raising `workload_subnets_per_az` | Additive: the cluster's growth slots (`/20`s 0–12 of the default `/16`) are reserved, and named groups are allocated from blocks 13–14 only, so the two never collide |
-| Enabling/disabling the firewall, or changing the AZ set | Replaces NAT gateways and public egress IPs (`outbound_ips`); downstream allow-lists keyed on those IPs break. Rehearsed on `egfw-r8`: minutes of egress loss per direction, and a disable attempted against a protected firewall stops half-way (fail-open on the single NAT until rolled forward or back) |
+| Enabling/disabling the firewall, or changing the AZ set | Replaces NAT gateways and public egress IPs (`outbound_ips`); downstream allow-lists keyed on those IPs break. Isolated testing observed minutes of egress loss per direction, and a disable attempted against a protected firewall stops half-way (fail-open on the single NAT until rolled forward or back) |
 | Disabling the firewall | Also deletes the Network Firewall alert/flow log groups with their retained evidence |
 | Rule-group capacity | Internal, fixed at 30000, immutable after creation; a change means a new rule group and policy update |
 | Enabling the firewall on a VPC with the S3 gateway endpoint | The endpoint is removed; S3 traffic moves to the inspected NAT path and bucket policies conditioned on `aws:SourceVpc` stop matching |
@@ -401,14 +395,14 @@ Allocator-side changes (editing/reordering/deleting `additional_subnet_groups` e
 ### Evidence boundaries
 
 Steady-state enforcement and ordinary destination-only policy edits behaved as
-tested on the retained `egfw-r8` fixture (three AZs, pods, host network,
+tested in an isolated three-AZ setup (pods, host network,
 Karpenter replacement, external attachments). Not established: a
 traffic-neutral or atomic mode switch; the root cause of one ~80 s pass-through
 window observed on two AZs during an in-flight disable apply; Tailscale
 PeerRelay forwarding; the same-worker NLB hairpin path; ECH. Named rules match
 SNI/Host without decryption; this is not an IDPS. AWS managed services placed in
 a group subnet do not thereby route their own service egress through the
-firewall. A disabled-mode upgrade plan on Ryvn's develop environment showed
+firewall. A disabled-mode upgrade plan on an isolated existing environment showed
 only a same-ID route move and new `terraform_data` records with zero destroys;
 that is a plan-level check for that environment, not activation evidence.
 

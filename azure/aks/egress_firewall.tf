@@ -1,7 +1,7 @@
 # ============================================================================
 # Default-deny cloud egress firewall (managed mode)
 # ============================================================================
-# Design: docs-internal/changes/cloud-egress-firewall/{contract.md,azure.md}
+# Default-deny egress enforcement and explicit destination exceptions.
 #
 # Root responsibilities: input validation helpers, AzureFirewallSubnet at fixed
 # allocator slot 4, external subnet-group allocations, route-table associations for

@@ -12,7 +12,7 @@ locals {
     "ec2.${var.region}.amazonaws.com",
     "ec2messages.${var.region}.amazonaws.com",
     # ECR Public API (GetAuthorizationToken from the node credential provider;
-    # observed blocked from Bottlerocket/Karpenter nodes in egfw-r8).
+    # observed blocked from Bottlerocket/Karpenter nodes in isolated testing).
     "api.ecr-public.${var.region}.amazonaws.com",
     # ECR Public's token API and pricing API only exist in us-east-1.
     "api.ecr-public.us-east-1.amazonaws.com",
@@ -58,7 +58,7 @@ locals {
     "*.quay.io",
     # CodeBuild build agent log delivery and the ryvn-init result parameter.
     "logs.${var.region}.amazonaws.com",
-    # AWS Load Balancer Controller (blocked with a native ALERT in egfw-r7).
+    # AWS Load Balancer Controller (blocked with a native ALERT in isolated testing).
     "elasticloadbalancing.${var.region}.amazonaws.com",
     "shield.us-east-1.amazonaws.com",
     # external-dns and cert-manager DNS-01 (global Route 53 endpoint).

@@ -1,5 +1,20 @@
 # Review Guidelines
 
+## Public blueprint confidentiality
+
+This entire directory is copied to public blueprints for both main and prerelease,
+including docs, comments, code, examples, tests, fixtures, scripts and filenames.
+Flag customer/prospect names or identifying details (domains, account/project/
+subscription/tenant/environment IDs, emails, resource names, support/evidence links
+and narratives) as a **high-priority confidentiality finding requiring sanitization
+before merge**, unless explicit publication authorization exists. Removing credentials
+alone is not sanitization. Use synthetic examples such as `example.invalid` and keep
+customer evidence outside exported trees; apply this to public PR descriptions,
+commits and review comments too. Preserve real validation caveats and legitimate
+technical terms such as TLS handshake. Cite only path/line and category, redacting
+sensitive paths and never quoting sensitive values. This is agent review guidance,
+not a deterministic CI gate or guaranteed detection.
+
 ## Provisioner permissions
 
 Environments provisioned by this module run under the least-privilege role in

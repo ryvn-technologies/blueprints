@@ -292,7 +292,7 @@ variable "existing_route_table_id" {
 }
 
 # ============================================================================
-# Default-deny cloud egress firewall (docs-internal/changes/cloud-egress-firewall)
+# Default-deny cloud egress firewall
 # ============================================================================
 
 variable "egress_firewall" {

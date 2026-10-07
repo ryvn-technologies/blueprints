@@ -1,7 +1,7 @@
 # ============================================================================
 # Default-deny cloud egress firewall (managed mode)
 # ============================================================================
-# Design: docs-internal/changes/cloud-egress-firewall/gcp-ngfw-base.md
+# Native firewall enforcement with explicit destination exceptions.
 #
 # Root responsibilities: input validation helpers, the GKE platform baseline,
 # additional subnet group allocation, permission classes and the public

@@ -137,7 +137,7 @@ locals {
 }
 
 # PR #7096 prereleases temporarily keyed the WAF module by a hash of its name.
-# Preserve the instance deployed to the Guava develop validation installation
+# Preserve the existing prerelease instance
 # when it returns to the stable count-based address.
 moved {
   from = module.waf["10d3a6c5"]
