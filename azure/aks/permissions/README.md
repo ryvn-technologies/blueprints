@@ -6,7 +6,7 @@ environment with this module. The counterparts live in
 
 | File | Purpose |
 |------|---------|
-| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (80 explicit actions, including managed egress and control-plane logging). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
+| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (91 actions, including explicit Application Gateway ingress, managed egress and control-plane logging permissions). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
 | `permissions.go` | Embeds the role so the orchestrator can serve it (same layout as `infra/gke-provision/permissions`) |
 
 ## Identity model
@@ -70,6 +70,9 @@ do not substitute administrator credentials for that check.
 | Resource group | `ryvn-rg-<env>` | `Microsoft.Resources/subscriptions/resourceGroups/read|write|delete` |
 | Network | VNet (or carve in an existing one), node/appgw/privatelink/postgres subnets, route table association, AKS egress IP lookup | `Microsoft.Network/virtualNetworks/*` (read/write/delete), `virtualNetworks/join/action` (private DNS VNet links), `virtualNetworks/subnets/*` (read/write/delete/join), `routeTables/read|join`, `publicIPAddresses/read` |
 | Managed egress | Firewall, policies, rule collections, public IP and UDRs | Explicit `azureFirewalls`, `firewallPolicies`, `firewallPolicies/ruleCollectionGroups` read/write/delete; policy/public-IP join; route-table/route read/write/delete; public-IP write/delete |
+| Application Gateway ingress | Standard_v2 gateway, public IP, dedicated subnets | `Microsoft.Network/applicationGateways/read|write|delete|start/action|stop/action`; existing public-IP/subnet read/write/delete/join |
+| Ingress security | NSG with inline rules, subnet association | `Microsoft.Network/networkSecurityGroups/read|write|delete|join/action`; existing subnet read/write |
+| Network operation polling | asynchronous gateway, NSG, subnet and public-IP operations | `Microsoft.Network/locations/operations/read`, `locations/operationResults/read` |
 | Egress diagnostics | Log Analytics workspace and firewall diagnostic setting | `Microsoft.Insights/diagnosticSettings/read|write|delete`, `Microsoft.OperationalInsights/workspaces/read|write|delete|sharedKeys/action` |
 | DNS | public zone, private zones for internal domain, PostgreSQL and Redis, VNet links | `Microsoft.Network/dnszones/read|write|delete`, `dnszones/*/read` (SOA read-back), `privateDnsZones/read|write|delete`, `privateDnsZones/*/read`, `privateDnsZones/virtualNetworkLinks/read|write|delete` |
 | Cluster | AKS with Azure RBAC, workload identity, two node pools | `Microsoft.ContainerService/managedClusters/read|write|delete`, `managedClusters/agentPools/read|write|delete`, `managedClusters/maintenanceConfigurations/read|write|delete` (node OS and auto-upgrade planned maintenance windows), `managedClusters/listClusterUserCredential/action` (called by `azurerm_kubernetes_cluster` on every read), `locations/operations/read`, `locations/operationresults/read` (long-running operation polling) |
@@ -83,8 +86,40 @@ Not needed and deliberately absent: `Microsoft.Resources/deployments/*` (no ARM 
 resource provider registration (`resource_provider_registrations = "none"`),
 `Microsoft.Compute/*`, `Microsoft.Storage/*`, `Microsoft.KeyVault/*`,
 workspace query actions or `dataActions`, `Microsoft.Insights/diagnosticSettingsCategories/*`,
-`Microsoft.Authorization/locks/*`, `Microsoft.Authorization/policyAssignments/*`, DNS
-record-set writes.
+`Microsoft.Authorization/locks/*`, `Microsoft.Authorization/policyAssignments/*`, or
+application DNS record-set writes. ExternalDNS uses its existing separate identity.
+
+### Application Gateway permission audit
+
+The [Microsoft.Network operation catalog](https://learn.microsoft.com/en-us/azure/role-based-access-control/permissions/networking#microsoftnetwork)
+defines the action names above. The module pins AzureRM 4.81.0; its deployment paths are:
+
+- [Application Gateway](https://github.com/hashicorp/terraform-provider-azurerm/blob/v4.81.0/internal/services/network/application_gateway_resource.go):
+  GET, PUT and DELETE. A gateway-subnet change additionally calls Stop then Start around
+  the PUT, requiring the two explicit actions even though ordinary updates do not.
+- [NSG](https://github.com/hashicorp/terraform-provider-azurerm/blob/v4.81.0/internal/services/network/network_security_group_resource.go):
+  GET, PUT and DELETE of the parent with inline `security_rule` configuration. No separate
+  `networkSecurityGroups/securityRules` or `defaultSecurityRules` operations are called.
+  [Subnet association](https://github.com/hashicorp/terraform-provider-azurerm/blob/v4.81.0/internal/services/network/subnet_network_security_group_association_resource.go)
+  reads the subnet/VNet and PUTs the subnet; NSG `join/action` authorizes the linked resource.
+- [Public IP](https://github.com/hashicorp/terraform-provider-azurerm/blob/v4.81.0/internal/services/network/public_ip_resource.go):
+  existing read/write/delete and `join/action` cover its lifecycle and gateway attachment.
+  Subnet lifecycle/read/join actions already cover both dedicated subnets. The backend is
+  an IP address, so `applicationGateways/backendAddressPools/join/action` for NIC attachment
+  is unnecessary. AKS allocates the private frontend through its own cluster identity.
+- The [vendored SDK poller](https://github.com/hashicorp/terraform-provider-azurerm/blob/v4.81.0/vendor/github.com/hashicorp/go-azure-sdk/sdk/client/resourcemanager/poller_lro.go)
+  GETs the `Azure-AsyncOperation` or `Location` response URL; the two Network location
+  reads cover asynchronous operation status/results, alongside each resource's GET.
+- Application A records are owned by ExternalDNS. Terraform only exposes the AppGW
+  public IP to the gateway blueprint; no `dnszones/A/write|delete` is needed. Existing
+  zone lifecycle and record reads are retained for independent platform DNS resources.
+
+Backend-health POSTs (`applicationGateways/backendhealth/action` and
+`getBackendHealthOnDemand/action`), resource health, metrics and effective NSG/route queries
+are optional operator diagnostics. AzureRM does not call them for this resource graph;
+they remain ungranted. Provisioning completes before Helm backend readiness. An authorized operator
+must verify health and cutover readiness as described in the
+[AppGW runbook](../modules/application-gateway/RUNBOOK.md).
 
 `Microsoft.OperationalInsights/workspaces/sharedKeys/action` is required with
 `workspaces/read` to attach the workspace as a diagnostic-settings destination, as
@@ -220,6 +255,55 @@ update: rerunning the secret-backed full setup rotates the service-principal
 password and requires updating the Ryvn connection. Provider registration remains
 customer-owned; ensure Network, Insights and OperationalInsights are registered.
 The [egress runbook](../modules/egress-firewall/RUNBOOK.md) covers rollout.
+
+### Enabling Application Gateway on an existing subscription
+
+1. Publish an orchestrator release containing this template, then upgrade the hub serving
+   setup instructions. `permissions.go` embeds `provisioner-role.json` at build time;
+   merging source does **not** update a running orchestrator or any live customer role.
+   The release workflow includes this directory and requires
+   `auto-release:ryvn-orchestrator` on the merged PR.
+2. Generate the updated setup script through the environment wizard, Azure setup API or
+   `ryvn get azure-setup-script` described above. The subscription owner runs the supported
+   role-update flow before applying AppGW. Prefer the role-only commands under
+   "Upgrading existing subscriptions" with the released JSON: the full client-secret
+   setup path rotates the password and requires updating the saved connection.
+3. [Update the existing custom role definition](https://learn.microsoft.com/en-us/azure/role-based-access-control/custom-roles-cli#update-a-custom-role)
+   `ryvn-aks-provision-<sub8>` in place, retaining its definition ID. Existing assignments
+   to that definition continue to apply; do not recreate identities or assignments just
+   to add these actions. The old plain-name wildcard role remains untouched.
+4. Allow Azure RBAC propagation, refresh provisioner credentials, and read back the role
+   definition and effective assignments for the actual provisioner principal. Confirm
+   the new actions and correct subscription scope, including inherited assignments and
+   any conditions/deny assignments, before enabling `application_gateway_enabled`.
+   Apply the [AppGW rollout gates](../modules/application-gateway/RUNBOOK.md) separately;
+   permission readiness does not establish backend, TLS or DNS readiness.
+
+### Restricted-role validation
+
+The retained Guava AppGW tests prove networking and ownership behavior; they do **not**
+prove create/update/delete or DNS publication under this restricted role. The action audit,
+embedded-role regression and both generated setup-script variants cover source only.
+
+Use an already-authorized disposable provisioner identity and scope with the corrected
+definition, or obtain owner authorization separately. Do not update a shared/customer
+role, create an assignment or use Owner/Contributor/the agent identity as a substitute.
+The remaining scoped validation is:
+
+1. Record the effective principal object ID, subscription, role definition ID/actions,
+   assignments (including inherited grants), conditions and deny assignments. Exclude
+   broader roles that would mask a missing action. Use the actual supported assignment
+   scope in an isolated subscription; Network location polling reads need that coverage.
+2. With that identity and isolated Terraform state, create a disposable VNet/subnets,
+   public IP, NSG with inline rules, subnet association and AppGW using the actual module,
+   before the backend Service exists.
+3. Update an inline NSG rule, refresh/reapply, and exercise an approved gateway-subnet
+   change to cover AzureRM's Stop/Start branch. Application DNS is reconciled separately
+   by ExternalDNS, using its own identity; a provisioner apply must not write A records.
+4. Delete only disposable resources with reviewed retirement steps for `prevent_destroy`,
+   retain operation/authorization evidence, and verify no leftovers. Neither a no-op
+   refresh nor a broad-identity apply establishes these lifecycle permissions. Preserve
+   the retained Guava fixtures and keep Handshake read-only.
 
 ### Existing clusters: upgrade the module before narrowing the legacy role
 

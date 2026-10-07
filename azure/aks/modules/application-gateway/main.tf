@@ -174,15 +174,3 @@ resource "azurerm_application_gateway" "this" {
     }
   }
 }
-
-resource "azurerm_dns_a_record" "this" {
-  for_each            = var.enabled && var.activation.publish_dns ? var.public_dns.record_names : toset([])
-  name                = each.key
-  zone_name           = var.public_dns.zone_name
-  resource_group_name = var.public_dns.resource_group_name
-  ttl                 = var.public_dns.ttl
-  records             = [azurerm_public_ip.this[0].ip_address]
-  tags                = var.tags
-  depends_on          = [azurerm_application_gateway.this]
-  lifecycle { prevent_destroy = true }
-}

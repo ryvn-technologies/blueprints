@@ -156,7 +156,9 @@ apply, then apply consumers. JSON IDs carry no Terraform ordering or health guar
   `egress_firewall.enabled` and `application_gateway_enabled` and retain the
   existing external gateway. The platform owns AppGW; its output automatically
   configures the Helm/ryvn-agent private Service for AKS to reconcile. Firewall
-  enablement does not enable AppGW; this child owns only egress. See the
+  enablement does not enable AppGW; this child owns only egress. ExternalDNS
+  remains the application-DNS owner; the existing external Service publishes
+  the AppGW public target after gateway reconciliation. See the
   [Application Gateway module](../application-gateway/README.md). Private-only
   ingress may leave AppGW disabled.
 - **Tier:** Standard is the default. Selecting Premium does not enable TLS

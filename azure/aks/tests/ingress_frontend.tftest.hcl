@@ -47,7 +47,7 @@ run "enabled_preserves_every_existing_allocation" {
     error_message = "The frontend must use fixed slot 5 and usable host 4, without implicit outbound."
   }
   assert {
-    condition     = output.application_gateway_network.enabled && output.application_gateway_network.gateway.backend_ip == output.application_gateway_network.backend.private_ip && !output.application_gateway_network.gateway.public_dns_published && length(module.egress_firewall) == 0
+    condition     = output.application_gateway_network.enabled && output.application_gateway_network.gateway.backend_ip == output.application_gateway_network.backend.private_ip && !contains(keys(output.application_gateway_network.gateway), "public_dns_published") && !contains(keys(output.application_gateway_network.gateway), "public_dns_record_names") && length(module.egress_firewall) == 0
     error_message = "AppGW must be configured in platform state before Helm readiness, independently of Firewall and DNS publication."
   }
   assert {

@@ -4,27 +4,6 @@ variable "application_gateway_name" {
   default     = null
 }
 
-variable "application_gateway_public_dns" {
-  description = "Exact A record names in the platform public zone. Null creates no records; publication requires application_gateway_activation gates."
-  type = object({
-    record_names = set(string)
-    ttl          = optional(number, 30)
-  })
-  default = null
-}
-
-variable "application_gateway_activation" {
-  description = "Operator attestations for a later platform DNS apply after Helm deployment and runtime checks. Infrastructure creation does not wait for backend health."
-  type = object({
-    publish_dns               = optional(bool, false)
-    dns_owner_released        = optional(bool, false)
-    backend_healthy           = optional(bool, false)
-    tls_routes_ready          = optional(bool, false)
-    firewall_self_calls_ready = optional(bool, false)
-  })
-  default = {}
-}
-
 locals {
   application_gateway_network = {
     version             = 2
@@ -42,16 +21,9 @@ locals {
 }
 
 module "application_gateway" {
-  source     = "./modules/application-gateway"
-  enabled    = local.ingress_frontend_enabled
-  name       = coalesce(var.application_gateway_name, "appgw-${var.environment_name}")
-  network    = local.ingress_frontend_enabled ? local.application_gateway_network : null
-  tags       = local.tags
-  activation = var.application_gateway_activation
-  public_dns = var.application_gateway_public_dns == null ? null : {
-    resource_group_name = azurerm_resource_group.rg.name
-    zone_name           = azurerm_dns_zone.public.name
-    record_names        = var.application_gateway_public_dns.record_names
-    ttl                 = var.application_gateway_public_dns.ttl
-  }
+  source  = "./modules/application-gateway"
+  enabled = local.ingress_frontend_enabled
+  name    = coalesce(var.application_gateway_name, "appgw-${var.environment_name}")
+  network = local.ingress_frontend_enabled ? local.application_gateway_network : null
+  tags    = local.tags
 }

@@ -20,7 +20,9 @@ fixture IDs and historical retries belong in the internal validation report.
    and `application_gateway_enabled = true` and retain the existing external
    gateway. Follow the [AppGW setup](../application-gateway/README.md) and
    [activation/rollback runbook](https://github.com/ryvn-technologies/ryvn/blob/main/docs-internal/runbooks/azure-application-gateway-ingress.md).
-   Private-only ingress may leave AppGW disabled.
+   Private-only ingress may leave AppGW disabled. ExternalDNS remains the DNS
+   owner; cutover follows gateway reconciliation. Check actual backend readiness
+   separately and use the AppGW runbook for any applied Terraform DNS handoff.
 5. Publish/register the Terraform module and updated Azure platform blueprint,
    and deploy an orchestrator release containing the embedded Azure role JSON.
    Update the subscription's existing role before activation; the running hub does

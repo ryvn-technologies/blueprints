@@ -10,6 +10,9 @@ Azure platform Terraform: application_gateway_enabled=true
   -> application_gateway_network v2: backend{subnet_id,subnet_name,subnet_cidr,private_ip}
        +-> ryvn-gateway Helm values -> ryvn-agent -> Service -> AKS internal LB
        +-> platform child module -> AppGW backend pool (same root/state)
+  -> gateway.public_ip -> gateway blueprint externalDNS.target
+       -> existing external Service -> ExternalDNS
+       -> i2gw Ingress status (when enabled) -> ExternalDNS without explicit targets
 ```
 
 Both consumers use the same `cidrhost(subnet_cidr, 4)` IPv4. Terraform can configure AppGW before the Service exists. Infrastructure creation never waits on Kubernetes or backend health. There is no Kubernetes provider, Service/ConfigMap discovery, Helm output dependency or UID/address handoff.
@@ -24,10 +27,8 @@ The Azure AKS root invokes this module and owns its state. Enable `application_g
 | --- | --- | --- |
 | `application_gateway_enabled` | `false` | AppGW resources and dedicated ingress-LB subnet/IP |
 | `application_gateway_name` | `null` → `appgw-<environment_name>` | Stable AppGW name; PIP/NSG use `pip-`/`nsg-` prefixes |
-| `application_gateway_public_dns` | `null` | `{record_names, ttl=30}` in the platform public zone |
-| `application_gateway_activation` | `{}`; all fields false | `publish_dns`, `dns_owner_released`, `backend_healthy`, `tls_routes_ready`, `firewall_self_calls_ready` |
 
-The version 2 `application_gateway_network` output contains `enabled`, subnet references, the planned `backend` descriptor and nullable `gateway{id,public_ip,public_ip_id,backend_ip,public_dns_published,...}`. These fields describe configured resources, not health. The child receives root resource/local references directly; subnet reads depend on subnet creation. It inherits the root AzureRM provider, already pinned to 4.81.0; no platform provider upgrade is required.
+The version 2 `application_gateway_network` output contains `enabled`, subnet references, the planned `backend` descriptor and nullable `gateway{id,public_ip,public_ip_id,backend_ip,client_identity,proxy_protocol_enabled}`. These fields describe configured resources, not health. The child receives root resource/local references directly; subnet reads depend on subnet creation. It inherits the root AzureRM provider, already pinned to 4.81.0; no platform provider upgrade is required.
 
 The frontend subnet has no implicit outbound access or route-table association and must not host node pools. Existing AKS VNet-scoped Network Contributor covers subnet read/join/network operations; no new RBAC or controller is introduced.
 
@@ -42,7 +43,8 @@ The chart requires the subnet name and private IPv4 and selects existing externa
 | Resource | Owner |
 | --- | --- |
 | Dedicated AppGW and ingress-LB subnets / planned IP contract | platform Terraform |
-| AppGW, public IP, NSG/association, selected public A records | platform Terraform root/state, through this child module |
+| AppGW, public IP, NSG/association | platform Terraform root/state, through this child module |
+| Application A records and TXT registry ownership | existing ExternalDNS installations |
 | Additional private Service | existing external `ryvn-gateway` Helm installation, deployed by `ryvn-agent` |
 | Azure internal LB frontend, generated probes/rules/timeouts | AKS native controller |
 | TLS, certificate Secrets, SNI/Host/routes | existing Istio, cert-manager and applications |
@@ -51,9 +53,17 @@ The chart requires the subnet name and private IPv4 and selects existing externa
 
 Terraform only writes Azure objects; it never creates/patches/adopts Kubernetes or uses Helm/kubectl/local-exec wrappers. Existing Azure objects need reviewed import/state transfer; foreign NSGs and route-table associations fail. The dedicated backend subnet must match the contract and share the AppGW VNet.
 
-DNS is off by default. After actual backend health, TLS/routes and Firewall self-call verification, explicitly set all `application_gateway_activation` fields true and configure exact `application_gateway_public_dns.record_names`. A later reviewed platform apply publishes DNS; the initial apply has no health wait. These are operator attestations, not inferred readiness. One authoritative writer owns the selected public records. An exclusion annotation alone does not prove ExternalDNS ownership has been released.
+ExternalDNS is the single application-DNS owner. Terraform exposes the public IP; the Azure external gateway blueprint passes it as `externalDNS.target`. The chart renders `external-dns.alpha.kubernetes.io/target` on the existing created or adopted public Service. Origin, wildcard, applicable apex and custom/operator hostname declarations stay authoritative. The additional private backend Service remains excluded. Internal gateways, internal HTTPS targets in public zones, Private Link and private zones are unchanged. No global ExternalDNS values or AWS/GCP zone filters change.
 
-AppGW, PIP, NSG/association and published DNS records retain `prevent_destroy`; disabling an existing deployment, clearing DNS publication or deleting the environment is blocked while they remain protected. Retire DNS/traffic and Helm consumers first, then use a reviewed code change to relax protection for the named resources, including DNS, and apply destruction through their owning platform state. Never remove state to bypass protection. For a pilot state handoff, freeze both runners, back up states, review ID/address mapping, transfer ownership without cloud deletion and verify a no-op destination plan before resuming. See the runbook.
+The managed AppGW target takes precedence over `service.annotations` and adopted-Service target overrides. `networking.ryvn.app/dns-target` marks that Service ownership. Adoption saves the previous explicit Service target in `networking.ryvn.app/original-dns-target`; removing the managed target restores it, or removes the target if none existed. An explicit target in the rollback adoption overlay takes precedence over the saved value. Unrelated annotations survive. For created Services, Istio's existing server-side apply removes its owned annotation when it disappears from the desired overlay. Direct chart operators can deliberately override `externalDNS.target`; ordinary Service target annotations cannot override the managed address. Blueprint consumers use the platform output rather than adding a second hostname list.
+
+Ingress target annotations remain operator-owned and unchanged, including CDN hostnames and old ingress IPs. i2gw publishes the marked external Service's AppGW public IP only through Ingress status, when status publication is enabled; removing the managed Service target restores ordinary status derivation from the configured publish Service. In adopt mode, enable `externalPublishIngressStatus` (chart `ingressCompatibility.proxyTarget.publishIngressStatus`) after stopping the previous status publisher. Its default remains false; with publication disabled, i2gw leaves status unchanged. No target save/restore annotations are written to Ingresses.
+
+Retained Guava ExternalDNS v0.19.0 enables Service and Ingress sources. [ExternalDNS v0.19.0](https://github.com/kubernetes-sigs/external-dns/blob/v0.19.0/source/ingress.go#L280-L284) prefers explicit target annotations over status, so review them manually before enablement: update old ingress addresses or the CDN origin as appropriate. The two Guava pilot overrides and proposed owner-controlled cleanup are documented in the [rollout runbook](https://github.com/ryvn-technologies/ryvn/blob/main/docs-internal/runbooks/azure-application-gateway-ingress.md#guava-pilot-ingress-overrides). Gateway/Route sources are absent from the retained configuration; audit any separately enabled source before rollout. Live deployment reads are currently forbidden, so retained arguments do not prove current release reconciliation. Existing add-on values may be snapshotted; changing defaults would not upgrade them.
+
+DNS cutover follows gateway reconciliation, without a second Terraform apply or manual publication/ownership-attestation inputs. Bootstrap can temporarily have an unhealthy backend; IP existence and TCP probes do not prove TLS/routes or self-call readiness. Verify actual backend health, Istio certificates/routes and Firewall public self-call allows, then authoritative DNS across multiple reconciliation cycles. Pilot disruption is accepted. Certificate issuance/renewal and full published gateway/agent reconciliation remain rollout checks.
+
+AppGW, PIP and NSG/association retain `prevent_destroy`; disabling an existing deployment or deleting the environment is blocked while they remain protected. Retire DNS/traffic and Helm consumers first, then use a reviewed code change to relax protection for the named Azure resources and apply destruction through their owning platform state. Never remove state to bypass protection. Applied Terraform DNS requires an explicit non-destructive ownership transfer to ExternalDNS before applying this removal: preserve records, targets and TXT registry ownership. Freeze runners, back up states and review `removed { lifecycle { destroy = false } }` plans. The retained `azurerm_dns_a_record.canary` is still owned by its standalone fixture state; it has not been transferred or deleted. See the runbook.
 
 ## Constraints and retained evidence
 

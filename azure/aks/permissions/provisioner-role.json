@@ -1,6 +1,6 @@
 {
   "roleName": "ryvn-aks-provision",
-  "description": "Provisions and deprovisions Ryvn AKS environments: resource group, VNet, DNS zones, AKS, control-plane logging, managed identities and their role assignments.",
+  "description": "Provisions and deprovisions Ryvn AKS environments: resource group, VNet, Application Gateway ingress, DNS zones, AKS, control-plane logging, managed identities and their role assignments.",
   "assignableScopes": [
     "/subscriptions/<subscriptionId>"
   ],
@@ -32,6 +32,17 @@
         "Microsoft.Network/publicIPAddresses/write",
         "Microsoft.Network/publicIPAddresses/delete",
         "Microsoft.Network/publicIPAddresses/join/action",
+        "Microsoft.Network/applicationGateways/read",
+        "Microsoft.Network/applicationGateways/write",
+        "Microsoft.Network/applicationGateways/delete",
+        "Microsoft.Network/applicationGateways/start/action",
+        "Microsoft.Network/applicationGateways/stop/action",
+        "Microsoft.Network/networkSecurityGroups/read",
+        "Microsoft.Network/networkSecurityGroups/write",
+        "Microsoft.Network/networkSecurityGroups/delete",
+        "Microsoft.Network/networkSecurityGroups/join/action",
+        "Microsoft.Network/locations/operations/read",
+        "Microsoft.Network/locations/operationResults/read",
         "Microsoft.Network/azureFirewalls/read",
         "Microsoft.Network/azureFirewalls/write",
         "Microsoft.Network/azureFirewalls/delete",

@@ -36,15 +36,15 @@ override_data {
   }
 }
 
-run "disabled_has_no_resources_or_dns" {
+run "disabled_has_no_resources" {
   command = plan
   assert {
-    condition     = length(azurerm_application_gateway.this) == 0 && length(azurerm_public_ip.this) == 0 && length(azurerm_network_security_group.this) == 0 && length(azurerm_subnet_network_security_group_association.this) == 0 && length(azurerm_dns_a_record.this) == 0 && output.application_gateway == null
+    condition     = length(azurerm_application_gateway.this) == 0 && length(azurerm_public_ip.this) == 0 && length(azurerm_network_security_group.this) == 0 && length(azurerm_subnet_network_security_group_association.this) == 0 && output.application_gateway == null
     error_message = "Disabled and omitted input must not create network or DNS resources."
   }
 }
 
-run "enabled_before_kubernetes_exists_without_dns_cutover" {
+run "enabled_before_kubernetes_exists" {
   command = plan
   variables { enabled = true }
   assert {
@@ -56,7 +56,7 @@ run "enabled_before_kubernetes_exists_without_dns_cutover" {
     error_message = "Stage 1 must expose AppGW identity with PROXY disabled."
   }
   assert {
-    condition     = one(azurerm_application_gateway.this[0].backend_address_pool).ip_addresses == toset(["10.12.133.4"]) && alltrue([for probe in azurerm_application_gateway.this[0].probe : probe.protocol == "Tcp" && !probe.proxy_protocol_header_enabled]) && azurerm_public_ip.this[0].idle_timeout_in_minutes == 10 && length(azurerm_dns_a_record.this) == 0
+    condition     = one(azurerm_application_gateway.this[0].backend_address_pool).ip_addresses == toset(["10.12.133.4"]) && alltrue([for probe in azurerm_application_gateway.this[0].probe : probe.protocol == "Tcp" && !probe.proxy_protocol_header_enabled]) && azurerm_public_ip.this[0].idle_timeout_in_minutes == 10
     error_message = "AppGW must configure the planned IP without Kubernetes reads or automatic DNS cutover."
   }
 }
@@ -135,39 +135,6 @@ run "reject_forced_tunnel_appgw_subnet" {
   expect_failures = [azurerm_subnet_network_security_group_association.this]
 }
 
-run "dns_requires_explicit_handoff" {
-  command = plan
-  variables {
-    enabled    = true
-    public_dns = { resource_group_name = "rg", zone_name = "test.example.com", record_names = ["canary"] }
-    activation = { publish_dns = true, backend_healthy = true, tls_routes_ready = true, firewall_self_calls_ready = true }
-  }
-  expect_failures = [var.activation]
-}
-
-run "dns_requires_verified_routes" {
-  command = plan
-  variables {
-    enabled    = true
-    public_dns = { resource_group_name = "rg", zone_name = "test.example.com", record_names = ["canary"] }
-    activation = { publish_dns = true, backend_healthy = true, dns_owner_released = true, firewall_self_calls_ready = true }
-  }
-  expect_failures = [var.activation]
-}
-
-run "explicit_cutover_publishes_only_selected_public_records" {
-  command = plan
-  variables {
-    enabled    = true
-    public_dns = { resource_group_name = "rg", zone_name = "test.example.com", record_names = ["canary"] }
-    activation = { publish_dns = true, backend_healthy = true, dns_owner_released = true, tls_routes_ready = true, firewall_self_calls_ready = true }
-  }
-  assert {
-    condition     = keys(azurerm_dns_a_record.this) == ["canary"] && azurerm_dns_a_record.this["canary"].zone_name == "test.example.com" && azurerm_dns_a_record.this["canary"].ttl == 30
-    error_message = "Cutover must own exactly the explicitly selected public records, leaving legacy and private DNS alone."
-  }
-}
-
 run "reject_forced_tunnel_frontend_subnet" {
   command = plan
   variables { enabled = true }
@@ -176,16 +143,6 @@ run "reject_forced_tunnel_frontend_subnet" {
     values = { address_prefixes = ["10.12.133.0/24"], route_table_id = "forced-tunnel" }
   }
   expect_failures = [azurerm_application_gateway.this]
-}
-
-run "dns_requires_runtime_backend_health" {
-  command = plan
-  variables {
-    enabled    = true
-    public_dns = { resource_group_name = "rg", zone_name = "test.example.com", record_names = ["canary"] }
-    activation = { publish_dns = true, dns_owner_released = true, tls_routes_ready = true, firewall_self_calls_ready = true }
-  }
-  expect_failures = [var.activation]
 }
 
 run "reject_nonplanned_backend_address" {

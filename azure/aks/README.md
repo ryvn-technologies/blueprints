@@ -34,6 +34,10 @@ Set `application_gateway_enabled: true` to provision AppGW and its dedicated fro
 subnet/IP. The enabled external gateway automatically consumes platform output. For managed
 egress, explicitly enable the independent `egress_firewall.enabled` setting too.
 Helm/ryvn-agent deploys the separate private external-Istio Service, and AKS reconciles its frontend.
+ExternalDNS owns application DNS: the existing external Service publishes the AppGW
+public IP, and i2gw publishes it through Ingress status when enabled. Explicit Ingress
+targets remain operator-owned and need manual review. Applied Terraform DNS requires the
+reviewed non-destructive ownership handoff in the runbook before resource removal.
 See the Ryvn monorepo's [activation and rollback runbook](https://github.com/ryvn-technologies/ryvn/blob/main/docs-internal/runbooks/azure-application-gateway-ingress.md); internal docs are not copied into the published blueprints repository.
 
 ## What's Included

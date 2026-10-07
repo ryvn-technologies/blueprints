@@ -35,12 +35,61 @@ func TestProvisionerRoleParses(t *testing.T) {
 			t.Errorf("duplicate action %q", action)
 		}
 		seen[action] = true
-		if action == "*" || strings.HasSuffix(action, "/*") {
+		if strings.Contains(action, "*") && action != "Microsoft.Network/dnszones/*/read" && action != "Microsoft.Network/privateDnsZones/*/read" {
 			t.Errorf("role grants wildcard action %q", action)
 		}
 	}
 	if len(role.Permissions[0].DataActions) != 0 {
 		t.Error("role must not grant dataActions")
+	}
+}
+
+func TestProvisionerRoleCoversApplicationGatewayLifecycle(t *testing.T) {
+	role, err := ProvisionerRole()
+	if err != nil {
+		t.Fatalf("ProvisionerRole: %v", err)
+	}
+	actions := role.Permissions[0].Actions
+	for _, resource := range []string{
+		"Microsoft.Network/applicationGateways",
+		"Microsoft.Network/networkSecurityGroups",
+		"Microsoft.Network/publicIPAddresses",
+		"Microsoft.Network/virtualNetworks/subnets",
+	} {
+		for _, verb := range []string{"read", "write", "delete"} {
+			if action := resource + "/" + verb; !slices.Contains(actions, action) {
+				t.Errorf("role must include %q", action)
+			}
+		}
+	}
+	for _, action := range []string{
+		"Microsoft.Network/applicationGateways/start/action",
+		"Microsoft.Network/applicationGateways/stop/action",
+		"Microsoft.Network/networkSecurityGroups/join/action",
+		"Microsoft.Network/publicIPAddresses/join/action",
+		"Microsoft.Network/virtualNetworks/read",
+		"Microsoft.Network/virtualNetworks/subnets/join/action",
+		"Microsoft.Network/locations/operations/read",
+		"Microsoft.Network/locations/operationResults/read",
+		"Microsoft.Network/dnszones/read",
+		"Microsoft.Network/dnszones/*/read",
+	} {
+		if !slices.Contains(actions, action) {
+			t.Errorf("role must include %q", action)
+		}
+	}
+	for _, action := range actions {
+		if action == "Microsoft.Network/dnszones/A/write" || action == "Microsoft.Network/dnszones/A/delete" {
+			t.Errorf("application DNS belongs to ExternalDNS, not the provisioner: %q", action)
+		}
+		if strings.HasPrefix(action, "Microsoft.Network/applicationGateways/") &&
+			action != "Microsoft.Network/applicationGateways/read" &&
+			action != "Microsoft.Network/applicationGateways/write" &&
+			action != "Microsoft.Network/applicationGateways/delete" &&
+			action != "Microsoft.Network/applicationGateways/start/action" &&
+			action != "Microsoft.Network/applicationGateways/stop/action" {
+			t.Errorf("role grants unnecessary Application Gateway action %q", action)
+		}
 	}
 }
 

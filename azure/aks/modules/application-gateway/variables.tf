@@ -44,39 +44,8 @@ variable "network" {
   }
 }
 
-variable "public_dns" {
-  description = "Exact public A records owned by the platform after explicit DNS handoff. No private self-call zone is created."
-  type = object({
-    resource_group_name = string
-    zone_name           = string
-    record_names        = set(string)
-    ttl                 = optional(number, 30)
-  })
-  default = null
-  validation {
-    condition     = var.public_dns == null || try(var.public_dns.ttl >= 30 && alltrue([for name in var.public_dns.record_names : can(regex("^(\\*|@|[A-Za-z0-9][A-Za-z0-9.-]*)$", name))]), false)
-    error_message = "DNS record names must be explicit labels, * or @; TTL must be at least 30 seconds."
-  }
-}
-
-variable "activation" {
-  description = "Owner-confirmed cutover gates, checked only when publishing public DNS. TCP probes alone do not prove TLS/routes or egress readiness."
-  type = object({
-    publish_dns               = optional(bool, false)
-    dns_owner_released        = optional(bool, false)
-    backend_healthy           = optional(bool, false)
-    tls_routes_ready          = optional(bool, false)
-    firewall_self_calls_ready = optional(bool, false)
-  })
-  default = {}
-  validation {
-    condition     = !var.activation.publish_dns || (var.enabled && var.public_dns != null && var.activation.dns_owner_released && var.activation.backend_healthy && var.activation.tls_routes_ready && var.activation.firewall_self_calls_ready)
-    error_message = "Publishing DNS requires an enabled gateway, explicit DNS configuration, previous-writer release, observed healthy backends, verified Istio TLS/routes and allowed public self-call hostnames."
-  }
-}
-
 variable "tags" {
   type        = map(string)
   default     = {}
-  description = "Owner tags for AppGW, public IP, NSG and public DNS."
+  description = "Owner tags for AppGW, public IP and NSG."
 }
