@@ -370,6 +370,14 @@ spec:
         - key: CriticalAddonsOnly
           operator: Exists
     releaseChannel: stable
+  - service: metrics-server
+    name: metrics-server
+    namespace: observability
+    releaseChannel: stable
+    config: |
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
   - service: ryvn-collector
     namespace: observability
     config: |
