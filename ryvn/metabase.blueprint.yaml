@@ -28,6 +28,16 @@ spec:
       description: Persistent storage sizing for the H2 database.
       condition: '{{ eq (input "databaseType") "h2" }}'
   inputs:
+    - name: imageTag
+      type: string
+      default: ""
+      description: "Pinned Metabase container tag. Leave empty to use the Helm chart default. Back up the application database before upgrading."
+      displayName: Image Tag
+    - name: recreateOnUpgrade
+      type: boolean
+      default: false
+      description: "Stop the existing pod before starting its replacement. Recommended when upgrading an embedded H2 database; causes brief downtime."
+      displayName: Recreate on Upgrade
     - name: exposeDashboard
       type: boolean
       default: false
@@ -122,6 +132,14 @@ spec:
             - key: MB_DB_PASS
               valueFromInput: databasePassword
       config: |
+        {{- if input "imageTag" }}
+        image:
+          tag: {{ input "imageTag" | toJson }}
+        {{- end }}
+        {{- if input "recreateOnUpgrade" }}
+        strategy:
+          type: Recreate
+        {{- end }}
         replicaCount: 1
         database:
           type: '{{ input "databaseType" }}'
