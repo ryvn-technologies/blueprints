@@ -129,7 +129,12 @@ resource "aws_db_instance" "this" {
   monitoring_role_arn                   = var.monitoring_interval > 0 ? aws_iam_role.rds_monitoring[0].arn : null
   enabled_cloudwatch_logs_exports       = var.enabled_cloudwatch_logs_exports
 
-  tags = local.all_tags
+  # The CloudWatch-metric-bearing resource carries the environment's opt-in
+  # tag; CloudWatch emits DBInstanceIdentifier series only for tagged
+  # instances the collector's allowlist also names.
+  tags = merge(local.all_tags, var.ryvn_environment_id != "" ? {
+    "ryvn.app/cloud-metrics" = var.ryvn_environment_id
+  } : {})
 
   # db_name only applies at creation and forces replacement if changed.
   lifecycle {

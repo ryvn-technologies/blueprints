@@ -212,6 +212,15 @@ variable "notification_topic_arn" {
   default     = null
 }
 
+# Cloud metrics opt-in. Blueprints wire this to {{ .ryvn.env.id }}; an empty
+# value leaves the group untagged and unread by the environment's
+# cloud-metrics collector.
+variable "ryvn_environment_id" {
+  description = "Ryvn environment ID stamped into the ryvn.app/cloud-metrics tag so the environment's collector may read this replication group's CloudWatch metrics"
+  type        = string
+  default     = ""
+}
+
 # Tags
 variable "tags" {
   description = "A map of tags to add to all resources"

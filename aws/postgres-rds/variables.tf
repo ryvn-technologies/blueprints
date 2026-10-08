@@ -198,6 +198,15 @@ variable "enabled_cloudwatch_logs_exports" {
   default     = ["postgresql", "upgrade"]
 }
 
+# Cloud metrics opt-in. Blueprints wire this to {{ .ryvn.env.id }}; an empty
+# value leaves the instance untagged and unread by the environment's
+# cloud-metrics collector.
+variable "ryvn_environment_id" {
+  description = "Ryvn environment ID stamped into the ryvn.app/cloud-metrics tag so the environment's collector may read this instance's CloudWatch metrics"
+  type        = string
+  default     = ""
+}
+
 # Tags
 variable "tags" {
   description = "Tags to apply to all resources"

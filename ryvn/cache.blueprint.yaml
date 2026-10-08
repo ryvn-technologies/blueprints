@@ -89,6 +89,7 @@ spec:
         multi_az_enabled: true
         automatic_failover_enabled: true
         {{- end }}
+        ryvn_environment_id: '{{ .ryvn.env.id }}'
         {{- if input "encryptionKeyId" }}
         kms_key_id: '{{ input "encryptionKeyId" }}'
         {{- end }}

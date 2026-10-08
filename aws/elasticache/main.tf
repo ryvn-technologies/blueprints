@@ -18,6 +18,10 @@ provider "aws" {
   region = var.aws_region
 }
 
+data "aws_partition" "current" {}
+
+data "aws_caller_identity" "current" {}
+
 resource "random_id" "suffix" {
   byte_length = 4
 }
@@ -138,7 +142,11 @@ resource "aws_elasticache_replication_group" "this" {
   # Apply changes immediately in non-maintenance windows
   apply_immediately = true
 
-  tags = local.all_tags
+  # Replication-group tags propagate to the member cache clusters that emit
+  # CacheClusterId series, so the opt-in tag goes here and covers every node.
+  tags = merge(local.all_tags, var.ryvn_environment_id != "" ? {
+    "ryvn.app/cloud-metrics" = var.ryvn_environment_id
+  } : {})
 
   lifecycle {
     precondition {

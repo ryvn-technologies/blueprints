@@ -84,3 +84,20 @@ output "read_write_iam_policy_arn" {
   description = "Read-write login policy for workload identity role_groups.<group>.policy_arns, or empty when disabled"
   value       = try(aws_iam_policy.database_connect["read_write"].arn, "")
 }
+
+# Participation contract for cloud datastore metrics (schema 1): the env's
+# hub render reads this output, resolves each target's provider-native id
+# through the adapter registry, and allowlists the resulting dimension
+# pairs. The instance ARN carries service/region/account — no declaration
+# of family, region, or capacity (capacity is read live by the adapter).
+output "cloud_metrics" {
+  description = "Cloud datastore metrics contract: schema version plus named targets holding provider-native resource ids"
+  value = {
+    schema = 1
+    targets = {
+      this = {
+        cloud_resource_id = aws_db_instance.this.arn
+      }
+    }
+  }
+}

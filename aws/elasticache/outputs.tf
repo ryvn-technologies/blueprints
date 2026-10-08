@@ -94,3 +94,31 @@ output "read_write_iam_policy_arn" {
   description = "Read-write login policy for workload identity role_groups.<group>.policy_arns, or empty when IAM is disabled"
   value       = try(aws_iam_policy.cache_connect["read_write"].arn, "")
 }
+
+# Participation contract for cloud datastore metrics (schema 1): the env's
+# hub render resolves each target's provider-native id and allowlists the
+# resulting dimension pairs. Member nodes and the group are separate
+# targets — cluster identity and group identity are never interchangeable.
+# Targets are keyed by the member id, not position: node ids are stable
+# across scale changes while indices re-map when a member leaves.
+# Member ARNs are constructed (member_clusters exposes ids only); the group
+# emits its own arn. Capacity is read live by the adapter, not declared.
+output "cloud_metrics" {
+  description = "Cloud datastore metrics contract: schema version plus named targets holding provider-native resource ids"
+  value = {
+    schema = 1
+    targets = merge(
+      {
+        for id in aws_elasticache_replication_group.this.member_clusters :
+        id => {
+          cloud_resource_id = "arn:${data.aws_partition.current.partition}:elasticache:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster:${id}"
+        }
+      },
+      {
+        group = {
+          cloud_resource_id = aws_elasticache_replication_group.this.arn
+        }
+      },
+    )
+  }
+}

@@ -322,6 +322,7 @@ spec:
         database_password: '{{ k8sSecretValue "database-password" "database_password" }}'
         backup_retention_days: {{ input "backupRetentionDays" }}
         deletion_protection: {{ input "deletionProtection" }}
+        ryvn_environment_id: '{{ .ryvn.env.id }}'
         {{- if input "encryptionKeyId" }}
         kms_key_id: '{{ input "encryptionKeyId" }}'
         {{- end }}
