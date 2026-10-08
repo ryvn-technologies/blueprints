@@ -139,6 +139,7 @@ spec:
         {{- if input "recreateOnUpgrade" }}
         strategy:
           type: Recreate
+          rollingUpdate: null
         {{- end }}
         replicaCount: 1
         database:
