@@ -173,8 +173,23 @@ spec:
         k8sClusterNetworkPolicy:
           enabled: true
         nodeSelectorLabels: true
+        # The relay only once an apply has finished on Cilium: ryvn-init waits for every pod, and the relay
+        # can't be ready before a node runs Cilium. New clusters may have only CriticalAddonsOnly nodes then.
+        # TODO(NominalTrajectory): Ryvn doesn't re-apply this module when env state changes, so new clusters and
+        # VPC CNI moves get the relay only at a later apply. Fix: ryvn-init adds it after moving nodes.
         hubble:
-          enabled: false
+          enabled: true
+          {{- if and .ryvn.env.state.cni (eq .ryvn.env.state.cni "cilium") }}
+          relay:
+            enabled: true
+            tolerations:
+            - {key: CriticalAddonsOnly, operator: Exists}
+            # Only clients with a certificate from the cluster's Hubble CA, such as the UI, can read flows.
+            tls:
+              server:
+                enabled: true
+                mtls: true
+          {{- end }}
         ingressController:
           enabled: false
         gatewayAPI:
@@ -440,6 +455,15 @@ spec:
       # The collector holds only the env-scoped system role that permits
       # telemetry ingest through the observability gateways.
       role: collector
+  - service: ryvn-cilium
+    name: hubble-ui
+    namespace: kube-system
+    condition: '{{ not (input "legacy") }}'
+    config: |
+      hubbleUI:
+        # Renders nothing until the cluster module reports the relay is on.
+        enabled: {{ if .ryvn.env.state.cilium_hubble_relay_enabled }}true{{ else }}false{{ end }}
+    releaseChannel: stable
   outputs:
     - name: outbound_ips
       displayName: Outbound IPs
