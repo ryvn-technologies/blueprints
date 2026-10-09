@@ -140,7 +140,7 @@ Set `enableViewerMtls` to make CloudFront validate client certificates against a
 
 ## WAF
 
-By default the blueprint creates a CloudFront-scoped WebACL with four AWS managed rule groups in count mode: matches are recorded but nothing is blocked. Review the counts, then move a group to `block`. Set every group to `disabled` and leave `ipAllowList` empty to skip the WebACL entirely.
+By default the blueprint creates a CloudFront-scoped WebACL with four AWS managed rule groups in count mode: matches are recorded but nothing is blocked. Review the counts, then move a group to `block`. Set every group to `disabled` and leave `ipAllowList` and `wafAdditionalRules` empty to skip the WebACL entirely.
 
 | Input | Default | Notes |
 |------|---------|-------|
@@ -148,13 +148,52 @@ By default the blueprint creates a CloudFront-scoped WebACL with four AWS manage
 | `wafKnownBadInputsAction` | `count` | Request patterns linked to known exploits. |
 | `wafAmazonIpReputationAction` | `count` | Sources AWS links to bots, DDoS, or scanning. |
 | `wafAnonymousIpAction` | `count` | VPNs, proxies, Tor, and hosting providers that hide the caller. |
+| `wafAdditionalRules` | empty | More WAF rules as a YAML list. See [wafAdditionalRules](#wafadditionalrules). |
 | `ipAllowList` | `[]` | CIDR blocks allowed to reach CloudFront. Empty allows all sources. IPv4 and IPv6 may be mixed. |
 
-Setting `ipAllowList` flips the WebACL's default action to block and appends the allow rules after the managed rules, so:
+Setting `ipAllowList` flips the WebACL's default action to block and appends the allow rules after all other rules, so:
 
 - allowlisted IP, clean request → allowed
-- allowlisted IP, request a managed rule blocks → blocked
+- allowlisted IP, request another rule blocks → blocked
 - any other IP → `403`
+
+### wafAdditionalRules
+
+Adds rules to the WebACL as a YAML list in the `rule` format of the [aws-ss/wafv2][aws-ss-wafv2] Terraform module, whose fields follow the AWS WAF API. Any rule type works: managed rule groups, including groups not listed above and groups with rule action overrides or scope-down statements, and your own rules such as rate-based, geo match, or label match rules.
+
+Each rule needs a unique `priority`, and lower numbers run first. The rule groups above use 10 (`wafCommonRuleSetAction`), 20 (`wafKnownBadInputsAction`), 30 (`wafAmazonIpReputationAction`), and 40 (`wafAnonymousIpAction`), so choose a number that places your rule where it should run, such as 5 to run before them or 50 to run after them. The `ipAllowList` rules always run last.
+
+For example, this rule runs after the rule groups and blocks requests from any IP address that sends more than 2,000 requests in 5 minutes:
+
+```yaml
+- name: rate-limit-per-ip
+  priority: 50
+  action: block
+  rate_based_statement:
+    limit: 2000
+    aggregate_key_type: IP
+    evaluation_window_sec: 300
+```
+
+To change one of those groups, set its input to `disabled` and add the group here with its number. For example, this keeps the Common Rule Set blocking but only counts requests that have no `User-Agent` header:
+
+`wafCommonRuleSetAction`: `disabled`
+
+`wafAdditionalRules`:
+
+```yaml
+- name: AWSManagedRulesCommonRuleSet
+  priority: 10
+  override_action: none
+  managed_rule_group_statement:
+    name: AWSManagedRulesCommonRuleSet
+    vendor_name: AWS
+    rule_action_override:
+      - name: NoUserAgent_HEADER
+        action_to_use: count
+```
+
+AWS ignores a rule action override whose name doesn't exactly match a rule in the group, including case, so check names against the [AWS managed rule groups list][aws-managed-rules]. A rule with an `allow` action stops evaluation, so requests it matches skip `ipAllowList`. Rules that reference other AWS resources by ARN, such as IP sets or regex pattern sets, need those resources to exist already.
 
 To attach a WebACL you manage elsewhere, set `webAclArn` to a CloudFront-scoped (`us-east-1`, `global/webacl/…`) ARN. It replaces the rule inputs above, since CloudFront accepts one WebACL per distribution.
 
@@ -309,3 +348,5 @@ wafv2:UpdateWebACL
 [aws-compression]: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/ServingCompressedFiles.html
 [aws-quotas]: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html
 [aws-waf-logging]: https://docs.aws.amazon.com/waf/latest/developerguide/logging-s3.html
+[aws-ss-wafv2]: https://github.com/aws-ss/terraform-aws-wafv2/tree/v4.2.0/examples
+[aws-managed-rules]: https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-list.html
