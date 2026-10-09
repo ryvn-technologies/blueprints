@@ -75,6 +75,11 @@ output "cni" {
   value       = var.cni
 }
 
+output "cilium_hubble_relay_enabled" {
+  description = "Whether Cilium's Hubble Relay is on in this cluster. The platform blueprint installs Hubble UI once this is true."
+  value       = try(local.cilium_values.hubble.relay.enabled, false) == true
+}
+
 output "cilium_operator_role_arn" {
   description = "ARN of the IAM role for the Cilium operator, or null when cni is not cilium"
   value       = var.cni == "cilium" ? aws_iam_role.cilium_operator_role[0].arn : null
