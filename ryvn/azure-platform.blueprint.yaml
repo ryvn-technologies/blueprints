@@ -227,6 +227,15 @@ spec:
       # The collector holds only the env-scoped system role that permits
       # telemetry ingest through the observability gateways.
       role: collector
+  - service: ryvn-cilium
+    name: hubble-ui
+    namespace: kube-system
+    condition: '{{ input "enableManagedCilium" }}'
+    config: |
+      hubbleUI:
+        # Renders nothing until the cluster module reports the relay is on.
+        enabled: {{ if .ryvn.env.state.cilium_hubble_relay_enabled }}true{{ else }}false{{ end }}
+    releaseChannel: stable
   outputs:
     - name: outbound_ips
       displayName: Outbound IPs

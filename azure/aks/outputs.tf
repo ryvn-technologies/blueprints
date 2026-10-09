@@ -202,3 +202,8 @@ output "outbound_ips" {
   description = "Public IPs used for outbound internet traffic from workloads in this environment. With egress_firewall enabled these are the firewall SNAT IPs."
   value       = local.aks_outbound_public_ips
 }
+
+output "cilium_hubble_relay_enabled" {
+  description = "Whether Cilium's Hubble Relay is on in this cluster. The platform blueprint installs Hubble UI once this is true."
+  value       = var.ebpf_data_plane == "cilium"
+}
