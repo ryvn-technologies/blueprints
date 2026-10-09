@@ -1,0 +1,41 @@
+name: Build & Release aws-cloud-metrics-identity
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "aws/cloud-metrics-identity/**"
+      - ".github/workflows/ryvn-aws-cloud-metrics-identity-release.yaml"
+  pull_request:
+    paths:
+      - "aws/cloud-metrics-identity/**"
+      - ".github/workflows/ryvn-aws-cloud-metrics-identity-release.yaml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aws/cloud-metrics-identity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate
+      - run: terraform test
+
+  release:
+    if: github.event_name != 'pull_request'
+    needs: [validate]
+    uses: ryvn-technologies/ryvn-build-action/.github/workflows/release.yml@v2
+    with:
+      service_name: aws-cloud-metrics-identity
+      tag_prefix: aws-cloud-metrics-identity@
+    permissions:
+      contents: write
+      id-token: write

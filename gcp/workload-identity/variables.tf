@@ -51,6 +51,9 @@ variable "role_groups" {
     })), {})
     project_roles = optional(map(object({
       role = string
+      # Defaults to var.project_id (the cluster project). Set to bind the role
+      # on a different monitored project.
+      project = optional(string)
       condition = optional(object({
         title       = string
         expression  = string
@@ -72,7 +75,7 @@ variable "role_groups" {
     condition = alltrue([
       for group in var.role_groups :
       length(distinct([for b in values(group.buckets) : "${b.name}|${b.role}"])) == length(group.buckets)
-      && length(distinct([for p in values(group.project_roles) : jsonencode(p.condition == null ? [p.role] : [p.role, p.condition.title, p.condition.expression, p.condition.description == null ? "" : p.condition.description])])) == length(group.project_roles)
+      && length(distinct([for p in values(group.project_roles) : jsonencode(p.condition == null ? [p.role, p.project == null ? "" : p.project] : [p.role, p.project == null ? "" : p.project, p.condition.title, p.condition.expression, p.condition.description == null ? "" : p.condition.description])])) == length(group.project_roles)
     ])
     error_message = "Bindings must be distinct within a role group: one (bucket, role) per key in buckets and one (role, condition) per key in project_roles. IAM holds a single member binding per pair, so two keys for one pair would fight over it."
   }

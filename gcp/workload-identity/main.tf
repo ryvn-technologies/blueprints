@@ -68,6 +68,7 @@ locals {
         for subject_key, subject in local.subjects :
         "${role_key}/${subject_key}" => {
           role      = binding.role
+          project   = coalesce(binding.project, var.project_id)
           condition = binding.condition
           member    = local.members[subject_key]
         } if subject.group == group_name
@@ -90,7 +91,7 @@ resource "google_storage_bucket_iam_member" "this" {
 resource "google_project_iam_member" "this" {
   for_each = local.project_bindings
 
-  project = var.project_id
+  project = each.value.project
   role    = each.value.role
   member  = each.value.member
 
