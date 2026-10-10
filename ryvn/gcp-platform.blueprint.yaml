@@ -171,6 +171,17 @@ spec:
       serviceAccount:
         annotations:
           iam.gke.io/gcp-service-account: '{{ .ryvn.env.state.cert_manager_identity.email }}'
+  - service: cluster-issuer
+    name: cluster-issuer
+    namespace: cert-manager
+    releaseChannel: stable
+    config: |
+      wildcardCerts:
+        - dnsZone: '{{ .ryvn.env.state.public_domain.name }}'
+          dns01Solver:
+            cloudDNS:
+              project: '{{ .ryvn.env.provider.gcp.projectId }}'
+              hostedZoneName: 'public-zone-{{ .ryvn.env.name }}'
   - service: keda
     namespace: kube-system
     config: |

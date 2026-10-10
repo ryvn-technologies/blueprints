@@ -378,6 +378,20 @@ spec:
       # self-check DNS-01 propagation via public resolvers: in-cluster resolvers see the same-named private zone (split-view DNS), not the public TXT
       dns01RecursiveNameservers: "8.8.8.8:53,1.1.1.1:53"
       dns01RecursiveNameserversOnly: true
+  - service: cluster-issuer
+    name: cluster-issuer
+    namespace: cert-manager
+    releaseChannel: stable
+    config: |
+      wildcardCerts:
+        - dnsZone: '{{ .ryvn.env.state.public_domain.name }}'
+          dns01Solver:
+            route53:
+              hostedZoneID: '{{ .ryvn.env.state.public_domain.id }}'
+  - service: storage-class
+    name: storage-class
+    namespace: ryvn-system
+    releaseChannel: stable
   - service: keda
     namespace: kube-system
     config: |

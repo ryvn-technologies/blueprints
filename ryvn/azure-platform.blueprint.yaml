@@ -158,6 +158,21 @@ spec:
       serviceAccount:
         labels:
           azure.workload.identity/use: "true"
+  - service: cluster-issuer
+    name: cluster-issuer
+    namespace: cert-manager
+    releaseChannel: stable
+    config: |
+      wildcardCerts:
+        - dnsZone: '{{ .ryvn.env.state.public_domain.name }}'
+          dns01Solver:
+            azureDNS:
+              hostedZoneName: '{{ .ryvn.env.state.public_domain.name }}'
+              resourceGroupName: '{{ .ryvn.env.state.resource_group.name }}'
+              subscriptionID: '{{ .ryvn.env.state.subscription.subscription_id }}'
+              environment: AzurePublicCloud
+              managedIdentity:
+                clientID: '{{ .ryvn.env.state.cert_manager_identity.client_id }}'
   - service: keda
     namespace: kube-system
     config: |
