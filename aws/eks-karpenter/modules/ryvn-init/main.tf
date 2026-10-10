@@ -21,8 +21,10 @@ locals {
   result_succeeded = "succeeded"
 
   queued_timeout_minutes = 5
+  # ryvn-init adds Hubble Relay last, with its own time limit (hubbleRelayTimeout).
+  hubble_relay_timeout_minutes = 10
   # Headroom for CodeBuild to start an instance and pull the image.
-  build_timeout_minutes = ceil((var.timeout_seconds + var.migration_timeout_seconds) / 60) + 5
+  build_timeout_minutes = ceil((var.timeout_seconds + var.migration_timeout_seconds) / 60) + local.hubble_relay_timeout_minutes + 5
 
   shared_subnet_ids = [for subnet in data.aws_subnet.codebuild : subnet.id if subnet.owner_id != local.account_id]
 
