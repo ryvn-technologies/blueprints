@@ -182,6 +182,31 @@ spec:
             cloudDNS:
               project: '{{ .ryvn.env.provider.gcp.projectId }}'
               hostedZoneName: 'public-zone-{{ .ryvn.env.name }}'
+  - service: external-dns
+    name: external-dns
+    namespace: external-dns
+    releaseChannel: stable
+    config: |
+      provider:
+        name: google
+      serviceAccount:
+        annotations:
+          iam.gke.io/gcp-service-account: '{{ .ryvn.env.state.external_dns_service_account_email }}'
+      domainFilters:
+        - '{{ .ryvn.env.state.public_domain.name }}'
+        - '{{ .ryvn.env.state.internal_domain.name }}'
+      extraArgs:
+        - --publish-internal-services
+        {{- if .ryvn.env.state.public_domain }}
+        - --zone-id-filter=public-zone-{{ .ryvn.env.name }}
+        {{- end }}
+        {{- if .ryvn.env.state.internal_domain }}
+        - --zone-id-filter=internal-zone-{{ .ryvn.env.name }}
+        {{- end }}
+      interval: 15m
+      policy: sync
+      registry: txt
+      triggerLoopOnEvent: true
   - service: keda
     namespace: kube-system
     config: |

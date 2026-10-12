@@ -392,6 +392,37 @@ spec:
     name: storage-class
     namespace: ryvn-system
     releaseChannel: stable
+  - service: external-dns
+    name: external-dns
+    namespace: external-dns
+    releaseChannel: stable
+    config: |
+      provider:
+        name: aws
+      env:
+        - name: AWS_DEFAULT_REGION
+          value: '{{ .ryvn.env.state.cluster_region }}'
+      serviceAccount:
+        annotations:
+          eks.amazonaws.com/role-arn: '{{ .ryvn.env.state.external_dns_role_arn }}'
+      domainFilters:
+        - '{{ .ryvn.env.state.public_domain.name }}'
+        - '{{ .ryvn.env.state.internal_domain.name }}'
+      extraArgs:
+        - --publish-internal-services
+        {{- if .ryvn.env.state.public_domain }}
+        - --zone-id-filter={{ .ryvn.env.state.public_domain.id }}
+        {{- end }}
+        {{- if .ryvn.env.state.internal_domain }}
+        - --zone-id-filter={{ .ryvn.env.state.internal_domain.id }}
+        {{- end }}
+      interval: 15m
+      policy: sync
+      registry: txt
+      triggerLoopOnEvent: true
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
   - service: keda
     namespace: kube-system
     config: |
