@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: cilium-hubble-ui
+spec:
+  description: Runs Hubble UI to see the network traffic between your workloads. Needs Cilium as the cluster's CNI.
+  displayName: Cilium Hubble UI
+  inputs:
+    - name: exposeToTailnet
+      type: boolean
+      default: false
+      displayName: Expose to Tailnet
+      description: Expose Hubble UI to your Tailnet using Tailscale, as `hubble-<environment name>`. Needs the Tailscale operator in this cluster and HTTPS enabled for your Tailnet.
+    - name: tailnetDomain
+      type: string
+      displayName: Tailnet Domain
+      description: Tailnet DNS suffix, for example example.ts.net, without a scheme or trailing dot. Must match the tailnet used by the Kubernetes operator.
+      condition: '{{ input "exposeToTailnet" }}'
+  # The UI runs in the relay's namespace to mount the relay's client certificate, and stays off until the cluster
+  # module reports the relay is on. With a bare hostname the Tailscale operator runs one proxy on its defaults.
+  installations:
+    # GKE runs its relay in its own namespace, under its own TLS server name.
+    - service: ryvn-cilium
+      name: hubble-ui
+      namespace: gke-managed-dpv2-observability
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        hubbleUI:
+          enabled: {{ .ryvn.env.state.cilium_hubble_relay_enabled | default false }}
+          hubble:
+            relay:
+              tls:
+                server:
+                  relayName: relay.gke-managed-dpv2-observability.svc.cluster.local
+            {{- if input "exposeToTailnet" }}
+            ui:
+              ingress:
+                enabled: true
+                className: tailscale
+                hosts: ['hubble-{{ EnvironmentName }}']
+                tls:
+                  - hosts: ['hubble-{{ EnvironmentName }}']
+            {{- end }}
+      releaseChannel: stable
+    - service: ryvn-cilium
+      name: hubble-ui
+      namespace: kube-system
+      condition: '{{ or (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
+      config: |
+        hubbleUI:
+          enabled: {{ .ryvn.env.state.cilium_hubble_relay_enabled | default false }}
+          {{- if input "exposeToTailnet" }}
+          hubble:
+            ui:
+              ingress:
+                enabled: true
+                className: tailscale
+                hosts: ['hubble-{{ EnvironmentName }}']
+                tls:
+                  - hosts: ['hubble-{{ EnvironmentName }}']
+          {{- end }}
+      releaseChannel: stable
+  outputs:
+    - name: tailnetUrl
+      displayName: Tailnet URL
+      description: HTTPS tailnet endpoint for Hubble UI.
+      type: string
+      isSecret: false
+      condition: '{{ input "exposeToTailnet" }}'
+      from: 'https://hubble-{{ EnvironmentName }}.{{ input "tailnetDomain" }}'
+  distribution: marketplace-managed

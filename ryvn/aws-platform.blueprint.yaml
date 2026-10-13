@@ -115,7 +115,7 @@ spec:
     condition: '{{ not (input "legacy") }}'
     config: |
       # The ryvn-init image, Cilium version and Cilium values here override the environment config.
-      {{ merge (dict "ryvn_init_image" "ryvn/init:0.2.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains" "cilium_values") | toYaml }}
+      {{ merge (dict "ryvn_init_image" "ryvn/init:0.3.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains" "cilium_values") | toYaml }}
       # Keep the Loki, Mimir and token hosts in sync with the ryvn-collector installation.
       platform_https_domains:
       {{- with index .ryvn.env.config "platform_https_domains" }}
@@ -173,15 +173,11 @@ spec:
         k8sClusterNetworkPolicy:
           enabled: true
         nodeSelectorLabels: true
-        # The relay only once an apply has finished on Cilium: ryvn-init waits for every pod, and the relay
-        # can't be ready before a node runs Cilium. New clusters may have only CriticalAddonsOnly nodes then.
-        # TODO(NominalTrajectory): Ryvn doesn't re-apply this module when env state changes, so new clusters and
-        # VPC CNI moves get the relay only at a later apply. Fix: ryvn-init adds it after moving nodes.
         hubble:
           enabled: true
-          {{- if and .ryvn.env.state.cni (eq .ryvn.env.state.cni "cilium") }}
           relay:
             enabled: true
+            # New clusters may have only CriticalAddonsOnly nodes when ryvn-init adds the relay.
             tolerations:
             - {key: CriticalAddonsOnly, operator: Exists}
             # Only clients with a certificate from the cluster's Hubble CA, such as the UI, can read flows.
@@ -189,7 +185,6 @@ spec:
               server:
                 enabled: true
                 mtls: true
-          {{- end }}
         ingressController:
           enabled: false
         gatewayAPI:
@@ -392,37 +387,6 @@ spec:
     name: storage-class
     namespace: ryvn-system
     releaseChannel: stable
-  - service: external-dns
-    name: external-dns
-    namespace: external-dns
-    releaseChannel: stable
-    config: |
-      provider:
-        name: aws
-      env:
-        - name: AWS_DEFAULT_REGION
-          value: '{{ .ryvn.env.state.cluster_region }}'
-      serviceAccount:
-        annotations:
-          eks.amazonaws.com/role-arn: '{{ .ryvn.env.state.external_dns_role_arn }}'
-      domainFilters:
-        - '{{ .ryvn.env.state.public_domain.name }}'
-        - '{{ .ryvn.env.state.internal_domain.name }}'
-      extraArgs:
-        - --publish-internal-services
-        {{- if .ryvn.env.state.public_domain }}
-        - --zone-id-filter={{ .ryvn.env.state.public_domain.id }}
-        {{- end }}
-        {{- if .ryvn.env.state.internal_domain }}
-        - --zone-id-filter={{ .ryvn.env.state.internal_domain.id }}
-        {{- end }}
-      interval: 15m
-      policy: sync
-      registry: txt
-      triggerLoopOnEvent: true
-      tolerations:
-        - key: CriticalAddonsOnly
-          operator: Exists
   - service: keda
     namespace: kube-system
     config: |
@@ -500,15 +464,6 @@ spec:
       # The collector holds only the env-scoped system role that permits
       # telemetry ingest through the observability gateways.
       role: collector
-  - service: ryvn-cilium
-    name: hubble-ui
-    namespace: kube-system
-    condition: '{{ not (input "legacy") }}'
-    config: |
-      hubbleUI:
-        # Renders nothing until the cluster module reports the relay is on.
-        enabled: {{ if .ryvn.env.state.cilium_hubble_relay_enabled }}true{{ else }}false{{ end }}
-    releaseChannel: stable
   outputs:
     - name: outbound_ips
       displayName: Outbound IPs
