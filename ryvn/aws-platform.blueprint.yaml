@@ -82,6 +82,25 @@ spec:
     description: Collect and forward Prometheus metrics from your cluster to Ryvn's observability backend.
     displayName: Enable Metrics Collection
     group: observability
+  - name: hubbleUI
+    type: string
+    default: disabled
+    description: Run Hubble UI to see the network traffic between your workloads. Needs Cilium as the cluster's CNI. Tailnet also needs the Tailscale operator in this cluster and HTTPS on your tailnet.
+    displayName: Cilium Hubble UI
+    group: observability
+    options:
+    - label: Disabled
+      value: disabled
+    - label: Cluster only
+      value: cluster
+    - label: Tailnet
+      value: tailnet
+  - name: tailnetDomain
+    type: string
+    description: Your tailnet's DNS name, such as `example.ts.net`, without `https://` or a trailing dot. Used to build the Hubble UI URL.
+    displayName: Tailnet Domain
+    group: observability
+    condition: '{{ eq (input "hubbleUI") "tailnet" }}'
   - name: lokiUrl
     type: string
     default: ""
@@ -115,7 +134,7 @@ spec:
     condition: '{{ not (input "legacy") }}'
     config: |
       # The ryvn-init image, Cilium version and Cilium values here override the environment config.
-      {{ merge (dict "ryvn_init_image" "ryvn/init:0.2.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains" "cilium_values") | toYaml }}
+      {{ merge (dict "ryvn_init_image" "ryvn/init:0.3.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains" "cilium_values") | toYaml }}
       # Keep the Loki, Mimir and token hosts in sync with the ryvn-collector installation.
       platform_https_domains:
       {{- with index .ryvn.env.config "platform_https_domains" }}
@@ -173,15 +192,11 @@ spec:
         k8sClusterNetworkPolicy:
           enabled: true
         nodeSelectorLabels: true
-        # The relay only once an apply has finished on Cilium: ryvn-init waits for every pod, and the relay
-        # can't be ready before a node runs Cilium. New clusters may have only CriticalAddonsOnly nodes then.
-        # TODO(NominalTrajectory): Ryvn doesn't re-apply this module when env state changes, so new clusters and
-        # VPC CNI moves get the relay only at a later apply. Fix: ryvn-init adds it after moving nodes.
         hubble:
           enabled: true
-          {{- if and .ryvn.env.state.cni (eq .ryvn.env.state.cni "cilium") }}
           relay:
             enabled: true
+            # New clusters may have only CriticalAddonsOnly nodes when ryvn-init adds the relay.
             tolerations:
             - {key: CriticalAddonsOnly, operator: Exists}
             # Only clients with a certificate from the cluster's Hubble CA, such as the UI, can read flows.
@@ -189,7 +204,6 @@ spec:
               server:
                 enabled: true
                 mtls: true
-          {{- end }}
         ingressController:
           enabled: false
         gatewayAPI:
@@ -392,37 +406,6 @@ spec:
     name: storage-class
     namespace: ryvn-system
     releaseChannel: stable
-  - service: external-dns
-    name: external-dns
-    namespace: external-dns
-    releaseChannel: stable
-    config: |
-      provider:
-        name: aws
-      env:
-        - name: AWS_DEFAULT_REGION
-          value: '{{ .ryvn.env.state.cluster_region }}'
-      serviceAccount:
-        annotations:
-          eks.amazonaws.com/role-arn: '{{ .ryvn.env.state.external_dns_role_arn }}'
-      domainFilters:
-        - '{{ .ryvn.env.state.public_domain.name }}'
-        - '{{ .ryvn.env.state.internal_domain.name }}'
-      extraArgs:
-        - --publish-internal-services
-        {{- if .ryvn.env.state.public_domain }}
-        - --zone-id-filter={{ .ryvn.env.state.public_domain.id }}
-        {{- end }}
-        {{- if .ryvn.env.state.internal_domain }}
-        - --zone-id-filter={{ .ryvn.env.state.internal_domain.id }}
-        {{- end }}
-      interval: 15m
-      policy: sync
-      registry: txt
-      triggerLoopOnEvent: true
-      tolerations:
-        - key: CriticalAddonsOnly
-          operator: Exists
   - service: keda
     namespace: kube-system
     config: |
@@ -506,8 +489,24 @@ spec:
     condition: '{{ not (input "legacy") }}'
     config: |
       hubbleUI:
-        # Renders nothing until the cluster module reports the relay is on.
-        enabled: {{ if .ryvn.env.state.cilium_hubble_relay_enabled }}true{{ else }}false{{ end }}
+        # The UI needs the relay's client certificate, so it stays off until the cluster module reports the relay is on.
+        # The input goes here, not in condition: a child dropped by its condition keeps running, unmanaged.
+        {{- if eq (input "hubbleUI") "disabled" }}
+        enabled: false
+        {{- else }}
+        enabled: {{ .ryvn.env.state.cilium_hubble_relay_enabled | default false }}
+        {{- end }}
+        {{- if eq (input "hubbleUI") "tailnet" }}
+        # With a bare hostname the Tailscale operator runs one proxy on its defaults, so no tailnet domain is needed here.
+        hubble:
+          ui:
+            ingress:
+              enabled: true
+              className: tailscale
+              hosts: ['hubble-{{ EnvironmentName }}']
+              tls:
+                - hosts: ['hubble-{{ EnvironmentName }}']
+        {{- end }}
     releaseChannel: stable
   outputs:
     - name: outbound_ips
@@ -522,4 +521,11 @@ spec:
       type: string
       isSecret: false
       from: '{{- if input "legacy" -}}{{ with (serviceInstallation "aws-eks-legacy").outputs.cluster_oidc_issuer_url }}{{ . }}{{ end }}{{- else -}}{{ with (serviceInstallation "aws-eks-karpenter").outputs.cluster_oidc_issuer_url }}{{ . }}{{ end }}{{- end -}}'
+    - name: hubble_ui_url
+      displayName: Hubble UI URL
+      description: Hubble UI's address on your tailnet. Set only when Cilium Hubble UI is Tailnet.
+      type: string
+      isSecret: false
+      condition: '{{ eq (input "hubbleUI") "tailnet" }}'
+      from: 'https://hubble-{{ EnvironmentName }}.{{ input "tailnetDomain" }}'
   distribution: private
