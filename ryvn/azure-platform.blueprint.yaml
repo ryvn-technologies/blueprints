@@ -251,6 +251,8 @@ spec:
         - '{{ .ryvn.env.state.public_domain.name }}'
       extraArgs:
         - --publish-internal-services
+        # Changing these stops external-dns from managing the records it already created.
+        - '--txt-prefix=_external-dns-%{record_type}.'
         - --txt-wildcard-replacement=wildcard
       extraVolumeMounts:
         - mountPath: /etc/kubernetes
