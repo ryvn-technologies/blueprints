@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: cilium-hubble-ui
 spec:
-  description: Runs Hubble UI to see the network traffic between your workloads. Needs Cilium as the cluster's CNI.
+  description: Runs Hubble UI to see the network traffic between your workloads. Needs Cilium with Hubble Relay.
   displayName: Cilium Hubble UI
   inputs:
     - name: exposeToTailnet
@@ -16,8 +16,8 @@ spec:
       displayName: Tailnet Domain
       description: Tailnet DNS suffix, for example example.ts.net, without a scheme or trailing dot. Must match the tailnet used by the Kubernetes operator.
       condition: '{{ input "exposeToTailnet" }}'
-  # The UI runs in the relay's namespace to mount the relay's client certificate, and stays off until the cluster
-  # module reports the relay is on. With a bare hostname the Tailscale operator runs one proxy on its defaults.
+  # The UI runs in the relay's namespace to mount its client certificate.
+  # With a bare hostname the Tailscale operator runs one proxy on its defaults.
   installations:
     # GKE runs its relay in its own namespace, under its own TLS server name.
     - service: ryvn-cilium
@@ -26,7 +26,7 @@ spec:
       condition: '{{ eq EnvironmentProviderType "gcp" }}'
       config: |
         hubbleUI:
-          enabled: {{ .ryvn.env.state.cilium_hubble_relay_enabled | default false }}
+          enabled: true
           hubble:
             relay:
               tls:
@@ -48,7 +48,7 @@ spec:
       condition: '{{ or (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
       config: |
         hubbleUI:
-          enabled: {{ .ryvn.env.state.cilium_hubble_relay_enabled | default false }}
+          enabled: true
           {{- if input "exposeToTailnet" }}
           hubble:
             ui:
