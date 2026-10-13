@@ -147,6 +147,8 @@ module "gke" {
   monitoring_enabled_components = ["SYSTEM_COMPONENTS"]
   # Managed Service for Prometheus stays off; the collector scrapes workload metrics.
   monitoring_enable_managed_prometheus = false
+  # Hubble Relay for the cilium-hubble-ui blueprint; Dataplane V2 flow metrics stay off.
+  monitoring_enable_observability_relay = var.datapath_provider == "ADVANCED_DATAPATH"
 
   # Configure cluster RBAC
   cluster_resource_labels = {
