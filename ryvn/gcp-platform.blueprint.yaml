@@ -189,6 +189,9 @@ spec:
     config: |
       provider:
         name: google
+      env:
+        - name: RYVN_MIGRATION_MODE
+          value: report
       serviceAccount:
         annotations:
           iam.gke.io/gcp-service-account: '{{ .ryvn.env.state.external_dns_service_account_email }}'
@@ -206,6 +209,10 @@ spec:
         {{- if .ryvn.env.state.internal_domain }}
         - --zone-id-filter=internal-zone-{{ .ryvn.env.name }}
         {{- end }}
+      # Forecast ownership migration while ordinary DNS reconciliation continues.
+      image:
+        repository: docker.io/ryvn/external-dns
+        tag: 0.19.0-ryvn.d9278ea7da8c3f53156d61aada65360e8e24abd3
       interval: 15m
       policy: sync
       registry: txt
