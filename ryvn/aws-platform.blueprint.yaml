@@ -121,7 +121,7 @@ spec:
     condition: '{{ not (input "legacy") }}'
     config: |
       # The ryvn-init image, Cilium version and Cilium values here override the environment config.
-      {{ merge (dict "ryvn_init_image" "ryvn/init:0.3.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains" "cilium_values" "cni") | toYaml }}
+      {{ merge (dict "ryvn_init_image" "ryvn/init:0.4.0" "cilium_chart_version" "1.20.2") (omit .ryvn.env.config "platform_https_domains" "cilium_values" "cni") | toYaml }}
       {{- with index .ryvn.env.config "cni" }}
       {{- if not (input "enableCilium") }}
       cni: {{ . | toJson }}
@@ -222,6 +222,10 @@ spec:
         operator:
           hostNetwork: true
           dnsPolicy: Default
+          # Only the system node group has this label. A Karpenter drain can stop the operator
+          # mid ENI attach, and the leaked ENI blocks VPC teardown.
+          nodeSelector:
+            karpenter.sh/controller: "true"
           # It would restart CoreDNS pods on nodes still on the VPC CNI; ryvn-init moves those nodes.
           unmanagedPodWatcher:
             restart: false
