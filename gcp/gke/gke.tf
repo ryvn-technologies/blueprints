@@ -59,6 +59,22 @@ locals {
     )
   }
 
+  # Node pools as passed to the GKE module; taints and labels go through their own inputs
+  gke_node_pools = [
+    for name, config in local.node_pools : merge(
+      {
+        name                        = name
+        auto_repair                 = true
+        auto_upgrade                = true
+        preemptible                 = false
+        autoscaling                 = true
+        enable_secure_boot          = true
+        enable_integrity_monitoring = true
+      },
+      { for k, v in config : k => v if !contains(["taints", "labels"], k) }
+    )
+  ]
+
   # Merge default labels with user-provided labels (nested merge)
   node_pools_labels = merge(
     local.default_node_pools_labels,
@@ -158,20 +174,7 @@ module "gke" {
   service_account_name   = var.cluster_service_account_name
 
   # Node pools configuration using merged defaults and user configs
-  node_pools = [
-    for name, config in local.node_pools : merge(
-      {
-        name                        = name
-        auto_repair                 = true
-        auto_upgrade                = true
-        preemptible                 = false
-        autoscaling                 = true
-        enable_secure_boot          = true
-        enable_integrity_monitoring = true
-      },
-      { for k, v in config : k => v if !contains(["taints", "labels"], k) }
-    )
-  ]
+  node_pools = local.gke_node_pools
 
   node_pools_oauth_scopes = {
     all = [

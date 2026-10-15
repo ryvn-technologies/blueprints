@@ -94,6 +94,7 @@ variable "node_pools" {
     total_min_count    = optional(number)
     total_max_count    = optional(number)
     initial_node_count = optional(number)
+    location_policy    = optional(string) # BALANCED (GKE default) or ANY
     disk_size_gb       = optional(number)
     disk_type          = optional(string)
     labels             = optional(map(string))
@@ -104,6 +105,12 @@ variable "node_pools" {
     })))
   }))
   default = {}
+  validation {
+    condition = alltrue([
+      for pool in values(var.node_pools) : contains(["BALANCED", "ANY"], pool.location_policy == null ? "BALANCED" : pool.location_policy)
+    ])
+    error_message = "node_pools location_policy must be BALANCED or ANY."
+  }
 }
 
 variable "node_pools_labels" {
