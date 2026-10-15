@@ -137,14 +137,10 @@ locals {
     }
   ]
 
-  distribution_comment_all_hostnames = "Ryvn CloudFront edge for ${join(", ", local.hostname_keys)}"
-  # CloudFront rejects comments longer than 128 characters.
   distribution_comment = (
     trimspace(var.comment) != "" ?
     trimspace(var.comment) :
-    length(local.distribution_comment_all_hostnames) <= 128 ?
-    local.distribution_comment_all_hostnames :
-    substr("Ryvn CloudFront edge for ${local.hostname_keys[0]} and ${length(local.hostname_keys) - 1} more", 0, 128)
+    "Ryvn CloudFront edge for ${join(", ", local.hostname_keys)}"
   )
 
   # Simple WAF inputs synthesize upstream aws-ss/wafv2/aws ip_set and rule
