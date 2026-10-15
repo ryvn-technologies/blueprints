@@ -182,6 +182,12 @@ spec:
             enabled: false
         endpoints:
           mimir: {{ Hub "mimirUrl" | toJson }}
+        defaultConnectionId: '{{ .ryvn.observability.defaultConnectionId }}'
+        requiredConnectionIds: {{ .ryvn.observability.requiredConnectionIds | toJson }}
+        {{- if ObservabilityDestinations }}
+        destinations:
+        {{- ObservabilityDestinations | toYaml | nindent 2 }}
+        {{- end }}
         auth:
           tokenUrl: {{ Hub "tokenUrl" | toJson }}
           projectId: {{ Hub "projectId" | toJson }}

@@ -173,30 +173,13 @@ spec:
       {{- input "redactionPatterns" | toYaml | nindent 6 }}
         metrics:
           enabled: {{ input "metrics" }}
-      {{- /* Hub route: explicit inputs win, then the managing hub's own stack. */}}
-      {{- if or (input "lokiUrl" | trim | default (Hub "lokiUrl")) (input "mimirUrl" | trim | default (Hub "mimirUrl")) }}
-      endpoints:
-        {{- if input "lokiUrl" | trim | default (Hub "lokiUrl") }}
-        loki: {{ input "lokiUrl" | trim | default (Hub "lokiUrl") | toJson }}
-        {{- end }}
-        {{- if input "mimirUrl" | trim | default (Hub "mimirUrl") }}
-        mimir: {{ input "mimirUrl" | trim | default (Hub "mimirUrl") | toJson }}
-        {{- end }}
-      {{- end }}
-      {{- /* Hub auth defaults only alongside hub gateways: never hub credentials against central's stack. */}}
-      {{- if or (input "tokenUrl" | trim) (input "projectId" | trim) (Hub "lokiUrl") }}
+      # Telemetry routing is selected by persisted environment assignments.
+      # OAuth is always issued by the managing hub, not the telemetry target.
       auth:
-        {{- if input "tokenUrl" | trim }}
-        tokenUrl: {{ input "tokenUrl" | trim | toJson }}
-        {{- else if Hub "lokiUrl" }}
         tokenUrl: {{ Hub "tokenUrl" | toJson }}
-        {{- end }}
-        {{- if input "projectId" | trim }}
-        projectId: {{ input "projectId" | trim | toJson }}
-        {{- else if Hub "lokiUrl" }}
         projectId: {{ Hub "projectId" | toJson }}
-        {{- end }}
-      {{- end }}
+      defaultConnectionId: '{{ .ryvn.observability.defaultConnectionId }}'
+      requiredConnectionIds: {{ .ryvn.observability.requiredConnectionIds | toJson }}
       {{- if ObservabilityDestinations }}
       destinations:
       {{- ObservabilityDestinations | toYaml | nindent 2 }}
