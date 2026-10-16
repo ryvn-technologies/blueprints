@@ -415,8 +415,6 @@ spec:
       env:
         - name: AWS_DEFAULT_REGION
           value: '{{ .ryvn.env.state.cluster_region }}'
-        - name: RYVN_MIGRATION_MODE
-          value: write
       serviceAccount:
         annotations:
           eks.amazonaws.com/role-arn: '{{ .ryvn.env.state.external_dns_role_arn }}'
@@ -434,10 +432,6 @@ spec:
         {{- if .ryvn.env.state.internal_domain }}
         - --zone-id-filter={{ .ryvn.env.state.internal_domain.id }}
         {{- end }}
-      # Migrate ownership from the old TXT naming while ordinary DNS reconciliation continues.
-      image:
-        repository: docker.io/ryvn/external-dns
-        tag: 0.19.0-ryvn.d9278ea7da8c3f53156d61aada65360e8e24abd3
       interval: 15m
       policy: sync
       registry: txt
