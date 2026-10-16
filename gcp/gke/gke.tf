@@ -162,7 +162,8 @@ module "gke" {
   logging_enabled_components    = ["SYSTEM_COMPONENTS", "APISERVER", "CONTROLLER_MANAGER", "SCHEDULER"]
   monitoring_enabled_components = ["SYSTEM_COMPONENTS"]
   # Managed Service for Prometheus stays off; the collector scrapes workload metrics.
-  monitoring_enable_managed_prometheus = false
+  monitoring_enable_managed_prometheus  = false
+  monitoring_enable_observability_relay = var.datapath_provider == "ADVANCED_DATAPATH"
 
   # Configure cluster RBAC
   cluster_resource_labels = {
