@@ -50,6 +50,18 @@ output "id" {
   value       = azurerm_postgresql_flexible_server.this.id
 }
 
+output "cloud_metrics" {
+  description = "Cloud datastore metrics contract: schema version plus named targets holding provider-native resource ids"
+  value = {
+    schema = 1
+    targets = {
+      this = {
+        cloud_resource_id = azurerm_postgresql_flexible_server.this.id
+      }
+    }
+  }
+}
+
 output "entra_tenant_id" {
   description = "The Microsoft Entra tenant trusted by the server, or null when Entra authentication is disabled"
   value       = var.entra_tenant_id

@@ -60,6 +60,18 @@ output "id" {
   value       = google_sql_database_instance.this.self_link
 }
 
+output "cloud_metrics" {
+  description = "Cloud datastore metrics contract: schema version plus named targets holding provider-native resource ids"
+  value = {
+    schema = 1
+    targets = {
+      this = {
+        cloud_resource_id = google_sql_database_instance.this.id
+      }
+    }
+  }
+}
+
 output "project_id" {
   description = "Project containing the Cloud SQL instance, used for caller-managed IAM bindings"
   value       = var.project_id

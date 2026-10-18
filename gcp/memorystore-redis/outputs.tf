@@ -45,3 +45,15 @@ output "id" {
   description = "The Memorystore Redis instance ID"
   value       = google_redis_instance.this.id
 }
+
+output "cloud_metrics" {
+  description = "Cloud datastore metrics contract: schema version plus named targets holding provider-native resource ids"
+  value = {
+    schema = 1
+    targets = {
+      this = {
+        cloud_resource_id = google_redis_instance.this.id
+      }
+    }
+  }
+}
