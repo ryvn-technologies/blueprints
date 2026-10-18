@@ -27,22 +27,6 @@ data "aws_iam_policy_document" "reader" {
 
     resources = ["*"]
   }
-
-  # The capacity adapter republishes AllocatedStorage (which CloudWatch
-  # never emits as a metric) plus the autoscaling ceiling. The describe is
-  # scopeable to RDS resources only — DB ARNs are unlistable in IAM, so it
-  # lands on the service's wildcard resource with the same audit caveat as
-  # the metric reads: every call shows in the customer's CloudTrail.
-  statement {
-    sid    = "RDSCapacityRead"
-    effect = "Allow"
-
-    actions = [
-      "rds:DescribeDBInstances",
-    ]
-
-    resources = ["*"]
-  }
 }
 
 resource "aws_iam_policy" "reader" {

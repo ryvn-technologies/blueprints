@@ -39,11 +39,6 @@ spec:
       default: ""
       description: Rendered discovery fragment the collector's own ConfigMap carries. Managed by the hub — do not edit by hand.
       hidden: true
-    - name: configAdapter
-      type: string
-      default: ""
-      description: Rendered adapter.yaml the collector's ConfigMap carries for the in-cluster capacity adapter. Managed by the hub — do not edit by hand.
-      hidden: true
     # Hub-managed: the render's union of monitored scope ids across
     # admitted targets — GCP project ids / Azure subscription ids the
     # identity child's reader bindings cover, so reads are confined to
@@ -71,7 +66,7 @@ spec:
     #   - every client-secret serviceUser in a blueprint declares an
     #     explicit role for the same reason.
     # Read-only reader policy (aws-cloud-metrics-identity): CloudWatch metric
-    # reads, rds:DescribeDBInstances, and tag:GetResources — nothing else.
+    # reads and tag:GetResources — nothing else.
     - service: aws-cloud-metrics-identity
       name: '{{ ParentInstallationName }}-reader'
       alias: aws-reader
@@ -135,8 +130,8 @@ spec:
               name: ryvn-cloud-metrics-alloy-config
             clustering:
               enabled: true
-            # Sized for the CloudWatch exporter + one capacity scrape — far
-            # below the platform DaemonSet's per-node footprint.
+            # Sized for the CloudWatch exporter — far below the platform
+            # DaemonSet's per-node footprint.
             resources:
               requests:
                 cpu: 50m
@@ -159,25 +154,15 @@ spec:
             cloud:
               enabled: true
               # The hub's cloud-metrics ensure renders the environment's
-              # allowlist fragment into the configAlloy blueprint input and
-              # the adapter's region list into configAdapter; the collector
-              # release carries them on its own <release>-cloud-metrics
-              # ConfigMap (config.alloy / adapter.yaml keys), which the
-              # remote.kubernetes.configmap watch re-reads on every
+              # allowlist fragment into the configAlloy blueprint input; the
+              # collector release carries it on its own
+              # <release>-cloud-metrics ConfigMap (config.alloy key), which
+              # the remote.kubernetes.configmap watch re-reads on every
               # reconcile-driven upgrade — the Grafana Kubernetes Monitoring
               # pattern: the collector release owns its feature-local
               # module's configuration.
               config:
               {{- input "configAlloy" | toYaml | nindent 16 }}
-              # The capacity adapter serves the live rds:DescribeDBInstances
-              # read behind the dedicated ServiceAccount's reader role —
-              # allocated storage isn't a CloudWatch metric, so the card and
-              # dashboard depend on it.
-              capacity:
-                enabled: true
-                serviceAccountName: ryvn-cloud-metrics-alloy
-                config:
-                {{- input "configAdapter" | toYaml | nindent 18 }}
           serviceMonitors:
             enabled: false
         endpoints:

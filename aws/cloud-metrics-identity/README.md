@@ -1,6 +1,6 @@
 # Cloud Metrics Reader Policy (AWS)
 
-Creates the read-only IAM policy for the ryvn-collector's cloud-metrics pipeline and nothing else: `cloudwatch:GetMetricData`, `cloudwatch:GetMetricStatistics`, `cloudwatch:ListMetrics`, `tag:GetResources`, and `rds:DescribeDBInstances` (the capacity adapter's live allocation read) — all at `Resource: "*"` because AWS metric reads cannot be resource-scoped. Confinement is behavioral (the collector's tag filter + rendered allowlist) and auditable in the customer's CloudTrail.
+Creates the read-only IAM policy for the ryvn-collector's cloud-metrics pipeline and nothing else: `cloudwatch:GetMetricData`, `cloudwatch:GetMetricStatistics`, `cloudwatch:ListMetrics`, `tag:GetResources` — all at `Resource: "*"` because AWS metric reads cannot be resource-scoped. Confinement is behavioral (the collector's tag filter + rendered allowlist) and auditable in the customer's CloudTrail.
 
 This module deliberately does **not** create the role or the cluster binding — that is the shared `aws-workload-identity` module's job (`github.com/ryvn-technologies/blueprints//aws/workload-identity`), which binds via EKS Pod Identity. Wire this policy through its `role_groups[].policy_arns`:
 
