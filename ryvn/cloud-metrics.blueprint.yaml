@@ -48,6 +48,32 @@ spec:
       default: []
       description: Provider scope ids (GCP projects, Azure subscriptions) the identity child grants read on. Managed by the hub — do not edit by hand.
       hidden: true
+    # User-owned collection policy (native-collection design): keyed by
+    # provider, then family. Omitted or {} resolves to the reviewed
+    # defaults for every supported family (aws: rds, elasticache; gcp:
+    # cloudsql, memorystore; azure:
+    # microsoft.dbforpostgresql/flexibleservers, microsoft.cache/redis,
+    # microsoft.cache/redisenterprise); a
+    # family's nonempty `metrics` list replaces its defaults exactly —
+    # AWS entries are CloudWatch {name, statistics} pairs, GCP entries
+    # are full exact metric types like
+    # cloudsql.googleapis.com/database/cpu/utilization, Azure entries are
+    # Azure Monitor {name, aggregations} pairs (Azure
+    # entries may also list exact `dimensions`, which is rejected
+    # visibly — dimension-value fan-out is indeterminate and the
+    # exporter cannot bound it; the InstanceId baseline on Managed
+    # Redis expands via wildcard as a documented accepted residual),
+    # and a metric
+    # absent from the defaults needs no Ryvn-side mapping — while
+    # `metrics: []` disables the family's provider-metric collection
+    # without hiding its declarations. The whole value replaces on write;
+    # nothing merges. Server-side validation rejects unknown providers,
+    # families, fields and statistics/aggregations with the input path.
+    - name: collection
+      type: map
+      default: {}
+      displayName: Cloud metric selection
+      description: Provider-specific metric selection for this environment. Explicit family lists replace recommended defaults; an empty metrics list disables a family.
   installations:
     # Collector topology invariants — changing any of these changes the
     # security or cost shape of the install; do so deliberately, not in a
@@ -188,5 +214,197 @@ spec:
         secretName: ryvn-cloud-metrics-collector-client-creds
         # An omitted role defaults client-secret users to an org-wide admin
         # binding — the collector only needs telemetry ingest in its env.
+        role: collector
+    # GCP needs no reader policy module: roles/monitoring.viewer binds
+    # directly on each declared project. The identity group mirrors the
+    # aws-identity shape — same role-group key, same association — so the
+    # collector below is byte-for-byte the AWS one apart from its condition.
+    - service: gcp-workload-identity
+      name: '{{ ParentInstallationName }}-identity'
+      alias: gcp-identity
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        name_prefix: '{{ .ryvn.env.name }}'
+        environment: '{{ .ryvn.env.name }}'
+        role_groups:
+          cloud_metrics:
+            associations:
+              collector:
+                namespace: observability
+                service_account: ryvn-cloud-metrics-alloy
+            {{- if (input "monitoredIds") }}
+            project_roles:
+              {{- range $pid := input "monitoredIds" }}
+              {{ $pid | quote }}:
+                role: roles/monitoring.viewer
+                project: {{ $pid | quote }}
+              {{- end }}
+            {{- end }}
+    - service: ryvn-collector
+      name: '{{ ParentInstallationName }}-collector'
+      alias: gcp-collector
+      # Same dedicated-release shape as the AWS collector above — the only
+      # delta is the provider condition (GCP allocated storage comes from
+      # disk/quota metrics, no in-cluster adapter needed).
+      namespace: observability
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        alloy:
+          enabled: true
+          controller:
+            type: deployment
+            replicas: 1
+          alloy:
+            envFrom:
+            - secretRef:
+                name: '{{ k8sSecretName "ryvn-cloud-metrics-collector-client-creds" }}'
+            configMap:
+              create: false
+              name: ryvn-cloud-metrics-alloy-config
+            clustering:
+              enabled: true
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 512Mi
+          serviceAccount:
+            name: ryvn-cloud-metrics-alloy
+        environment:
+          name: "{{ .ryvn.env.name }}"
+        org:
+          id: "{{ .ryvn.env.orgId }}"
+        features:
+          collector:
+            enabled: false
+          podLogs:
+            enabled: false
+          metrics:
+            enabled: false
+            cloud:
+              enabled: true
+              config:
+              {{- input "configAlloy" | toYaml | nindent 16 }}
+          serviceMonitors:
+            enabled: false
+        endpoints:
+          mimir: {{ Hub "mimirUrl" | toJson }}
+        auth:
+          tokenUrl: {{ Hub "tokenUrl" | toJson }}
+          projectId: {{ Hub "projectId" | toJson }}
+      releaseChannel: stable
+      dependencies:
+        - serviceInstallation: '{{ ParentInstallationName }}-identity'
+      serviceUser:
+        credentialType: client-secret
+        enabled: true
+        secretName: ryvn-cloud-metrics-collector-client-creds
+        role: collector
+    # Azure Workload Identity needs a managed identity + role
+    # assignments rather than a policy doc, so the azure identity child
+    # is the shared azure-workload-identity module directly — Monitoring
+    # Reader bound per declared subscription (same monitoredIds seam).
+    - service: azure-workload-identity
+      name: '{{ ParentInstallationName }}-identity'
+      alias: azure-identity
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        location: '{{ .ryvn.env.state.resource_group.location }}'
+        resource_group_name: '{{ .ryvn.env.state.resource_group.name }}'
+        oidc_issuer_url: '{{ .ryvn.env.state.cluster.oidc_issuer_url }}'
+        name_prefix: '{{ .ryvn.env.name }}'
+        environment: '{{ .ryvn.env.name }}'
+        role_groups:
+          cloud_metrics:
+            associations:
+              collector:
+                namespace: observability
+                service_account: ryvn-cloud-metrics-alloy
+            {{- if (input "monitoredIds") }}
+            role_assignments:
+              {{- range $sid := input "monitoredIds" }}
+              monitored_{{ $sid }}:
+                scope: /subscriptions/{{ $sid }}
+                role_definition_name: Monitoring Reader
+              {{- end }}
+            {{- end }}
+    - service: ryvn-collector
+      name: '{{ ParentInstallationName }}-collector'
+      alias: azure-collector
+      # Same dedicated-release shape as the AWS collector above — the only
+      # deltas are the provider condition and the workload-identity wiring
+      # (client-id annotation + use label instead of Pod Identity; Azure
+      # carries storage_used as a metric).
+      namespace: observability
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      config: |
+        alloy:
+          enabled: true
+          controller:
+            type: deployment
+            replicas: 1
+            podLabels:
+              azure.workload.identity/use: "true"
+          alloy:
+            envFrom:
+            - secretRef:
+                name: '{{ k8sSecretName "ryvn-cloud-metrics-collector-client-creds" }}'
+            configMap:
+              create: false
+              name: ryvn-cloud-metrics-alloy-config
+            clustering:
+              enabled: true
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 512Mi
+          serviceAccount:
+            name: ryvn-cloud-metrics-alloy
+            # The client-id reference orders this install after the managed
+            # identity and its role assignments have applied.
+            annotations:
+              azure.workload.identity/client-id: '{{ (serviceInstallation "azure-identity").outputs.client_ids.cloud_metrics }}'
+              azure.workload.identity/tenant-id: '{{ (serviceInstallation "azure-identity").outputs.tenant_id }}'
+        environment:
+          name: "{{ .ryvn.env.name }}"
+        org:
+          id: "{{ .ryvn.env.orgId }}"
+        features:
+          collector:
+            enabled: false
+          podLogs:
+            enabled: false
+          metrics:
+            enabled: false
+            cloud:
+              enabled: true
+              config:
+              {{- input "configAlloy" | toYaml | nindent 16 }}
+          serviceMonitors:
+            enabled: false
+        endpoints:
+          mimir: {{ Hub "mimirUrl" | toJson }}
+        defaultConnectionId: '{{ .ryvn.observability.defaultConnectionId }}'
+        requiredConnectionIds: {{ .ryvn.observability.requiredConnectionIds | toJson }}
+        {{- if ObservabilityDestinations }}
+        destinations:
+        {{- ObservabilityDestinations | toYaml | nindent 2 }}
+        {{- end }}
+        auth:
+          tokenUrl: {{ Hub "tokenUrl" | toJson }}
+          projectId: {{ Hub "projectId" | toJson }}
+      releaseChannel: stable
+      dependencies:
+        - serviceInstallation: '{{ ParentInstallationName }}-identity'
+      serviceUser:
+        credentialType: client-secret
+        enabled: true
+        secretName: ryvn-cloud-metrics-collector-client-creds
         role: collector
   distribution: marketplace-managed

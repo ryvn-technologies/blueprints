@@ -64,3 +64,15 @@ output "id" {
   description = "The Azure resource ID of the Managed Redis instance"
   value       = azurerm_managed_redis.this.id
 }
+
+output "cloud_metrics" {
+  description = "Cloud datastore metrics contract: schema version plus named targets holding provider-native resource ids"
+  value = {
+    schema = 1
+    targets = {
+      cluster = {
+        cloud_resource_id = azurerm_managed_redis.this.id
+      }
+    }
+  }
+}
