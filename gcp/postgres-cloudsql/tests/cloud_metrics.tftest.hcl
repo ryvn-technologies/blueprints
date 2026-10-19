@@ -1,7 +1,7 @@
 mock_provider "google" {
   mock_resource "google_sql_database_instance" {
     defaults = {
-      id        = "projects/test-project/instances/postgres-0a1b2c3d"
+      id        = "postgres-0a1b2c3d"
       self_link = "https://sqladmin.googleapis.com/sql/v1beta4/projects/test-project/instances/postgres-0a1b2c3d"
     }
   }

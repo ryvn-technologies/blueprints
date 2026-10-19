@@ -66,7 +66,7 @@ output "cloud_metrics" {
     schema = 1
     targets = {
       this = {
-        cloud_resource_id = google_sql_database_instance.this.id
+        cloud_resource_id = "projects/${var.project_id}/instances/${google_sql_database_instance.this.name}"
       }
     }
   }
