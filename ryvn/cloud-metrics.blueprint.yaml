@@ -143,9 +143,9 @@ spec:
             {{- if (input "monitoredIds") }}
             project_roles:
               {{- range $pid := input "monitoredIds" }}
-              {{ $pid | quote }}:
+              {{ $pid | toJson }}:
                 role: roles/monitoring.viewer
-                project: {{ $pid | quote }}
+                project: {{ $pid | toJson }}
               {{- end }}
             {{- end }}
     # Azure Workload Identity needs a managed identity + role
