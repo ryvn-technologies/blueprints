@@ -102,10 +102,9 @@ data "google_compute_zones" "available" {
   region  = var.region
 }
 
-# The cluster's zones, saved by the first apply and then kept even if the region's zone list
-# changes. Without them the GKE module picks zones at random and can pick again later.
+# Save the initial zones so catalog changes or random picks cannot move the cluster.
 resource "terraform_data" "cluster_zones" {
-  input = length(var.zones) > 0 ? var.zones : slice(local.standard_zones, 0, min(3, length(local.standard_zones)))
+  input = length(var.zones) > 0 ? var.zones : local.default_zones
 
   lifecycle {
     ignore_changes = [input]
@@ -122,8 +121,13 @@ locals {
 
   # Skips AI zones such as us-central1-ai1a.
   standard_zones = sort([for zone in flatten(data.google_compute_zones.available[*].names) : zone if can(regex("^${var.region}-[a-z]$", zone))])
-  # input, not output: output is unknown on the first plan.
-  zones = length(var.zones) > 0 ? var.zones : terraform_data.cluster_zones.input
+  default_zones  = slice(local.standard_zones, 0, min(3, length(local.standard_zones)))
+
+  # Use input because output is unknown on the first plan.
+  saved_zones = terraform_data.cluster_zones.input
+  # Keep the saved list; other regions use defaults recalculated each plan.
+  region_zones = alltrue([for zone in local.saved_zones : startswith(zone, "${var.region}-")]) ? local.saved_zones : local.default_zones
+  zones        = length(var.zones) > 0 ? var.zones : local.region_zones
 }
 
 # GKE cluster
