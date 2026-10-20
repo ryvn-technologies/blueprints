@@ -35,7 +35,7 @@ locals {
   ]
 
   # Zonal agent endpoints: every zone the node pools can use.
-  egress_zones = sort(distinct(concat(length(var.zones) > 0 ? var.zones : flatten(data.google_compute_zones.egress[*].names), tolist(var.egress_firewall.additional_workload_zones))))
+  egress_zones = sort(distinct(concat(local.zones, tolist(var.egress_firewall.additional_workload_zones))))
 
   # Cluster-only platform destinations; native NGFW bootstrap remains a live
   # validation gate. Registry hosts match the AWS and Azure baselines.
@@ -156,12 +156,6 @@ locals {
     for private in local.egress_private_ranges :
     tonumber(split("/", cidr)[1]) >= tonumber(split("/", private)[1]) && cidrsubnet("${cidrhost(cidr, 0)}/${split("/", private)[1]}", 0, 0) == private
   ])]
-}
-
-data "google_compute_zones" "egress" {
-  count   = local.egress_firewall_enabled && length(var.zones) == 0 ? 1 : 0
-  project = var.project_id
-  region  = var.region
 }
 
 # Always present: range overlaps are rejected even with the firewall disabled.

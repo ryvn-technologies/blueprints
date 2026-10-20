@@ -187,7 +187,7 @@ defined in [variables.tf](variables.tf); root callers do not set them directly:
 | Child input | Parent-supplied value |
 |---|---|
 | `name`, `project_id`, `network_id` | Environment name, project and existing VPC ID |
-| `zones` (`set(string)`) | Root configured zones (or discovered regional zones) plus `egress_firewall.additional_workload_zones`; declare every workload zone |
+| `zones` (`set(string)`) | The cluster's zones plus `egress_firewall.additional_workload_zones`; declare every workload zone |
 | `internal_destination_cidrs` (`list(string)`) | Actual node, pod, service, PSA and active additional-subnet destination ranges |
 | `classes` (`map(object({ policy_key, sources }))`) | `cluster` with node/pod CIDRs and the selected cluster policy, plus attached external groups with their CIDR and selected policy |
 | `policies` | Root `egress_firewall.policies`, with `domain_allow` and `network_allow` maps for each policy |
@@ -221,8 +221,8 @@ traffic acceptance.
    explicitly pin the existing GKE zone selection without relocating node pools.
    No additional subnet groups are required for ordinary GKE use.
 4. Ensure endpoint coverage for **every zone where workloads can run**, not only
-   current nodes. Explicit `zones` cover GKE placement; when omitted, NGFW
-   discovers all available zones in the region. Add external workload zones in
+   current nodes. NGFW covers the cluster's zones, the same list GKE uses
+   whether `zones` is set or not. Add external workload zones in
    `egress_firewall.additional_workload_zones` before placing workloads there.
    A regional subnet does not constrain VM zones.
 5. During the approved window, submit the reviewed config through the normal
