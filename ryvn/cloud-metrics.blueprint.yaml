@@ -56,8 +56,8 @@ spec:
     # microsoft.cache/redisenterprise); a
     # family's nonempty `metrics` list replaces its defaults exactly —
     # AWS entries are CloudWatch {name, statistics} pairs, GCP entries
-    # are full exact metric types like
-    # cloudsql.googleapis.com/database/cpu/utilization, Azure entries are
+    # are {name: cloudsql.googleapis.com/database/cpu/utilization} objects
+    # with the full exact metric type and no other fields; Azure entries are
     # Azure Monitor {name, aggregations} pairs (Azure
     # entries may also list exact `dimensions`, which is rejected
     # visibly — dimension-value fan-out is indeterminate and the
