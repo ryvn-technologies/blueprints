@@ -72,7 +72,7 @@ configuration, activation, limits, checks, costs and rollback before adopting it
 | `project_id` | GCP project to provision into | required |
 | `region` | GCP region | required |
 | `public_root_domain` / `internal_root_domain` | Domains for the Cloud DNS zones | required |
-| `zones` | Zones for node pools and NGFW endpoints. When omitted, uses the zones saved by the first apply: the `zones` set then, otherwise the region's first three standard zones | `[]` |
+| `zones` | Override zones for node pools and NGFW endpoints. See defaults below | `[]` |
 | `subnet_cidr` | Primary subnet range | `"10.0.0.0/17"` |
 | `pod_cidr` / `service_cidr` | Secondary ranges for pods and services | `"192.168.0.0/18"` / `"192.168.64.0/18"` |
 | `node_pools` | Node pool overrides, merged with the defaults | `{}` |
@@ -90,6 +90,11 @@ configuration, activation, limits, checks, costs and rollback before adopting it
 | `additional_subnet_groups` | Optional ordered, append-only external-compute subnet allocations; not required for ordinary GKE use | `[]` |
 | `additional_subnet_groups_cidr` | Fixed allocation range for those groups; must not overlap existing ranges | `"10.0.192.0/19"` |
 | `egress_attachments` | Optional map assigning an active group (`subnet_group_key`) to a policy (`policy_key`); requires NGFW enabled | `{}` |
+
+The first apply saves `zones`, or up to three standard zones chosen alphabetically
+from the region. Without an override, the module reuses that list in its original
+region, including when returning to it. Other regions use defaults recalculated
+each plan. Their zone lists can change; keep `zones` set to fix the selection.
 
 The authoritative input types and validation are in [variables.tf](variables.tf).
 Additional groups without attachments have VPC-local connectivity but no Cloud
