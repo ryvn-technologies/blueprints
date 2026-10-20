@@ -96,6 +96,22 @@ locals {
   )
 }
 
+data "google_compute_zones" "available" {
+  count   = length(var.zones) == 0 ? 1 : 0
+  project = var.project_id
+  region  = var.region
+}
+
+# The cluster's zones, saved by the first apply and then kept even if the region's zone list
+# changes. Without them the GKE module picks zones at random and can pick again later.
+resource "terraform_data" "cluster_zones" {
+  input = length(var.zones) > 0 ? var.zones : slice(local.standard_zones, 0, min(3, length(local.standard_zones)))
+
+  lifecycle {
+    ignore_changes = [input]
+  }
+}
+
 data "google_container_engine_versions" "gke" {
   project  = var.project_id
   location = var.region
@@ -103,6 +119,11 @@ data "google_container_engine_versions" "gke" {
 
 locals {
   regular_default_minor = tonumber(split(".", data.google_container_engine_versions.gke.release_channel_default_version["REGULAR"])[1])
+
+  # Skips AI zones such as us-central1-ai1a.
+  standard_zones = sort([for zone in flatten(data.google_compute_zones.available[*].names) : zone if can(regex("^${var.region}-[a-z]$", zone))])
+  # input, not output: output is unknown on the first plan.
+  zones = length(var.zones) > 0 ? var.zones : terraform_data.cluster_zones.input
 }
 
 # GKE cluster
@@ -115,7 +136,7 @@ module "gke" {
   project_id          = var.project_id
   name                = "ryvn-gke-${var.environment}"
   region              = var.region
-  zones               = var.zones
+  zones               = local.zones
   network             = module.gcp-network.network_name
   subnetwork          = module.gcp-network.subnets_names[0]
   ip_range_pods       = local.pods_range_name

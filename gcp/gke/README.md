@@ -72,7 +72,7 @@ configuration, activation, limits, checks, costs and rollback before adopting it
 | `project_id` | GCP project to provision into | required |
 | `region` | GCP region | required |
 | `public_root_domain` / `internal_root_domain` | Domains for the Cloud DNS zones | required |
-| `zones` | Zones for node pools; NGFW covers these zones, or discovers all available regional zones when omitted | `[]` |
+| `zones` | Zones for node pools and NGFW endpoints. When omitted, uses the zones saved by the first apply: the `zones` set then, otherwise the region's first three standard zones | `[]` |
 | `subnet_cidr` | Primary subnet range | `"10.0.0.0/17"` |
 | `pod_cidr` / `service_cidr` | Secondary ranges for pods and services | `"192.168.0.0/18"` / `"192.168.64.0/18"` |
 | `node_pools` | Node pool overrides, merged with the defaults | `{}` |
