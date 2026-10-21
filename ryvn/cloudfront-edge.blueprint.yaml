@@ -248,7 +248,7 @@ spec:
     - name: vpcOriginEndpointLookupTags
       type: string
       default: ""
-      description: AWS load balancer tags as a YAML map, used to find the VPC origin's load balancer. Leave empty to use the environment's Ryvn-managed internal load balancer.
+      description: AWS tags that identify the origin load balancer, as a YAML map. Leave empty to use the environment's internal gateway.
       displayName: VPC Origin Endpoint Lookup Tags
       group: advanced
       multiline: true
@@ -376,7 +376,14 @@ spec:
           existing_vpc_origin_id: '{{ input "existingVpcOriginId" }}'
           {{- else }}
           create: true
-          endpoint_lookup_tags: {{ (input "vpcOriginEndpointLookupTags" | trim | fromYaml | default (dict "elbv2.k8s.aws/cluster" "{{ .ryvn.env.state.cluster_name }}" "service.k8s.aws/stack" "internal-ingress-nginx/internal-ingress-nginx-controller-internal" "service.k8s.aws/resource" "LoadBalancer")) | toJson }}
+          {{- with $endpointLookupTags := input "vpcOriginEndpointLookupTags" | trim | fromYaml }}
+          endpoint_lookup_tags: {{ $endpointLookupTags | toJson }}
+          {{- else }}
+          endpoint_lookup_tags:
+            elbv2.k8s.aws/cluster: '{{ .ryvn.env.state.cluster_name }}'
+            service.k8s.aws/stack: '{{ or (and .ryvn.installations.istiod ((blueprintInstallation "ryvn-istio-gateway").outputs.internalGatewayServiceRef | default "waiting-for-ryvn-istio-gateway")) "internal-ingress-nginx/internal-ingress-nginx-controller-internal" }}'
+            service.k8s.aws/resource: LoadBalancer
+          {{- end }}
           {{- if input "vpcOriginName" }}
           name: '{{ input "vpcOriginName" }}'
           {{- end }}

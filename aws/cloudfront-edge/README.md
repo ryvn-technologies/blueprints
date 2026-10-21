@@ -125,6 +125,8 @@ A YAML list applied across the distribution. `error_code` (4xx/5xx) is required;
 
 CloudFront reaches the environment through a CloudFront VPC origin, so origin traffic never crosses the public internet. The blueprint creates one from the environment's internal load balancer; [Advanced](#advanced) covers reusing or retargeting it.
 
+With the gateway blueprint installed, the origin is its internal gateway. Deployment waits until the gateway blueprint publishes it, so upgrade the gateway blueprint first and keep its internal gateway enabled. Without the gateway blueprint, the origin is the environment's internal ingress-nginx load balancer. To choose an origin yourself, set `vpcOriginEndpointLookupTags` or `existingVpcOriginId`.
+
 `originReadTimeoutSeconds` sets how long CloudFront waits for an origin response, 1 to 120 seconds. It defaults to 30.
 
 ## Viewer mTLS
@@ -211,7 +213,7 @@ Logs are delivered to S3 buckets you already own; the blueprint does not create 
 | Input | Default | Notes |
 |------|---------|-------|
 | `existingVpcOriginId` | empty | Reuse a VPC origin instead of creating one. Pair it with another installation's `vpcOriginId` output to share one VPC origin across distributions. |
-| `vpcOriginEndpointLookupTags` | empty | YAML map of AWS tags selecting the load balancer behind the VPC origin. Empty uses the environment's internal load balancer. Changing the endpoint replaces the VPC origin. |
+| `vpcOriginEndpointLookupTags` | empty | YAML map of AWS tags selecting the origin load balancer. Leave empty for the default described in [Origin](#origin). Changing the endpoint replaces the VPC origin. |
 | `vpcOriginName` | generated | Name for the created VPC origin. A short endpoint fingerprint suffix is always appended. |
 | `priceClass` | `PriceClass_100` | Edge locations: `PriceClass_100` (North America and Europe), `PriceClass_200`, or `PriceClass_All`. |
 | `enableMonitoring` | `false` | CloudFront real-time metrics. |
