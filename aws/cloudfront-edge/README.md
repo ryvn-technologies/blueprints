@@ -20,7 +20,11 @@ Some behavior is fixed and has no input:
 
 `hostnames` are the public names CloudFront serves. Leave it empty to serve the environment's public domain apex and its wildcard.
 
-Because the blueprint issues the certificate itself, each hostname must be the environment public domain, its wildcard, or a one-label subdomain of it — `example.com`, `*.example.com`, or `api.example.com`.
+Without a certificate ARN, the blueprint issues the certificate itself, so each hostname must be the environment public domain, its wildcard, or a one-label subdomain of it — `example.com`, `*.example.com`, or `api.example.com`.
+
+To serve your own domains, set `viewerCertificateArn` to an ACM certificate in `us-east-1` that covers every hostname. Every hostname must then be listed and outside the environment's public domain. Serve names in that domain from a separate installation without a certificate ARN; it can share this one's VPC origin and WAF through the `existingVpcOriginId` and `webAclArn` inputs.
+
+Keep names in the environment's public domain off your certificate too. ACM renews a certificate only while every name on it still has its validation record, and an installation that uses your certificate keeps none, removing any it created before.
 
 Install the blueprint more than once when different hostnames need different WAF rules or cache behavior. Give each installation its own hostnames: CloudFront rejects the same alias on two distributions.
 

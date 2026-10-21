@@ -70,3 +70,62 @@ run "empty_hostnames_use_environment_certificate" {
     error_message = "The apex/wildcard certificate validation must use the one shared ACM validation CNAME."
   }
 }
+
+run "customer_certificate_serves_external_hostnames" {
+  command = plan
+
+  variables {
+    viewer_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/example"
+    hostnames = [
+      "app.example.invalid",
+      "*.example.invalid",
+      "api.subnet-playground.example.com",
+    ]
+  }
+
+  assert {
+    condition     = length(aws_acm_certificate.viewer) == 0
+    error_message = "An installation with its own certificate must not create a managed certificate."
+  }
+
+  assert {
+    condition     = output.viewer_certificate_arn == "arn:aws:acm:us-east-1:000000000000:certificate/example"
+    error_message = "An installation with its own certificate must serve that certificate."
+  }
+}
+
+run "customer_certificate_rejects_mixed_hostnames" {
+  command = plan
+
+  variables {
+    viewer_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/example"
+    hostnames = [
+      "app.example.invalid",
+      "api.net-playground.example.com",
+    ]
+  }
+
+  expect_failures = [var.hostnames]
+}
+
+run "customer_certificate_rejects_environment_apex" {
+  command = plan
+
+  variables {
+    viewer_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/example"
+    hostnames              = ["Net-Playground.example.com"]
+  }
+
+  expect_failures = [var.hostnames]
+}
+
+run "customer_certificate_requires_hostnames" {
+  command = plan
+
+  variables {
+    viewer_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/example"
+    hostnames              = []
+  }
+
+  expect_failures = [var.hostnames]
+}

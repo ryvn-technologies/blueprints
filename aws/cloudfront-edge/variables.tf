@@ -107,6 +107,18 @@ variable "hostnames" {
     ])
     error_message = "When viewer_certificate_arn is empty or dns.enabled = true, hostnames must be the public domain apex, the public domain wildcard, or one-label subdomains in the module-managed public zone."
   }
+
+  validation {
+    condition = trimspace(var.viewer_certificate_arn) == "" || (
+      length(var.hostnames) > 0 &&
+      alltrue([
+        for hostname in var.hostnames :
+        lower(hostname) != lower(var.managed_public_dns_root) &&
+        !endswith(lower(hostname), ".${lower(var.managed_public_dns_root)}")
+      ])
+    )
+    error_message = "With viewer_certificate_arn set, hostnames must be a non-empty list of names outside the environment's public domain. Serve names in that domain from a separate installation without viewer_certificate_arn."
+  }
 }
 
 variable "origin_type" {
@@ -287,7 +299,7 @@ variable "vpc_origin" {
 }
 
 variable "viewer_certificate_arn" {
-  description = "Optional existing ACM certificate ARN in us-east-1 covering every hostname. Leave empty to create and DNS-validate a managed viewer certificate. Explicit hostnames certify those exact names; leaving them empty uses the managed public DNS root and wildcard."
+  description = "Optional existing ACM certificate ARN in us-east-1 covering every hostname. When set, hostnames must be listed explicitly and all be outside managed_public_dns_root. Leave empty to create and DNS-validate a managed viewer certificate. Explicit hostnames certify those exact names; leaving them empty uses the managed public DNS root and wildcard."
   type        = string
   default     = ""
   nullable    = false

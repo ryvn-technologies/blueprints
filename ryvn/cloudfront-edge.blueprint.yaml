@@ -31,6 +31,11 @@ spec:
       default: []
       description: Public hostnames to serve through CloudFront.
       displayName: Host Names
+    - name: viewerCertificateArn
+      type: string
+      default: ""
+      description: ARN of an ACM certificate in us-east-1 that covers every hostname. Required for hostnames outside the environment's public domain; when set, every hostname must be outside that domain. When empty, Ryvn creates a certificate for names in that domain.
+      displayName: CloudFront certificate ARN
     - name: originReadTimeoutSeconds
       type: number
       default: 30
@@ -343,6 +348,7 @@ spec:
         managed_public_dns_root: '{{ .ryvn.env.state.public_domain.name }}'
         managed_private_dns_root: '{{ default "" (and .ryvn.env.state.internal_domain .ryvn.env.state.internal_domain.name) }}'
         hostnames: {{ input "hostnames" | toJson }}
+        viewer_certificate_arn: '{{ input "viewerCertificateArn" | trim }}'
         origin_type: vpc
         price_class: '{{ input "priceClass" }}'
         wait_for_deployment: {{ input "waitForDeployment" }}
