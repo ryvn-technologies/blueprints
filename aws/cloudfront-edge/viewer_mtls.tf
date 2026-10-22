@@ -6,9 +6,9 @@ resource "aws_s3_bucket" "viewer_mtls_ca_bundle" {
   bucket_prefix = local.viewer_mtls_bucket_name_prefix
   force_destroy = true
 
-  tags = merge(var.tags, {
+  tags = merge({
     Name = "${local.resource_name}-viewer-mtls-ca"
-  })
+  }, var.tags)
 }
 
 resource "aws_s3_bucket_public_access_block" "viewer_mtls_ca_bundle" {
@@ -99,6 +99,13 @@ resource "aws_s3_object" "viewer_mtls_ca_bundle" {
     aws_s3_bucket_server_side_encryption_configuration.viewer_mtls_ca_bundle,
     aws_s3_bucket_versioning.viewer_mtls_ca_bundle,
   ]
+
+  lifecycle {
+    precondition {
+      condition     = length(var.tags) <= 10
+      error_message = "The viewer mTLS CA bundle object supports at most 10 tags, including Ryvn's tags."
+    }
+  }
 }
 
 resource "aws_cloudfront_trust_store" "viewer_mtls" {

@@ -223,6 +223,7 @@ Logs are delivered to S3 buckets you already own; the blueprint does not create 
 | `enableMonitoring` | `false` | CloudFront real-time metrics. |
 | `waitForDeployment` | `false` | Wait for CloudFront to finish deploying before the installation completes. |
 | `retainOnDelete` | `false` | Disable the distribution instead of deleting it when the installation is removed. |
+| `tags` | none | AWS tags added to every resource the blueprint creates. Ryvn's `ryvn.app/` tags always apply. Viewer mTLS allows at most seven custom tags (ten total including Ryvn's three). |
 
 ## Outputs
 

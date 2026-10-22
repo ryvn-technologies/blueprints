@@ -296,6 +296,12 @@ spec:
       description: Disable the distribution instead of deleting it when this blueprint is removed.
       displayName: Retain on Delete
       group: advanced
+    - name: tags
+      type: map
+      default: {}
+      description: AWS tags to add to every resource this blueprint creates. Ryvn's own `ryvn.app/` tags always apply. Viewer mTLS allows at most seven custom tags (ten total including Ryvn's three).
+      displayName: Tags
+      group: advanced
   outputs:
     - name: distributionId
       type: string
@@ -461,6 +467,11 @@ spec:
         {{- end }}
 
         tags:
+          {{- if input "tags" }}
+          {{- range $key, $value := omit (input "tags") "ryvn.app/environment" "ryvn.app/blueprint" "ryvn.app/installation" }}
+          {{ $key | toJson }}: {{ $value | toJson }}
+          {{- end }}
+          {{- end }}
           ryvn.app/environment: '{{ .ryvn.env.name }}'
           ryvn.app/blueprint: cloudfront-edge
           ryvn.app/installation: '{{ ParentInstallationName }}'
