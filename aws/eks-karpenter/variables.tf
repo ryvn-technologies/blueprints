@@ -371,21 +371,21 @@ variable "cni" {
 }
 
 variable "ryvn_init_image" {
-  description = "ryvn-init image used when cni = \"cilium\". Set by the platform blueprint."
+  description = "ryvn-init image used when cni = \"cilium\" or ryvn_agent is set. Set by the platform blueprint."
   type        = string
   # Not required: environments on an older platform blueprint don't pass it.
   default = null
 
   validation {
-    condition     = var.cni != "cilium" || var.ryvn_init_image != null
-    error_message = "ryvn_init_image is required when cni is cilium."
+    condition     = (var.cni != "cilium" && var.ryvn_agent == null) || var.ryvn_init_image != null
+    error_message = "ryvn_init_image is required when cni is cilium or ryvn_agent is set."
   }
 }
 
 variable "ryvn_init_timeout_seconds" {
   description = "Deadline for installing Cilium; must stay under EKS's 15-minute NotReady node limit."
   type        = number
-  default     = 780
+  default     = (15 - 2) * 60
 }
 
 variable "ryvn_init_migration_timeout_seconds" {
@@ -455,6 +455,29 @@ variable "cilium_restart_pods_blocked_by_disruption_budgets" {
   description = "When moving nodes to Cilium, delete pods whose PodDisruptionBudgets never allow evicting them instead of failing the apply. This bypasses those budgets and takes the workloads down; use it only for a move agreed with the customer."
   type        = bool
   default     = false
+}
+
+variable "ryvn_agent" {
+  description = "ryvn-agent chart repository URL, chart name, chart version and Helm values. When set, ryvn-init installs the agent from inside the VPC unless the cluster already has it; this module adds the cluster's own values."
+  type = object({
+    repository    = string
+    chart         = string
+    chart_version = string
+    values        = optional(any, {})
+  })
+  default = null
+
+  validation {
+    condition = var.ryvn_agent == null || alltrue([
+      try(var.ryvn_agent.values.targetEnv, null) == null,
+      try(var.ryvn_agent.values.serviceAccount.annotations["eks.amazonaws.com/role-arn"], null) == null,
+    ])
+    error_message = <<-EOT
+      ryvn_agent.values sets a reserved key. Reserved keys are set automatically during provisioning:
+        - targetEnv
+        - serviceAccount.annotations["eks.amazonaws.com/role-arn"]
+    EOT
+  }
 }
 
 variable "enable_transit_gateway_subnets" {
