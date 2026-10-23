@@ -33,14 +33,9 @@ output "project_id" {
   value       = var.project_id
 }
 
-output "registry_definition" {
-  description = "Registry definition in the shape of the Ryvn registry API (GoogleArtifactRegistry). Contains no secrets."
-  value = {
-    type      = "googleArtifactRegistry"
-    url       = local.registry_host
-    projectId = var.project_id
-    location  = google_artifact_registry_repository.this.location
-  }
+output "registry_type" {
+  description = "Registry kind the Ryvn hub maps to a registry record: ecr | artifactRegistry | acr"
+  value       = "artifactRegistry"
 }
 
 output "push_identity" {

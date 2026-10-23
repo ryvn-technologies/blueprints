@@ -10,7 +10,7 @@ anonymous pull are disabled.
 |-----------|----------------------|-------|
 | Artifact copier (`push_service_accounts` in `push_namespace`) | Workload Identity: user-assigned identity with a federated credential per service account | `AcrPush` on the registry |
 | Cluster nodes (kubelet) | Kubelet managed identity (`node_principal_ids`) | `AcrPull` on the registry |
-| Ryvn hub | GenericContainerRegistry with `clusterDefault` credentials | — |
+| Ryvn hub | Maps the plain registry outputs to an Azure Container Registry record with cluster-default credentials | — |
 
 The Ryvn agent's existing managed identity object ids can be granted `AcrPull`
 with `pull_principal_ids`. Azure does not create a new agent identity;
@@ -18,6 +18,12 @@ with `pull_principal_ids`. Azure does not create a new agent identity;
 
 No registry passwords, tokens or scope maps are created and no secrets are
 emitted as outputs.
+
+The module emits `registry_type` (`acr`), `registry_host`, `region`,
+`registry_id`, and `resource_group_name`. The hub maps these plain outputs to a
+registry record; ACR has no dedicated Registry API type, so it is represented
+as a generic container registry with the `azureContainerRegistry` subtype and
+cluster-default pull credentials.
 
 When `cluster_name` is set, the kubelet identity and OIDC issuer are read from
 the AKS cluster. Attached clusters must pass `node_principal_ids` and

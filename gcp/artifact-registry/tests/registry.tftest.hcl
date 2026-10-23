@@ -183,8 +183,8 @@ run "outputs_form_the_registry_contract" {
   }
 
   assert {
-    condition     = output.registry_definition.type == "googleArtifactRegistry" && output.registry_definition.projectId == "test-project"
-    error_message = "registry_definition must match the GoogleArtifactRegistry API shape."
+    condition     = output.registry_type == "artifactRegistry"
+    error_message = "registry_type must identify Artifact Registry."
   }
 
   assert {

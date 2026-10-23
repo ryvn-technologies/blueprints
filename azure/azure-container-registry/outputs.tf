@@ -33,16 +33,9 @@ output "resource_group_name" {
   value       = azurerm_container_registry.this.resource_group_name
 }
 
-output "registry_definition" {
-  description = "Registry definition in the shape of the Ryvn registry API (GenericContainerRegistry with clusterDefault credentials: nodes pull through their kubelet identity). Contains no secrets."
-  value = {
-    type    = "genericContainerRegistry"
-    url     = azurerm_container_registry.this.login_server
-    subType = "azureContainerRegistry"
-    credentials = {
-      type = "clusterDefault"
-    }
-  }
+output "registry_type" {
+  description = "Registry kind the Ryvn hub maps to a registry record: ecr | artifactRegistry | acr"
+  value       = "acr"
 }
 
 output "push_identity" {

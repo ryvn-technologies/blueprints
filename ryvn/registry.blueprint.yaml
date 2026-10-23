@@ -104,11 +104,35 @@ spec:
       from: '{{ (serviceInstallation "registry").outputs.region }}'
       description: Cloud region or location of the registry.
       displayName: Region
-    - name: registryDefinition
+    - name: registryType
       type: string
-      from: '{{ (serviceInstallation "registry").outputs.registry_definition | toJson }}'
-      description: JSON registry definition in the shape of the Ryvn registry API (`elasticContainerRegistry`, `googleArtifactRegistry`, or `genericContainerRegistry`). Contains no secrets; credentials are identity references only.
-      displayName: Registry Definition
+      from: '{{ (serviceInstallation "registry").outputs.registry_type }}'
+      description: "Registry kind: `ecr`, `artifactRegistry`, or `acr`. The hub maps it, with the host, region and identity outputs below, to the environment's registry record."
+      displayName: Registry Type
+    - name: hubReadRoleArn
+      type: string
+      condition: '{{ and (eq EnvironmentProviderType "aws") (ne (input "hubPrincipalArn") "") }}'
+      from: '{{ (serviceInstallation "registry").outputs.hub_read_role_arn }}'
+      description: ARN of the read-only role the Ryvn hub assumes to pull from the registry; skipped when no hubPrincipalArn is given (nodes then pull with their instance role).
+      displayName: Hub Read Role ARN
+    - name: projectId
+      type: string
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      from: '{{ (serviceInstallation "registry").outputs.project_id }}'
+      description: GCP project that owns the Artifact Registry repository.
+      displayName: Project ID
+    - name: registryId
+      type: string
+      condition: '{{ or (eq EnvironmentProviderType "aws") (eq EnvironmentProviderType "azure") }}'
+      from: '{{ (serviceInstallation "registry").outputs.registry_id }}'
+      description: "Registry identifier: the AWS account id on ECR, the ACR resource id on Azure."
+      displayName: Registry ID
+    - name: resourceGroupName
+      type: string
+      condition: '{{ eq EnvironmentProviderType "azure" }}'
+      from: '{{ (serviceInstallation "registry").outputs.resource_group_name }}'
+      description: Azure resource group that owns the registry.
+      displayName: Resource Group Name
     - name: sourceMirrors
       type: string
       from: '{{ $prefix := (serviceInstallation "registry").outputs.path_prefix }}[{{ range $index, $host := input "sourceRegistry" }}{{ if $index }},{{ end }}{{ if $prefix }}{{ dict "host" $host "pathPrefix" $prefix | toJson }}{{ else }}{{ dict "host" $host | toJson }}{{ end }}{{ end }}]'

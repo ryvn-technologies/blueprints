@@ -9,7 +9,7 @@ environment-scoped mirror for Ryvn-built container images and OCI Helm charts.
 |-----------|----------------------|-------|
 | Artifact copier (`push_service_accounts` in `push_namespace`) | Workload Identity Federation for GKE (`principal://...svc.id.goog/subject/ns/<ns>/sa/<sa>`) | `roles/artifactregistry.writer` on the repository |
 | Cluster nodes (kubelet) | Node service account | `roles/artifactregistry.reader` on the repository |
-| Ryvn hub | GoogleArtifactRegistry registry definition (no credentials stored) | — |
+| Ryvn hub | Maps the plain registry outputs to a Google Artifact Registry record (no credentials stored) | — |
 
 The Ryvn agent receives reader access through Workload Identity principals for
 `pull_service_accounts` in `pull_namespace`. Attached-cluster agent Google
@@ -39,9 +39,10 @@ by an operator.
 
 ## Outputs
 
-`registry_host`, `repository_id`, `repository_name`, `destination_base`, `path_prefix`,
-`region`, `project_id`, `registry_definition` (API-shaped), `push_identity`,
-`pull_identity`.
+`registry_type` (`artifactRegistry`), `registry_host`, `repository_id`,
+`repository_name`, `destination_base`, `path_prefix`, `region`, `project_id`,
+`push_identity`, `pull_identity`. The hub maps `registry_type`, `registry_host`,
+`region`, and `project_id` to the registry record.
 
 ## Testing
 

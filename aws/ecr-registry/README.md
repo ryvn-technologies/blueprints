@@ -28,14 +28,16 @@ clusters must be passed explicitly. Provisioning fails when no node role can be 
 when `cluster_name` is set; attached clusters bind `push_identity.roleArn`
 themselves.
 
-## Registry definition
+## Registry outputs
 
-`registry_definition` follows the Ryvn registry API:
+The module emits plain registry outputs. The hub maps `registry_type` together
+with `registry_host`, `region`, and the identity outputs to a registry record:
 
-* with `hub_principal_arn`: `elasticContainerRegistry` + `assumeRole`
-  credentials pointing at the hub read role;
-* otherwise: `genericContainerRegistry` + `clusterDefault` credentials (nodes
-  pull through their instance role).
+* `registry_type` is `ecr`;
+* with `hub_principal_arn`, `hub_read_role_arn` identifies a read-only role the
+  hub assumes to pull from ECR;
+* without `hub_principal_arn`, `hub_read_role_arn` is empty and the registry
+  uses cluster-default pull credentials through the nodes' instance role.
 
 ## Retention
 

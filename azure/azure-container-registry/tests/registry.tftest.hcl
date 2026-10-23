@@ -174,8 +174,8 @@ run "outputs_form_the_registry_contract" {
   }
 
   assert {
-    condition     = output.registry_definition.type == "genericContainerRegistry" && output.registry_definition.credentials.type == "clusterDefault"
-    error_message = "ACR is exposed as a generic registry with clusterDefault credentials."
+    condition     = output.registry_type == "acr"
+    error_message = "registry_type must identify Azure Container Registry."
   }
 
   assert {

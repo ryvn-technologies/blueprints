@@ -28,24 +28,9 @@ output "region" {
   value       = var.aws_region
 }
 
-output "registry_definition" {
-  description = "Registry definition in the shape of the Ryvn registry API. Uses ElasticContainerRegistry with assumeRole credentials when a hub role exists, otherwise a GenericContainerRegistry with clusterDefault credentials. Contains no secrets."
-  value = jsondecode(local.create_hub_read_role ? jsonencode({
-    type   = "elasticContainerRegistry"
-    url    = local.registry_host
-    region = var.aws_region
-    credentials = {
-      type    = "assumeRole"
-      roleArn = aws_iam_role.hub_read[0].arn
-    }
-    }) : jsonencode({
-    type    = "genericContainerRegistry"
-    url     = local.registry_host
-    subType = "elasticContainerRegistry"
-    credentials = {
-      type = "clusterDefault"
-    }
-  }))
+output "registry_type" {
+  description = "Registry kind the Ryvn hub maps to a registry record: ecr | artifactRegistry | acr"
+  value       = "ecr"
 }
 
 output "push_identity" {

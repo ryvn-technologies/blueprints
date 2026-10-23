@@ -242,8 +242,8 @@ run "without_hub_principal_registry_uses_cluster_default" {
   }
 
   assert {
-    condition     = output.registry_definition.type == "genericContainerRegistry" && output.registry_definition.credentials.type == "clusterDefault"
-    error_message = "Without a hub principal the registry must be exposed with clusterDefault credentials."
+    condition     = output.registry_type == "ecr" && output.hub_read_role_arn == ""
+    error_message = "Without a hub principal the registry type must be ecr and no hub read role may be created."
   }
 
   assert {
@@ -260,12 +260,12 @@ run "with_hub_principal_registry_uses_assume_role" {
   }
 
   assert {
-    condition     = output.registry_definition.type == "elasticContainerRegistry" && output.registry_definition.credentials.type == "assumeRole"
-    error_message = "With a hub principal the registry must be exposed as ECR with assumeRole credentials."
+    condition     = output.registry_type == "ecr"
+    error_message = "With a hub principal the registry type must be ecr."
   }
 
   assert {
-    condition     = output.registry_definition.credentials.roleArn == output.hub_read_role_arn && output.hub_read_role_arn != ""
-    error_message = "The assumeRole ARN must reference the hub read role."
+    condition     = output.hub_read_role_arn != ""
+    error_message = "A hub principal must create a hub read role."
   }
 }
