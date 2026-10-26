@@ -311,7 +311,7 @@ variable "create_cloudwatch_log_group" {
 }
 
 variable "terraform_executor_policies" {
-  description = "Additional IAM policy statements to be added to the Ryvn Agent role. Each policy statement should include Effect, Action, and Resource."
+  description = "IAM policy statements for the Ryvn Agent role. When set, they replace the default policy outright and nothing is added on top, so they must include every permission the installed services need (including IAM actions for blueprints that create roles or policies). Each policy statement should include Effect, Action, and Resource."
   type = list(object({
     effect  = string
     actions = list(string)

@@ -42,11 +42,10 @@ resource "aws_iam_role_policy_attachment" "ryvn_agent_permissions" {
 #   groups, Organizations). A Deny always wins, so the deny list is the actual
 #   boundary.
 #
-#   caller-supplied — the statements passed in replace the allow/deny pair
-#   wholesale, for accounts that require an explicitly enumerated policy.
-#
-# The IAM self-management block is unconditional: the agent creates the roles
-# the workload modules need, so it must be able to manage roles either way.
+#   caller-supplied — the statements passed in are the agent's entire policy,
+#   for accounts that require an explicitly enumerated one. Nothing is added on
+#   top, so they must include the IAM actions of any blueprint that creates
+#   roles or policies.
 resource "aws_iam_policy" "ryvn_agent_permissions" {
   name        = substr("RyvnAgentSelfManagement-${var.environment_name}", 0, 128)
   description = "Allow ryvn-agent to manage its own role permissions with restricted access to sensitive resources"
@@ -116,37 +115,6 @@ resource "aws_iam_policy" "ryvn_agent_permissions" {
           Resource = "*"
         }
       ] : [],
-      [
-        # Allow specific IAM permissions needed for self-management and infra module provisioning
-        {
-          Effect = "Allow"
-          Action = [
-            "iam:AttachRolePolicy",
-            "iam:CreatePolicy",
-            "iam:CreateRole",
-            "iam:DeletePolicy",
-            "iam:DeleteRole",
-            "iam:DeleteRolePermissionsBoundary",
-            "iam:DeleteRolePolicy",
-            "iam:DetachRolePolicy",
-            "iam:GetPolicy",
-            "iam:GetPolicyVersion",
-            "iam:GetRole",
-            "iam:GetRolePolicy",
-            "iam:ListAttachedRolePolicies",
-            "iam:ListInstanceProfilesForRole",
-            "iam:ListPolicyVersions",
-            "iam:ListRolePolicies",
-            "iam:PassRole",
-            "iam:PutRolePermissionsBoundary",
-            "iam:PutRolePolicy",
-            "iam:TagRole",
-            "iam:UntagRole",
-            "iam:UpdateRole"
-          ]
-          Resource = "*"
-        }
-      ],
       # Include terraform executor policies if specified
       length(var.terraform_executor_policies) > 0 ? [
         for policy in var.terraform_executor_policies : merge(
