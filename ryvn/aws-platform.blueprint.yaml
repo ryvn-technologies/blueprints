@@ -167,6 +167,9 @@ spec:
             firstInterfaceIndex: 0
         ipam:
           mode: eni
+          nodeSpec:
+            # Spare pod IPs each node keeps ready (default 8), so new pods rarely wait for the operator to add more.
+            ipamPreAllocate: 16
         routingMode: native
         # Istio ambient chains its own CNI plugin, and BPF masquerading breaks its
         # health probes: https://istio.io/latest/docs/ambient/install/platform-prerequisites/#cilium
@@ -174,12 +177,19 @@ spec:
           exclusive: false
         bpf:
           masquerade: false
-        # For Istio once kube-proxy replacement is on; no effect until then:
+        # Istio needs socket load balancing kept out of pod namespaces:
         # https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/#socket-loadbalancer-bypass-in-pod-namespace
         socketLB:
           hostNamespaceOnly: true
-        # Keeps EKS's kube-proxy, since we haven't tested replacing it. Quoted: the chart rejects a boolean.
-        kubeProxyReplacement: "false"
+        # Cilium serves hostPort, NodePort and LoadBalancer traffic; EKS's kube-proxy stays installed alongside it.
+        # Quoted: the chart rejects a boolean.
+        kubeProxyReplacement: "true"
+        # kube-proxy answers load balancer health checks while its add-on stays, as only one of the two can hold
+        # each port. Tested alongside kube-proxy replacement.
+        # TODO(NominalTrajectory): remove this together with the kube-proxy add-on, and restart the Cilium agents
+        # after kube-proxy is gone. An agent tries each health check port once and gives up if kube-proxy holds it.
+        nodePort:
+          enableHealthCheck: false
         policyEnforcementMode: default
         l7Proxy: true
         k8sNetworkPolicy:
