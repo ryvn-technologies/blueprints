@@ -24,11 +24,10 @@ knobs those docs expose.
   default.
 - **Node groups**: a small `CriticalAddonsOnly` system group for the components
   Karpenter itself depends on; all other capacity comes from Karpenter.
-- **Add-ons**: VPC CNI, CoreDNS, kube-proxy, EBS CSI, EFS CSI, Pod Identity
-  agent, and Karpenter's controller IAM role and interruption queue.
-- **Cilium** (`cni = "cilium"`): no VPC CNI add-on; `ryvn-init` installs
-  Cilium from a CodeBuild run inside the VPC that the apply starts and waits
-  for. See [Cilium bootstrap](#cilium-bootstrap).
+- **Add-ons**: CoreDNS, kube-proxy, EBS CSI, EFS CSI, Pod Identity agent, and
+  Karpenter's controller IAM role and interruption queue.
+- **Cilium**: the CNI for new environments, installed by `ryvn-init` through
+  CodeBuild inside the VPC. See [Cilium bootstrap](#cilium-bootstrap).
 - **IAM**: roles for the Ryvn agent, external-dns, cert-manager, the AWS Load
   Balancer Controller, cluster-autoscaler (opt-in) and the Cilium operator
   (when `cni = "cilium"`). Every role can carry a permissions boundary.
@@ -114,8 +113,8 @@ on an existing environment it is a reviewed maintenance event, not a toggle.
 | `s3_gateway_endpoint_policy` | Endpoint policy JSON; `null` keeps AWS's allow-all default | `null` |
 | `create_cluster_kms_key` | Use a customer-managed KMS key as the envelope-encryption KEK | `true` |
 | `eks_managed_node_groups` | Node group overrides, merged with the defaults | `{}` |
-| `cluster_addons` | Add-on overrides, merged with the defaults | `{}` |
-| `cni` | Target CNI; `cilium` drops the VPC CNI add-on and bootstraps Cilium with `ryvn-init`. Required by an enabled `egress_firewall` | `"vpc-cni"` |
+| `cluster_addons` | Add-on overrides; `vpc-cni` settings are ignored when Cilium is enabled | `{}` |
+| `cni` | Selected by `aws-platform`; existing installations retain their saved selection | `"vpc-cni"` (module fallback) |
 | `ryvn_init_image` / `cilium_chart_version` | Bootstrap image and Cilium chart version used in `cilium` mode | `null`; required with `cilium`, set by the platform blueprint |
 | `cilium_values` | Cilium Helm values used in `cilium` mode. The module adds the operator role, the `io.cilium/cluster-name` GC tag, the workload subnets and `AWS_DEFAULT_REGION`, and rejects values that set those or the API server address | `null`; required with `cilium`, set by the platform blueprint |
 | `cilium_repair` | Force reinstall Cilium, even if a Ryvn installation has adopted it | `false` |

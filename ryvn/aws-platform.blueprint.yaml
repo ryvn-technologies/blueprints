@@ -22,7 +22,7 @@ spec:
     hidden: true
   - name: enableCilium
     type: boolean
-    default: false
+    default: true
     description: Use Cilium instead of the AWS VPC CNI.
     hidden: true
     immutable: true
