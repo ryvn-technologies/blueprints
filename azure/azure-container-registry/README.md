@@ -10,7 +10,7 @@ anonymous pull are disabled.
 |-----------|----------------------|-------|
 | Artifact copier (`push_service_accounts` in `push_namespace`) | Workload Identity: user-assigned identity with a federated credential per service account | `AcrPush` on the registry |
 | Cluster nodes (kubelet) | Kubelet managed identity (`node_principal_ids`) | `AcrPull` on the registry |
-| Ryvn hub | Maps the plain registry outputs to an Azure Container Registry record with cluster-default credentials | — |
+| Ryvn hub | Maps the plain registry outputs to a dedicated `azureContainerRegistry` record (login server, resource group, location) authenticated through cluster identity | — |
 
 The Ryvn agent's existing managed identity object ids can be granted `AcrPull`
 with `pull_principal_ids`. Azure does not create a new agent identity;
