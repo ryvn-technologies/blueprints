@@ -177,6 +177,9 @@ spec:
           exclusive: false
         bpf:
           masquerade: false
+          # Needed for the Istio ambient service mesh on our envs: kubelet probes time out with eBPF host routing.
+          # Istio may fix this upstream: https://github.com/istio/istio/pull/62304
+          hostLegacyRouting: true
         # Istio needs socket load balancing kept out of pod namespaces:
         # https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/#socket-loadbalancer-bypass-in-pod-namespace
         socketLB:
