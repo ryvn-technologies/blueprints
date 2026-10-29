@@ -28,6 +28,8 @@ knobs those docs expose.
   Karpenter's controller IAM role and interruption queue.
 - **Cilium**: the CNI for new environments, installed by `ryvn-init` through
   CodeBuild inside the VPC. See [Cilium bootstrap](#cilium-bootstrap).
+- **Ryvn agent** (`ryvn_agent`): the same CodeBuild run installs the agent
+  once, with either CNI. See [Ryvn agent bootstrap](#ryvn-agent-bootstrap).
 - **IAM**: roles for the Ryvn agent, external-dns, cert-manager, the AWS Load
   Balancer Controller, cluster-autoscaler (opt-in) and the Cilium operator
   (when `cni = "cilium"`). Every role can carry a permissions boundary.
@@ -115,11 +117,12 @@ on an existing environment it is a reviewed maintenance event, not a toggle.
 | `eks_managed_node_groups` | Node group overrides, merged with the defaults | `{}` |
 | `cluster_addons` | Add-on overrides; `vpc-cni` settings are ignored when Cilium is enabled | `{}` |
 | `cni` | Selected by `aws-platform`; existing installations retain their saved selection | `"vpc-cni"` (module fallback) |
-| `ryvn_init_image` / `cilium_chart_version` | Bootstrap image and Cilium chart version used in `cilium` mode | `null`; required with `cilium`, set by the platform blueprint |
+| `ryvn_init_image` / `cilium_chart_version` | Bootstrap image (in `cilium` mode and with `ryvn_agent`) and Cilium chart version (in `cilium` mode) | `null`; required where used, set by the platform blueprint |
 | `cilium_values` | Cilium Helm values used in `cilium` mode. The module adds the operator role, the `io.cilium/cluster-name` GC tag, the workload subnets and `AWS_DEFAULT_REGION`, and rejects values that set those or the API server address | `null`; required with `cilium`, set by the platform blueprint |
 | `cilium_repair` | Force reinstall Cilium, even if a Ryvn installation has adopted it | `false` |
 | `cilium_restart_pods_blocked_by_disruption_budgets` | When moving nodes to Cilium, delete pods whose PodDisruptionBudgets never allow evicting them instead of failing the apply. Bypasses those budgets and takes the workloads down; only for a move agreed with the customer | `false` |
 | `ryvn_init_migration_timeout_seconds` | Extra time to move existing nodes from the VPC CNI to Cilium | `10800` |
+| `ryvn_agent` | Agent chart `repository` URL, `chart` name, `chart_version` and `values` for `ryvn-init` to install once. The module adds `targetEnv` and the agent role's IRSA annotation, and rejects values that set them | `null`, which leaves the agent install to Ryvn |
 | `egress_firewall` | Managed default-deny egress (`enabled`, `policies`, `cluster_policy_key`, `change_protection`); see [`egress_network/README.md`](egress_network/README.md) | `{ enabled = false }` |
 | `platform_https_domains` | Extra exact HTTPS/443 hostnames the platform components reach (managing hub API/issuer/token, collector gateways, access tunnel). Added to the built-in AWS/registry baseline (never replacing it), cluster sources only; bare lower-case hostnames, no scheme/path/port/wildcard/IP. The Ryvn AWS blueprint fills this from the managing hub; standalone callers list them. Ignored while disabled | `[]` |
 | `additional_subnet_groups` | Ordered, append-only list of named Ryvn-owned subnet groups for compute **outside** the cluster (`name`, `ipv4_prefix_length`, explicit `availability_zones`, `retired`); one subnet + dedicated local-only route table per group and AZ, no cluster/Karpenter/Cilium discovery, created whether or not the firewall is enabled, allocated from a reserved area separate from the cluster's; see [`workload_subnet_groups/README.md`](workload_subnet_groups/README.md) | `[]` |
@@ -173,6 +176,15 @@ consumers should not read an empty `outbound_ips` as the former.
   `cilium_restart_pods_blocked_by_disruption_budgets = true` to delete those
   pods instead, which takes their workloads down, then set it back to `false`.
 
+## Ryvn Agent Bootstrap
+
+- With `ryvn_agent` set, the `ryvn-init` run installs the agent once, after
+  Cilium (on `vpc-cni` it runs for the agent alone), so the first install needs
+  no access to the cluster API from outside the VPC. Ryvn upgrades the agent
+  from there. See [`modules/ryvn-init`](modules/ryvn-init/README.md#ryvn-agent).
+- `ryvn-init` doesn't create the agent's credentials Secret yet, so the agent
+  only starts once that Secret exists.
+
 ## One-Way Decisions
 
 The VPC CIDR and subnet layout, the cluster name (derived from
@@ -205,6 +217,7 @@ any root-only block (`import`, backend) that the root's own tests cannot see:
 cd tests/child_module && terraform init -backend=false && terraform validate
 ```
 
-`egress_network/tests/` covers the rule compiler and subnet contract, and
-`workload_subnet_groups/tests/` the allocator and geometry guard (`terraform
-init -backend=false && terraform test` in each directory).
+`egress_network/tests/` covers the rule compiler and subnet contract,
+`workload_subnet_groups/tests/` the allocator and geometry guard, and
+`modules/ryvn-init/tests/` the configuration and build timeout `ryvn-init`
+gets (`terraform init -backend=false && terraform test` in each directory).
