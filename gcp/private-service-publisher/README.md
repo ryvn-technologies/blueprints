@@ -11,6 +11,6 @@ The `private-service-consumer` module is the consumer side.
 
 ## On Ryvn
 
-The Private Service Publisher blueprint installs this module in the environment that runs your services and publishes the environment's managed internal gateway. It accepts the projects in `gcpAllowedProjects` (this project if empty) and takes the NAT range from `gcpNatSubnetCidr`. Its `publisherId` output is the service attachment ID.
+The Private Service Publisher blueprint installs this module in the environment that runs your services and publishes the environment's managed internal gateway, or the load balancer of the Kubernetes Service in `loadBalancerServiceName`. It accepts the projects in `gcpAllowedProjects` (this project if empty) and takes the NAT range from `gcpNatSubnetCidr`. Its `publisherId` output is the service attachment ID.
 
 Install Private Service Consumer in each environment in the same region that needs to call these services, for example a data plane that calls an API in its control plane. A service becomes reachable over the link once it has an internal [Route](https://ryvn.ai/docs/networking/routes), at the same URL it has here, like `https://<name>.<publisherDomain>`. The link carries HTTP and HTTPS, including gRPC.

@@ -12,6 +12,6 @@ The `private-endpoint` module is the consumer side.
 
 ## On Ryvn
 
-The Private Service Publisher blueprint installs this module in the environment that runs your services and publishes the frontend of the environment's managed internal gateway. It creates the NAT subnet in the VNet's reserved service subnet range. It shows the service to the subscriptions in `azureAllowedSubscriptions` (this subscription if empty) and approves their connections automatically. Its `publisherId` output is the service ID.
+The Private Service Publisher blueprint installs this module in the environment that runs your services and publishes the frontend of the environment's managed internal gateway, or of the Kubernetes Service in `loadBalancerServiceName`. It creates the NAT subnet in the VNet's reserved service subnet range. It shows the service to the subscriptions in `azureAllowedSubscriptions` (this subscription if empty) and approves their connections automatically. Its `publisherId` output is the service ID.
 
 Install Private Service Consumer in each environment that needs to call these services, for example a data plane that calls an API in its control plane. A service becomes reachable over the link once it has an internal [Route](https://ryvn.ai/docs/networking/routes), at the same URL it has here, like `https://<name>.<publisherDomain>`. The link carries HTTP and HTTPS, including gRPC.

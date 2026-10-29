@@ -20,10 +20,12 @@ spec:
 
     A service is reachable over the link once it has an internal [Route](https://ryvn.ai/docs/networking/routes). Server installations get one for each port automatically. For other installations, like Helm charts, add a Route with `internal` exposure and a name under this environment's internal domain. Each installation lists its URLs under Settings > Networking.
 
+    To share a different internal load balancer instead, such as one in front of a single app or your own gateway, set `loadBalancerServiceName`, `loadBalancerServiceNamespace`, and `publisherDomain`. Connected environments then reach that load balancer at names under `publisherDomain`, on ports 80 and 443. You set up its routing and certificates.
+
     ## What to expect
 
     - The link carries HTTP, including gRPC. It doesn't carry other protocols, like direct database connections.
-    - Every internal Route here is reachable from every connected environment.
+    - With Ryvn's internal gateway, every internal Route here is reachable from every connected environment.
     - Requests arrive from the link's addresses, so services can't tell callers apart by IP. Use authentication to control who can call a service.
     - To disconnect an environment, uninstall Private Service Consumer there, then remove it from the allowed lists. On AWS and Azure, removing it from the lists alone doesn't disconnect it.
     - Uninstall Private Service Consumer everywhere before you uninstall this blueprint or delete this environment.
@@ -60,6 +62,23 @@ spec:
       displayName: NAT Subnet Range
       condition: '{{ eq EnvironmentProviderType "gcp" }}'
       immutable: true
+    - name: loadBalancerServiceName
+      type: string
+      default: ''
+      description: Kubernetes Service whose internal load balancer gets shared. Leave empty to share Ryvn's internal gateway. Can't be changed after install.
+      displayName: Load Balancer Service
+      immutable: true
+    - name: loadBalancerServiceNamespace
+      type: string
+      description: Namespace of that Service. Can't be changed after install.
+      displayName: Load Balancer Service Namespace
+      condition: '{{ ne (input "loadBalancerServiceName") "" }}'
+      immutable: true
+    - name: publisherDomain
+      type: string
+      description: Domain connected environments use to reach the shared load balancer.
+      displayName: Publisher Domain
+      condition: '{{ ne (input "loadBalancerServiceName") "" }}'
   outputs:
     - name: publisherId
       type: string
@@ -68,11 +87,9 @@ spec:
       displayName: Publisher ID
     - name: publisherDomain
       type: string
-      from: '{{ EnvironmentInternalDomain }}'
+      from: '{{ if input "loadBalancerServiceName" }}{{ input "publisherDomain" }}{{ else }}{{ EnvironmentInternalDomain }}{{ end }}'
       description: Set as `publisherDomain` on Private Service Consumer.
       displayName: Publisher Domain
-  # TODO(NominalTrajectory): the published load balancer is intentionally fixed to the managed internal gateway, since
-  # the link relies on its port 80 listener and internal DNS. Later, open this up to a custom gateway or Service.
   installations:
     - service: gcp-private-service-publisher
       name: '{{ ParentInstallationName }}'
@@ -86,6 +103,9 @@ spec:
         name_prefix: '{{ ParentInstallationName }}'
         nat_subnet_cidr: '{{ input "gcpNatSubnetCidr" }}'
         allowed_projects: {{ input "gcpAllowedProjects" | toJson }}
+        {{- if input "loadBalancerServiceName" }}
+        kubernetes_service: '{{ input "loadBalancerServiceNamespace" }}/{{ input "loadBalancerServiceName" }}'
+        {{- end }}
       releaseChannel: stable
     - service: aws-privatelink-endpoint-service
       name: '{{ ParentInstallationName }}'
@@ -97,7 +117,7 @@ spec:
         name_prefix: '{{ ParentInstallationName }}'
         network_load_balancer_tags:
           elbv2.k8s.aws/cluster: '{{ .ryvn.env.state.cluster_name }}'
-          service.k8s.aws/stack: ryvn-system/internal-ryvn-istio
+          service.k8s.aws/stack: {{ if input "loadBalancerServiceName" }}{{ input "loadBalancerServiceNamespace" }}/{{ input "loadBalancerServiceName" }}{{ else }}ryvn-system/internal-ryvn-istio{{ end }}
         acceptance_required: false
         allowed_principals: {{ input "awsAllowedPrincipals" | toJson }}
         supported_regions: {{ input "awsAllowedConsumerRegions" | toJson }}
@@ -118,7 +138,7 @@ spec:
         load_balancer_name: kubernetes-internal
         kubernetes_service:
           cluster_id: '{{ .ryvn.env.state.cluster.id }}'
-          namespace: ryvn-system
-          name: internal-ryvn-istio
+          namespace: '{{ if input "loadBalancerServiceName" }}{{ input "loadBalancerServiceNamespace" }}{{ else }}ryvn-system{{ end }}'
+          name: '{{ if input "loadBalancerServiceName" }}{{ input "loadBalancerServiceName" }}{{ else }}internal-ryvn-istio{{ end }}'
       releaseChannel: stable
   distribution: marketplace-managed

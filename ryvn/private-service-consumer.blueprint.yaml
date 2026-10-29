@@ -20,6 +20,7 @@ spec:
 
     - Use the service's internal URL from the publisher's environment. Names under `publisherDomain` resolve to the link inside this environment, and the certificate is publicly trusted, so clients need no extra setup.
     - Every service with an internal [Route](https://ryvn.ai/docs/networking/routes) in the publisher's environment is reachable.
+    - If the publisher shares a different load balancer, that load balancer serves the names under `publisherDomain`, and clients must trust its certificates.
     - The link carries HTTP, including gRPC. It doesn't carry other protocols, like direct database connections.
     - Calls can fail for a few minutes after the link first connects, while DNS updates.
 

@@ -12,6 +12,6 @@ The `privatelink-endpoint` module is the consumer side.
 
 ## On Ryvn
 
-The Private Service Publisher blueprint installs this module in the environment that runs your services. It publishes the load balancer in front of the environment's managed internal gateway, allows the accounts in `awsAllowedPrincipals` (this account if empty) and accepts their connections automatically. Its `publisherId` output is the endpoint service name.
+The Private Service Publisher blueprint installs this module in the environment that runs your services. It publishes the load balancer in front of the environment's managed internal gateway, or of the Kubernetes Service in `loadBalancerServiceName`, allows the accounts in `awsAllowedPrincipals` (this account if empty) and accepts their connections automatically. Its `publisherId` output is the endpoint service name.
 
 Install Private Service Consumer in each environment that needs to call these services, for example a data plane that calls an API in its control plane. A service becomes reachable over the link once it has an internal [Route](https://ryvn.ai/docs/networking/routes), at the same URL it has here, like `https://<name>.<publisherDomain>`. The link carries HTTP and HTTPS, including gRPC.
