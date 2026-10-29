@@ -190,6 +190,8 @@ module "gke" {
   monitoring_enable_managed_prometheus  = false
   monitoring_enable_observability_relay = var.datapath_provider == "ADVANCED_DATAPATH"
 
+  enable_cost_allocation = var.cost_allocation_enabled
+
   # Configure cluster RBAC
   cluster_resource_labels = {
     environment = var.environment

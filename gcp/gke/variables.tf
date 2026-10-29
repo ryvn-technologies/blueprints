@@ -177,6 +177,12 @@ variable "deletion_protection" {
   default     = false
 }
 
+variable "cost_allocation_enabled" {
+  description = "Enables GKE cost allocation, adding cluster, namespace, and Kubernetes labels to the billing export to BigQuery."
+  type        = bool
+  default     = false
+}
+
 # IAM Configuration
 variable "cluster_bootstrap_perms" {
   description = "Whether to grant the Terraform service account cluster admin permissions"
