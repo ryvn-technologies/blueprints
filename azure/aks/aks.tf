@@ -210,6 +210,31 @@ module "aks" {
   ]
 }
 
+# Encrypts Secrets with an AKS platform-managed KMS key that AKS rotates; on an existing cluster AKS also
+# re-encrypts stored Secrets. Can't be turned off. https://learn.microsoft.com/en-us/azure/aks/kms-data-encryption
+resource "azapi_update_resource" "cluster_secrets_encryption" {
+  # 2026-07-01 is the first GA API version with this setting.
+  type        = "Microsoft.ContainerService/managedClusters@2026-07-01"
+  resource_id = module.aks.aks_id
+  body = {
+    properties = {
+      securityProfile = {
+        kubernetesResourceObjectEncryptionProfile = {
+          infrastructureEncryption = "Enabled"
+        }
+      }
+    }
+  }
+
+  # AKS rewrites every stored Secret in this update; azurerm also gives cluster updates 90m.
+  timeouts {
+    create = "90m"
+  }
+
+  # AKS rejects concurrent cluster updates, so wait for the module's own.
+  depends_on = [module.aks]
+}
+
 # Grant cluster admin permissions to the terraform executor if bootstrap perms are enabled
 resource "azurerm_role_assignment" "cluster_admin" {
   count                = var.cluster_bootstrap_perms ? 1 : 0

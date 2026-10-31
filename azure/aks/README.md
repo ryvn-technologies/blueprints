@@ -51,7 +51,10 @@ Use an owner-approved, deployment-specific activation and rollback procedure; pr
 - **Cluster**: AKS Standard with Azure CNI (overlay by default), Azure network
   policy, Azure Policy, OIDC issuer and Workload Identity, Entra-integrated
   Azure RBAC, cost analysis, and the Key Vault Secrets Store CSI provider.
-  Autoscaling is on for every pool.
+  Autoscaling is on for every pool. Kubernetes Secrets are encrypted with
+  [AKS KMS data encryption](https://learn.microsoft.com/en-us/azure/aks/kms-data-encryption)
+  using a platform-managed key that AKS rotates; enabling it on an existing
+  cluster re-encrypts the Secrets already stored.
 - **Node pools**: a `CriticalAddonsOnly`-tainted system pool and an
   `application` pool, spread across the region's availability zones. Pass
   `aks_node_pools` to override sizes or add pools; values merge with the
@@ -169,7 +172,8 @@ Entra token evaluated by Azure RBAC for Kubernetes.
 `network_plugin_mode`, the VNet address space and the subnet layout are fixed
 after creation — switching CNI modes or resizing the carve means replacing the
 cluster. Because the node resource group name is derived from the environment
-name, renaming an environment is also a replacement. Applied `additional_subnet_groups`
+name, renaming an environment is also a replacement. Secrets encryption needs
+Kubernetes 1.33 or later and can't be turned off once enabled. Applied `additional_subnet_groups`
 entries cannot be renamed, reordered or resized; retirement reserves their space.
 Their allocation records deliberately block ordinary environment destruction until
 explicitly released; see the [egress runbook](modules/egress-firewall/RUNBOOK.md).
