@@ -58,7 +58,7 @@ spec:
       displayName: Pool vCPU Limit
     - name: amiAlias
       type: string
-      default: al2023@v20260810
+      default: al2023@v20261031
       description: "AL2023 EKS-optimized AMI to run sandbox nodes on, as a Karpenter alias (family@version). Pinned on purpose: with al2023@latest every AMI release replaces the pool's nodes. List available versions with: aws ssm get-parameters-by-path --path /aws/service/eks/optimized-ami/<k8s-version>/amazon-linux-2023/ --recursive"
       displayName: Node AMI
     - name: diskSize
