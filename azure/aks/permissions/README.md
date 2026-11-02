@@ -29,8 +29,11 @@ Authorization is identical in both cases: only the way the token is obtained dif
 the role is not widened for federation.
 
 The runtime identity is different: after bootstrap the in-cluster agent runs as the
-`ryvn-agent-<env>` managed identity with the role defined in `agent.tf`. That role is
-created *by* the provisioner and is out of scope here (see "IAM-write actions").
+`ryvn-agent-<env>` managed identity with grants configured in `agent.tf`. The default
+custom role is created *by* the provisioner. `terraform_executor_policies` can replace
+it with custom permissions and/or scoped existing roles; see
+[Agent executor permissions](../README.md#agent-executor-permissions). This does not
+change the provisioner's own permissions (see "IAM-write actions").
 
 ## How the role was derived
 
@@ -153,10 +156,11 @@ destroy.
 ## IAM-write actions and how to bound them
 
 `roleDefinitions/write` and `roleAssignments/write` at subscription scope let the
-provisioner grant itself or anything else any permission, and `agent.tf` in fact creates a
-subscription-scoped `actions: ["*"]` role for the agent. Until that role is narrowed, this
-custom role is not a security boundary against a compromised hub; it is a boundary against
-mistakes and against blast radius outside the actions listed. Levers, cheapest first:
+provisioner grant itself or anything else any permission. By default, `agent.tf` creates a
+subscription-scoped `actions: ["*"]` role for the agent. `terraform_executor_policies`
+can narrow or replace the agent's grants, but the provisioner's authorization writes
+remain unchanged. Narrowing the agent alone does not make the provisioner role a security
+boundary against a compromised hub. Levers, cheapest first:
 
 1. **Dedicated subscription per environment.** The role is subscription-scoped; nothing
    outside is reachable.
@@ -169,9 +173,13 @@ mistakes and against blast radius outside the actions listed. Levers, cheapest f
    `7f6c6a51-bcf8-42ba-9220-52d62157d7db`, plus the environment's agent role). The agent
    role ID is minted by Terraform today, so this needs the module to derive a stable
    `role_definition_id` or the setup to pre-create the agent role — a follow-up.
-3. **Pre-created agent role.** Create `ryvn-agent-role-<env>` out of band and have the
-   provisioner only assign it, dropping `roleDefinitions/write|delete` entirely. Needs a
-   module input; a follow-up together with narrowing the agent role itself.
+3. **Pre-created agent role.** Create a custom role out of band and select its full ARM
+   role-definition ID through `terraform_executor_policies.role_assignments`, omitting
+   `permissions`. The module then creates only agent assignments and removes its default
+   role. Dropping `roleDefinitions/write|delete` from the provisioner remains a separate
+   setup change: retain deletion rights during migration, and account for any other
+   role definitions it manages. Existing-role configuration does not itself revoke
+   provisioner permissions.
 
 ## Customer-side one-time setup
 

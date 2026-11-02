@@ -1,3 +1,80 @@
+variable "terraform_executor_policies" {
+  description = "Replace the Ryvn agent's default grants with Azure custom permissions and/or scoped existing-role assignments. Empty input preserves the subscription-wide default. Conditions use Azure ABAC version 2.0; exclusions are not deny rules."
+  type = object({
+    permissions = optional(object({
+      actions          = optional(list(string), [])
+      not_actions      = optional(list(string), [])
+      data_actions     = optional(list(string), [])
+      not_data_actions = optional(list(string), [])
+      scope            = optional(string)
+      condition        = optional(string)
+    }))
+    role_assignments = optional(map(object({
+      role_definition_name = optional(string)
+      role_definition_id   = optional(string)
+      scope                = optional(string)
+      condition            = optional(string)
+    })), {})
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = var.terraform_executor_policies.permissions == null ? true : (
+      length(var.terraform_executor_policies.permissions.actions) + length(var.terraform_executor_policies.permissions.data_actions) > 0 &&
+      alltrue([for action in concat(
+        var.terraform_executor_policies.permissions.actions,
+        var.terraform_executor_policies.permissions.not_actions,
+        var.terraform_executor_policies.permissions.data_actions,
+        var.terraform_executor_policies.permissions.not_data_actions
+      ) : try(trimspace(action) != "", false)])
+    )
+    error_message = "terraform_executor_policies.permissions must grant at least one action or data_action; permission operations must be nonblank strings."
+  }
+
+  validation {
+    condition = alltrue([
+      for scope in concat(
+        try(var.terraform_executor_policies.permissions.scope, null) == null ? [] : [var.terraform_executor_policies.permissions.scope],
+        [for assignment in var.terraform_executor_policies.role_assignments : assignment.scope if try(assignment.scope != null, false)]
+        ) : (
+        (lower(scope) == lower(data.azurerm_subscription.main.id) || startswith(lower(scope), "${lower(data.azurerm_subscription.main.id)}/")) &&
+        alltrue([for segment in split("/", scope) : !contains([".", ".."], segment)]) &&
+        length(regexall("[\\\\%?#]", scope)) == 0
+      )
+    ])
+    error_message = "Executor assignment scopes must be unescaped ARM IDs in the deployment subscription (the subscription itself or a descendant). Other subscriptions, management groups, URL escapes, query/fragment delimiters, backslashes, and dot segments are not allowed."
+  }
+
+  validation {
+    condition = var.terraform_executor_policies.permissions == null ? true : (
+      var.terraform_executor_policies.permissions.condition == null ? true : trimspace(var.terraform_executor_policies.permissions.condition) != ""
+    )
+    error_message = "terraform_executor_policies.permissions.condition must be omitted or nonblank."
+  }
+
+  validation {
+    condition = alltrue([
+      for assignment in var.terraform_executor_policies.role_assignments : assignment == null ? false : (
+        (assignment.role_definition_name != null) != (assignment.role_definition_id != null) &&
+        (assignment.role_definition_name == null ? true : trimspace(assignment.role_definition_name) != "") &&
+        (assignment.role_definition_id == null ? true : can(regex("(?i)^(/.+)?/providers/Microsoft\\.Authorization/roleDefinitions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", assignment.role_definition_id)))
+      )
+    ])
+    error_message = "Each terraform_executor_policies.role_assignments entry must select exactly one nonblank built-in role_definition_name or full scoped role_definition_id (not a bare GUID or Terraform's composite state ID)."
+  }
+
+  validation {
+    condition = alltrue([
+      for assignment in var.terraform_executor_policies.role_assignments : assignment == null ? false : (
+        (assignment.scope == null ? true : trimspace(assignment.scope) != "") &&
+        (assignment.condition == null ? true : trimspace(assignment.condition) != "")
+      )
+    ])
+    error_message = "Role assignment scope and condition must be omitted or nonblank."
+  }
+}
+
 variable "location" {
   type        = string
   description = "The location to launch the cluster in"

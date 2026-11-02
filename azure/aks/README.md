@@ -94,11 +94,89 @@ Use an owner-approved, deployment-specific activation and rollback procedure; pr
 | `cost_analysis_enabled` | AKS cost analysis add-on | `true` |
 | `key_vault_secrets_provider_enabled` | Key Vault Secrets Store CSI add-on | `true` |
 | `cluster_bootstrap_perms` | Grant the Terraform identity cluster admin for bootstrap | `false` |
+| `terraform_executor_policies` | Replace the agent's default grants with Azure custom permissions and/or scoped existing roles | `{}` |
 | `tags` | Extra tags, merged with the module's own | `{}` |
 | `egress_firewall` | Managed default-deny policy, named HTTP/HTTPS and IPv4 network rules, Standard/Premium tier | disabled |
 | `platform_https_domains` | Exact additional HTTPS/443 platform hosts for cluster sources | `[]` |
 | `additional_subnet_groups` | Ordered subnet allocation ledger (name, IPv4 prefix, retired flag) | `[]` |
 | `egress_attachments` | Named policy assignments to active allocated subnet groups | `{}` |
+
+### Agent executor permissions
+
+By default, the agent's managed identity receives a custom role with `actions = ["*"]`
+at subscription scope and no explicit data actions. Set `terraform_executor_policies`
+in the environment's configuration to replace that entire grant. You can use the
+frontend's advanced YAML editor, environment YAML through the CLI/GitSync, or the API.
+The Azure module release installed in the environment must include this input.
+
+The object accepts two fields, which can be used separately or together:
+
+- `permissions`: creates the environment's custom role from `actions`, `not_actions`,
+  `data_actions`, and `not_data_actions`. Each list defaults to empty; at least one
+  action or data action is required. Optional `scope` sets the assignment scope,
+  defaulting to the deployment subscription. It must be that subscription or a resource
+  group/resource within it. The role definition stays at subscription scope.
+- `role_assignments`: a map keyed by stable assignment names. Each entry selects
+  exactly one built-in `role_definition_name` or full Azure `role_definition_id`.
+  Optional `scope` defaults to the deployment subscription and must stay within it.
+  Use an unescaped ARM scope ID without URL escapes, query strings, fragments, or dot
+  segments. Use the ARM resource ID
+  for an existing custom role, not a bare GUID or Terraform's composite state ID.
+
+Both `permissions` and each role assignment accept an optional Azure ABAC `condition`.
+The module sets `condition_version = "2.0"` when a condition is supplied. Azure supports
+conditions only for specific actions and attributes; these are not generic filters for
+all management operations. See [Azure role assignment conditions](https://learn.microsoft.com/en-us/azure/role-based-access-control/conditions-overview).
+
+For example, this environment config fragment uses built-in roles at resource-group
+and storage-container scope:
+
+```yaml
+terraform_executor_policies:
+  role_assignments:
+    network:
+      role_definition_name: Network Contributor
+      scope: /subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/example-network
+    artifacts:
+      role_definition_name: Storage Blob Data Reader
+      scope: /subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/example-data/providers/Microsoft.Storage/storageAccounts/examplestorage/blobServices/default/containers/artifacts
+```
+
+For a custom role, supply the native permission lists instead:
+
+```yaml
+terraform_executor_policies:
+  permissions:
+    scope: /subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/example-data
+    actions:
+      - Microsoft.Storage/storageAccounts/read
+    data_actions:
+      - Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read
+```
+
+These examples illustrate the input shape; they are not complete permission sets for
+every blueprint. Include every operation your installations need, including identity
+or role management only when required. No permissions are added to your override.
+With `role_assignments` alone, the module removes its custom role and default assignment.
+Empty, omitted, or null `terraform_executor_policies` restores the broad default;
+`permissions: {}` is rejected instead of silently granting wildcard access.
+
+`not_actions` and `not_data_actions` subtract permissions from this custom role; they
+are not deny rules. Other assignments, including inherited or externally managed grants,
+can still allow those actions. See [Azure role definitions](https://learn.microsoft.com/en-us/azure/role-based-access-control/role-definitions).
+
+This configures the runtime agent, not the separate identity that provisions the platform.
+Every assignment scope is limited to the deployment subscription or its descendants,
+even if the provisioner has broader Azure authority. The provisioner needs permission to
+read the selected role definition. Cross-subscription or management-group grants must be
+managed separately by an administrator of the target scope. Switching to pre-created roles
+does not automatically narrow that provisioner role; see [Provisioner permissions](permissions/README.md#iam-write-actions-and-how-to-bound-them).
+
+Review the Terraform plan before applying an override. State moves preserve existing role
+and assignment identities for unchanged defaults. An assignments-only override removes
+the old role; changing assignment scope, role, or condition can replace assignments.
+Role changes and Azure RBAC propagation can interrupt in-flight deployments. Reverting to
+empty configuration restores the subscription-wide wildcard grant.
 
 ### Additional-pool upgrade settings
 
