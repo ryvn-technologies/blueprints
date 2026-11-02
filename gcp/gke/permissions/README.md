@@ -56,12 +56,44 @@ non-Terraform calls:
 | Tags | tag key and value that scope the agent's Cloud SQL permissions | `resourcemanager.tagKeys.*`, `resourcemanager.tagValues.*` |
 | DNS | public zone with CAA record, private zone bound to the VPC | `dns.managedZones.*`, `dns.resourceRecordSets.*`, `dns.changes.*`, `dns.networks.bindPrivateDNSZone` |
 | Secrets encryption (`kms.tf`, #8055) | `cloudkms` API, GKE service identity, key ring + key via `terraform-google-modules/kms`, `cryptoKeyEncrypterDecrypter` grant to the service agent | `cloudkms.keyRings.create/get/list`, `cloudkms.cryptoKeys.create/get/list/update`, `cloudkms.cryptoKeys.getIamPolicy/setIamPolicy`; destroy with `prevent_destroy = false` runs `cryptoKeys.update` (drop rotation) plus `cryptoKeyVersions.list/destroy` since rings and keys themselves are undeletable. `google_project_service_identity` is authorised by `serviceusage.services.enable`, already present |
+| Managed state (enabled only) | versioned bucket, key ring + key, bucket/key IAM grants to the agent | `storage.buckets.create/get/update/getIamPolicy/setIamPolicy`; existing KMS permissions cover key creation, reads, updates and IAM. `storage.googleapis.com` is in the setup API inventory and enabled by the module. No provisioner object access or bucket deletion grant; bucket/key use `ABANDON`. Source-reviewed only; see below. |
 | Agent bootstrap (hub) | namespace, credentials secret, access RBAC, agent Helm release over the cluster API | `roles/container.admin` |
 | Teardown | the same set in reverse | the delete permissions in each group |
 
 The upstream module resources that our variables leave disabled (shadow and webhook
 firewall rules, fleet registration, kube-dns and ip-masq config maps, registry grants)
 need nothing extra.
+
+### Managed state backend setup and validation limits
+
+Before enabling `managedStateBackend` on an existing environment using the narrowed
+`ryvnProvisioner` role, **rerun the current GCP setup script** from Ryvn. Its existing
+create/update path installs the embedded role; new setups receive these permissions
+automatically. The previously granted agent object permissions do not authorize the
+provisioner to create a bucket or manage its IAM policy.
+
+The five bucket permissions were checked against the pinned Google provider
+[`v7.46.0` bucket implementation](https://github.com/hashicorp/terraform-provider-google/blob/v7.46.0/google/services/storage/resource_storage_bucket.go)
+and [bucket IAM implementation](https://github.com/hashicorp/terraform-provider-google/blob/v7.46.0/google/services/storage/iam_storage_bucket.go):
+
+| Provider operation | Provisioner permission |
+|--------------------|------------------------|
+| `Buckets.Insert` | `storage.buckets.create` |
+| `Buckets.Get` after creation and on refresh | `storage.buckets.get` |
+| `Buckets.Patch` for metadata/configuration changes | `storage.buckets.update` |
+| Bucket IAM GET / PUT, including IAM member removal | `storage.buckets.getIamPolicy` / `storage.buckets.setIamPolicy` |
+
+The bucket has uniform access, versioning, soft deletion and
+`deletion_policy = "ABANDON"`; Terraform retains its objects and skips bucket deletion. No
+`storage.objects.*`, `storage.buckets.delete`, Storage Admin or extra KMS/decrypt
+grant is added to the provisioner. Existing key-ring/key creation, read, update and
+key-IAM permissions also cover the managed secrets key. Runtime state I/O instead
+uses the agent's bucket-level `roles/storage.objectAdmin` grant, and secret encryption
+uses its key-level `roles/cloudkms.cryptoKeyEncrypterDecrypter` grant.
+
+These additions are **source-reviewed, not least-privilege managed-cloud validated**.
+Local role/setup tests and Terraform mocks do not establish successful execution
+under real GCP IAM. The historical live run below predates the managed state backend.
 
 ## Why `roles/container.admin` is bound separately
 

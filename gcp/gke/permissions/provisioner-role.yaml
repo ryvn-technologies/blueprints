@@ -12,9 +12,9 @@
 #   gcloud iam roles create ryvnProvisioner --project=<project> --file=provisioner-role.yaml
 #   gcloud iam roles update ryvnProvisioner --project=<project> --file=provisioner-role.yaml
 #
-# Live-validated 2026-09-03: apply, agent bootstrap, re-apply and destroy under a
-# scratch service account bound to this role + roles/container.admin, with Data
-# Access audit logs on. Per-permission evidence is in README.md.
+# Base GKE permissions were live-validated 2026-09-03. Native egress and managed
+# state additions are source-reviewed only, not least-privilege live validated.
+# Per-permission evidence and validation limits are in README.md.
 title: Ryvn Provisioner
 description: Provision, update and deprovision a Ryvn GKE environment (infra/gke-provision). Pair with roles/container.admin.
 stage: GA
@@ -174,8 +174,15 @@ includedPermissions:
   - dns.resourceRecordSets.list
   - dns.resourceRecordSets.update
   - dns.networks.bindPrivateDNSZone
-  # Cloud KMS: key ring + key for GKE Secrets encryption (kms.tf), grant to the GKE service agent.
-  # Rings/keys cannot be deleted; destroy disables rotation and destroys the key versions.
+  # Managed state bucket control plane; runtime object access belongs to the agent.
+  # ABANDON skips bucket/object deletion. Source-reviewed against provider 7.46.0.
+  - storage.buckets.create
+  - storage.buckets.get
+  - storage.buckets.update
+  - storage.buckets.getIamPolicy
+  - storage.buckets.setIamPolicy
+  # Cloud KMS: key ring + key for GKE Secrets encryption and managed state, with IAM grants.
+  # GKE Secrets key teardown destroys versions; the managed state key uses ABANDON.
   - cloudkms.keyRings.create
   - cloudkms.keyRings.get
   - cloudkms.keyRings.list

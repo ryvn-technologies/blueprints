@@ -12,6 +12,11 @@ spec:
     description: Log collection, metrics forwarding, and optional log redaction.
     displayName: Observability
   inputs:
+  - name: managedStateBackend
+    type: boolean
+    default: false
+    description: Provision managed infrastructure state storage. Currently supports Pulumi. Disabling this option retains the storage and encryption key; re-enabling may require manual import.
+    displayName: Managed State Backend
   - name: legacy
     type: boolean
     default: false
@@ -80,7 +85,7 @@ spec:
     condition: '{{ not (input "legacy") }}'
     config: |
       {{- range $key, $value := .ryvn.env.config }}
-      {{- if and (ne $key "datapath_provider") (ne $key "platform_https_domains") }}
+      {{- if and (ne $key "datapath_provider") (ne $key "platform_https_domains") (ne $key "environment_id") (ne $key "managed_state_backend_enabled") }}
       {{ dict $key $value | toYaml }}
       {{- end }}
       {{- end }}
@@ -92,6 +97,8 @@ spec:
       {{- if input "dataplaneV2" }}
       datapath_provider: ADVANCED_DATAPATH
       {{- end }}
+      environment_id: {{ .ryvn.env.id | toJson }}
+      managed_state_backend_enabled: {{ input "managedStateBackend" }}
       # Keep the Loki, Mimir and token hosts in sync with the ryvn-collector installation.
       platform_https_domains:
       {{- with index .ryvn.env.config "platform_https_domains" }}

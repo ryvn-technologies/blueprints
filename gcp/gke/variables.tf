@@ -1,4 +1,17 @@
 # Core Configuration
+variable "managed_state_backend_enabled" {
+  description = "Provision state storage and encryption. Disabling abandons resources; recovery and cleanup are manual."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "environment_id" {
+  description = "Stable environment UUID from the platform blueprint's trusted template context. Required for managed state storage."
+  type        = string
+  default     = null
+}
+
 variable "environment" {
   description = "Environment name"
   type        = string

@@ -35,6 +35,7 @@ var RequiredAPIs = []string{
 	"servicenetworking.googleapis.com",
 	"dns.googleapis.com",
 	"cloudkms.googleapis.com",
+	"storage.googleapis.com",
 	"networksecurity.googleapis.com",
 	"privateca.googleapis.com",
 }
