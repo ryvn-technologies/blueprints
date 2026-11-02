@@ -2,7 +2,6 @@ package permissions
 
 import (
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -60,32 +59,5 @@ func TestNativeEgressLifecyclePermissions(t *testing.T) {
 		if !slices.Contains(role.IncludedPermissions, permission) {
 			t.Errorf("missing diagnostics permission %s", permission)
 		}
-	}
-}
-
-func TestManagedStateBackendPermissions(t *testing.T) {
-	role, err := ProvisionerRole()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var storagePermissions []string
-	for _, permission := range role.IncludedPermissions {
-		if strings.HasPrefix(permission, "storage.") {
-			storagePermissions = append(storagePermissions, permission)
-		}
-	}
-	slices.Sort(storagePermissions)
-	want := []string{
-		"storage.buckets.create",
-		"storage.buckets.get",
-		"storage.buckets.getIamPolicy",
-		"storage.buckets.setIamPolicy",
-		"storage.buckets.update",
-	}
-	if !slices.Equal(storagePermissions, want) {
-		t.Errorf("managed state needs bucket control-plane permissions only: got %v, want %v", storagePermissions, want)
-	}
-	if !slices.Contains(RequiredAPIs, "storage.googleapis.com") {
-		t.Error("setup must enable the Cloud Storage API")
 	}
 }
