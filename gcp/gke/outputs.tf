@@ -1,11 +1,3 @@
-output "pulumi_backend_url" {
-  value = try(module.state_backend[0].backend_url, null)
-}
-
-output "pulumi_secrets_provider" {
-  value = try(module.state_backend[0].secrets_provider, null)
-}
-
 # Cluster outputs
 output "cluster_endpoint" {
   description = "Endpoint for your Kubernetes API server"
