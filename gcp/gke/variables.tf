@@ -190,6 +190,12 @@ variable "deletion_protection" {
   default     = false
 }
 
+variable "dns_cache_enabled" {
+  description = "Enables the GKE NodeLocal DNSCache add-on, running a DNS cache on every node. Changing it on an existing cluster re-creates all nodes through the node upgrade process."
+  type        = bool
+  default     = false
+}
+
 variable "cost_allocation_enabled" {
   description = "Enables GKE cost allocation, adding cluster, namespace, and Kubernetes labels to the billing export to BigQuery."
   type        = bool

@@ -192,6 +192,8 @@ module "gke" {
 
   enable_cost_allocation = var.cost_allocation_enabled
 
+  dns_cache = var.dns_cache_enabled
+
   # Configure cluster RBAC
   cluster_resource_labels = {
     environment = var.environment

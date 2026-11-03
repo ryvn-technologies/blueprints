@@ -82,6 +82,7 @@ configuration, activation, limits, checks, costs and rollback before adopting it
 | `datapath_provider` | `ADVANCED_DATAPATH` for Dataplane V2; only applied at creation | `"DATAPATH_PROVIDER_UNSPECIFIED"` |
 | `deletion_protection` | Block Terraform from destroying the cluster and DNS zones | `false` |
 | `cost_allocation_enabled` | GKE cost allocation: cluster, namespace, and Kubernetes labels in the BigQuery billing export | `false` |
+| `dns_cache_enabled` | NodeLocal DNSCache add-on; toggling it on an existing cluster re-creates all nodes | `false` |
 | `terraform_executor_policies` | Replace the Ryvn agent's default grants with `roles`, `permissions`, and/or conditional `bindings` | `{}` |
 | `cluster_bootstrap_perms` | Grant the Terraform identity cluster admin for bootstrap | `false` |
 | `skip_dns_provisioning` | Skip both Cloud DNS zones | `false` |
