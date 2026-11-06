@@ -1,9 +1,9 @@
 # ryvn-init (AWS)
 
 Bootstraps Ryvn components on an EKS cluster from a CodeBuild run inside the
-cluster's VPC. Today that is Cilium. The apply starts the build and waits for
-it, so Terraform itself never calls the cluster's Kubernetes API and the API
-endpoint can stay private.
+cluster's VPC: Cilium and, with `ryvn_agent`, the Ryvn agent. The apply starts
+the build and waits for it, so Terraform itself never calls the cluster's
+Kubernetes API and the API endpoint can stay private.
 
 ## Switching an existing cluster
 
@@ -44,6 +44,27 @@ aws codebuild start-build --project-name ryvn-init-<environment_name> \
   --environment-variables-override name=RYVN_INIT_RESTART_PODS_BLOCKED_BY_DISRUPTION_BUDGETS,value=true
 ```
 
+## Ryvn agent
+
+With `ryvn_agent` set, a run installs the agent with any CNI, and with Cilium
+it does so last. It fetches the agent's bundle from `hub_url`, using a
+single-use token, before anything else, so the token spends little time in SSM.
+
+The executor passes the token as the ephemeral input
+`ryvn_agent_bootstrap_token`. Terraform writes it to the SecureString parameter
+`/ryvn/<environment_name>/ryvn-init/agent-bootstrap-token` once the cluster
+exists, through a write-only argument, so it stays out of plan and state. A new
+`token_version` is what makes Terraform write it. The parameter has its own KMS
+key, which only the identity running Terraform and the build can decrypt with.
+The parameter isn't cleared afterwards: SSM keeps old versions, and the token
+stops working once it is used or the apply ends.
+
+Once the agent is installed, a run leaves it to Ryvn and doesn't read the token.
+If the token was refused, the run fails. Provisioning again issues a new one.
+
+Terraform decrypts the parameter on every refresh. If the identity running
+Terraform changes to a different ARN, add it to the key policy first.
+
 ## Requirements
 
 - Terraform 1.16 or later and AWS provider 6.15 or later.
@@ -52,8 +73,8 @@ aws codebuild start-build --project-name ryvn-init-<environment_name> \
 - CodeBuild build capacity in the account. Brand-new accounts sometimes start
   with a concurrent-build quota of 0.
 - The identity running Terraform can manage CodeBuild projects, IAM roles,
-  EKS access entries, security groups, CloudWatch log groups and SSM
-  parameters.
+  EKS access entries, security groups, CloudWatch log groups, SSM parameters
+  and, with `ryvn_agent`, KMS keys.
 
 ## Inputs and outputs
 
@@ -63,7 +84,10 @@ aws codebuild start-build --project-name ryvn-init-<environment_name> \
 | `cluster_name` / `cluster_endpoint` / `cluster_certificate_authority_data` | Cluster to bootstrap | required |
 | `cluster_security_group_id` | Security group on the cluster's API endpoint | required |
 | `vpc_id` / `subnet_ids` | Where the build runs | required |
-| `cilium` | `chart_version`, `values`, optional `repair` and `restart_pods_blocked_by_disruption_budgets` | required |
+| `cilium` | `chart_version`, `values`, optional `repair` and `restart_pods_blocked_by_disruption_budgets`, or `null` to skip Cilium | `null` |
+| `ryvn_agent` | `hub_url`, `token_version` and the `values` to add to the agent bundle's, or `null` to skip the agent | `null` |
+| `ryvn_agent_bootstrap_token` | Ephemeral single-use token for the agent bundle | `null` |
+| `executor_principal_arn` | IAM role or user running Terraform | required |
 | `image` | ryvn-init image | required |
 | `timeout_seconds` | Deadline for installing Cilium | `780` |
 | `migration_timeout_seconds` | Extra time to move nodes from the VPC CNI to Cilium | `10800` |

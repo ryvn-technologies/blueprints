@@ -26,13 +26,19 @@ locals {
       extraEnv = concat(try(var.cilium_values.operator.extraEnv, []), local.cilium_values_from_cluster.operator.extraEnv)
     })
   })
+
+  # The rest of the values come with the bundle. The hub only learns this role
+  # from the apply's outputs, after ryvn-init has run.
+  ryvn_agent_values = {
+    serviceAccount = { annotations = { "eks.amazonaws.com/role-arn" = aws_iam_role.ryvn_agent_role.arn } }
+  }
 }
 
 # Must not depend on the node groups: they only become ACTIVE once nodes are
 # Ready, which needs Cilium.
 module "ryvn_init" {
   source = "./modules/ryvn-init"
-  count  = var.cni == "cilium" ? 1 : 0
+  count  = var.cni == "cilium" || var.ryvn_agent_bootstrap != null ? 1 : 0
 
   environment_name                   = var.environment_name
   cluster_name                       = module.eks.cluster_name
@@ -45,12 +51,20 @@ module "ryvn_init" {
   timeout_seconds                    = var.ryvn_init_timeout_seconds
   migration_timeout_seconds          = var.ryvn_init_migration_timeout_seconds
 
-  cilium = {
+  cilium = var.cni != "cilium" ? null : {
     chart_version                              = var.cilium_chart_version
     values                                     = local.cilium_values
     repair                                     = var.cilium_repair
     restart_pods_blocked_by_disruption_budgets = var.cilium_restart_pods_blocked_by_disruption_budgets
   }
+
+  ryvn_agent = var.ryvn_agent_bootstrap == null ? null : {
+    hub_url       = var.ryvn_agent_bootstrap.hub_url
+    token_version = var.ryvn_agent_bootstrap.token_version
+    values        = local.ryvn_agent_values
+  }
+  ryvn_agent_bootstrap_token = var.ryvn_agent_bootstrap_token
+  executor_principal_arn     = local.executor_principal_arn
 
   iam_permissions_boundary_arn = var.iam_permissions_boundary_arn
   tags                         = local.tags

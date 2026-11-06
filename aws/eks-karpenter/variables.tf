@@ -371,15 +371,37 @@ variable "cni" {
 }
 
 variable "ryvn_init_image" {
-  description = "ryvn-init image used when cni = \"cilium\". Set by the platform blueprint."
+  description = "ryvn-init image used when cni = \"cilium\" or ryvn_agent_bootstrap is set. Set by the platform blueprint."
   type        = string
   # Not required: environments on an older platform blueprint don't pass it.
   default = null
 
   validation {
-    condition     = var.cni != "cilium" || var.ryvn_init_image != null
-    error_message = "ryvn_init_image is required when cni is cilium."
+    condition     = (var.cni != "cilium" && var.ryvn_agent_bootstrap == null) || var.ryvn_init_image != null
+    error_message = "ryvn_init_image is required when cni is cilium or ryvn_agent_bootstrap is set."
   }
+}
+
+variable "ryvn_agent_bootstrap" {
+  description = "When set, ryvn-init installs the agent from inside the VPC and the cluster API has no public endpoint. Ryvn fills in hub_url and token_version for an environment that sets this to {}."
+  type = object({
+    hub_url       = string
+    token_version = number
+  })
+  default = null
+
+  validation {
+    condition     = var.ryvn_agent_bootstrap == null || var.create_cluster_kms_key
+    error_message = "ryvn_agent_bootstrap protects its token with a KMS key of its own, so it can't run with create_cluster_kms_key = false."
+  }
+}
+
+variable "ryvn_agent_bootstrap_token" {
+  description = "Single-use token ryvn-init fetches the agent bundle with. Plans get a placeholder: Terraform requires an ephemeral variable set at apply to be set at plan too."
+  type        = string
+  default     = null
+  sensitive   = true
+  ephemeral   = true
 }
 
 variable "ryvn_init_timeout_seconds" {
