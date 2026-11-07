@@ -53,7 +53,7 @@ spec:
       type: string
       default: ""
       displayName: Hub API URL
-      description: Base URL of the Ryvn hub API (for example `https://api.<hub-domain>`) the auth-proxy authorizes tenant requests against. Required in `hub` mode, where it is the API of the hub this stack is installed beside. In `dedicated` mode leave it blank to use the managing hub's API; set it only to authorize against a different hub API URL.
+      description: Base URL of the Ryvn hub API (for example `https://api.<hub-domain>`) the auth-proxy authorizes tenant requests against. Required in `hub` mode, where it is the API of the hub this stack is installed beside; there, prefer the orchestrator's in-cluster Service URL (for example `http://<orchestrator-service>.<namespace>.svc.cluster.local`), which keeps authorization checks off the public load balancer. In `dedicated` mode leave it blank to use the managing hub's API; set it only to authorize against a different hub API URL.
       group: endpoint
     - name: connectionName
       type: string
@@ -923,6 +923,11 @@ spec:
             value: hub
           - name: RYVN_HUB_URL
             value: '{{ input "hubUrl" }}'
+          {{- if contains "http://" (input "hubUrl") }}
+          # An in-cluster hub URL is plain HTTP, like the ingress-to-orchestrator hop.
+          - name: RYVN_HUB_ALLOW_INSECURE_HTTP
+            value: "true"
+          {{- end }}
           - name: RYVN_HUB_SERVICE_ACCOUNT_FILE
             value: /app/conf/hub/service-account.json
           - name: ZITADEL_APPLICATION_ACCOUNT_FILE
