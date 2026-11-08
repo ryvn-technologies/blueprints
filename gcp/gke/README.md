@@ -32,8 +32,8 @@ knobs those docs expose.
   policies) is opt-in via `datapath_provider`.
 - **Node pools**: a `CriticalAddonsOnly`-tainted `system` pool and an
   `application` pool, both autoscaled with auto-repair and auto-upgrade. Pass `node_pools` to
-  override sizes or add pools; defaults merge per key, and the system pool's
-  taint cannot be removed.
+  override sizes, set taints, or add pools; defaults merge per key. See
+  [node pool taints](#node-pool-taints) for the supported input and system-pool restrictions.
 - **IAM**: service accounts for the Ryvn agent, external-dns and cert-manager,
   each bound to its in-cluster Kubernetes service account through Workload
   Identity. The agent gets a custom role built from `default_permissions` in
@@ -42,6 +42,31 @@ knobs those docs expose.
 - **DNS**: a public and a private (VPC-scoped) Cloud DNS zone, with a CAA
   record restricting issuance to Let's Encrypt and Google Trust Services
   (`pki.goog`).
+
+## Node pool taints
+
+In the environment configuration, set taints under
+`config.node_pools.<pool-name>.taints`:
+
+```yaml
+config:
+  node_pools:
+    application:
+      taints:
+        - key: dedicated
+          value: batch
+          effect: NO_SCHEDULE
+```
+
+Each taint requires `key`, `value`, and `effect`. Use the GKE effect names
+`NO_SCHEDULE`, `PREFER_NO_SCHEDULE`, or `NO_EXECUTE`. The module does not expose
+a top-level `node_pools_taints` input; setting that map does not configure taints.
+
+Custom taints apply only to non-system pools. The `system` pool always uses
+`CriticalAddonsOnly=true:NO_SCHEDULE`; custom taints on that pool are ignored.
+Configure matching workload tolerations before applying taints. Tolerations
+permit scheduling onto tainted nodes; use a node selector or required node
+affinity when a workload must run in a particular pool.
 
 ## Native managed egress (opt-in)
 
