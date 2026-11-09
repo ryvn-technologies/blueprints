@@ -101,16 +101,17 @@ variable "platform_https_domains" {
 
 variable "additional_subnet_groups" {
   description = <<-EOT
-    Ordered, append-only list of named Ryvn-owned subnet groups for compute that runs OUTSIDE the
+    Ordered list of named Ryvn-owned subnet groups for compute that runs OUTSIDE the
     cluster (one subnet per group and availability zone), allocated deterministically from a
     reserved area after the cluster's fixed layout. Unlike workload_subnets_per_az, these subnets
     carry no cluster, Karpenter or Cilium discovery and never join cluster routing or policy.
-    Never edit, reorder, resize, rename or remove an entry once applied (the plan is rejected,
-    and the allocation records carry prevent_destroy): append a new group for more capacity
-    and set retired = true to tombstone one that is no longer used. The tombstone is permanent,
-    its address span stays reserved and is never returned to the budget. Tearing down a whole
-    environment needs the deliberate procedure in workload_subnet_groups/README.md. Groups exist
-    independently of egress_firewall.enabled and have only VPC-local routing until an
+    Append a new group for more capacity and set retired = true for one that is no longer used;
+    keep tombstones to reserve their address spans. Changes to a surviving group's recorded
+    geometry are rejected. Removing or renaming trailing entries, or clearing the list, is not
+    hard-blocked: review destructive update plans and use Ryvn requireApproval = true when needed.
+    Explicit environment deprovision queues destroy directly, without a plan-approval step.
+    Full-environment destroy needs no allocation-state removal; see workload_subnet_groups/README.md.
+    Groups exist independently of egress_firewall.enabled and have only VPC-local routing until an
     egress_attachments entry assigns them a policy.
   EOT
   type = list(object({

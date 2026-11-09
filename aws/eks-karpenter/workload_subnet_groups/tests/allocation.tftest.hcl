@@ -194,3 +194,41 @@ run "unchanged_config_plans_no_changes_after_retire" {
     error_message = "steady state keeps four active subnets"
   }
 }
+
+run "removing_a_retired_middle_group_is_rejected" {
+  command = plan
+  variables {
+    groups = [
+      { name = "api_clients", ipv4_prefix_length = 24, availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"] },
+      { name = "aaa_batch", ipv4_prefix_length = 25, availability_zones = ["us-east-1c"] },
+    ]
+  }
+  expect_failures = [terraform_data.geometry]
+}
+
+run "removing_a_trailing_group_preserves_surviving_subnets" {
+  command = plan
+  variables {
+    groups = [
+      { name = "api_clients", ipv4_prefix_length = 24, availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"] },
+      { name = "small_jobs", ipv4_prefix_length = 26, availability_zones = ["us-east-1a", "us-east-1b"], retired = true },
+    ]
+  }
+  assert {
+    condition     = length(aws_subnet.group) == 3 && !contains(keys(terraform_data.geometry), "aaa_batch")
+    error_message = "removing a trailing group must remove its subnets and allocation record"
+  }
+  assert {
+    condition     = alltrue([for key, id in run.initial_apply_allocates_from_block_13.subnet_ids : aws_subnet.group[key].id == id if startswith(key, "api_clients/")])
+    error_message = "removing a trailing group must not replace surviving subnets"
+  }
+}
+
+run "clearing_groups_plans_removal_of_subnets_and_records" {
+  command = plan
+  variables { groups = [] }
+  assert {
+    condition     = length(aws_subnet.group) == 0 && length(aws_route_table.group) == 0 && length(aws_route_table_association.group) == 0 && length(terraform_data.geometry) == 0
+    error_message = "clearing groups must plan removal without a lifecycle destroy veto"
+  }
+}

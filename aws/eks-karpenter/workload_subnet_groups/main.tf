@@ -11,13 +11,10 @@
 # Geometry guard: one terraform_data record per group (retired included) stores
 # {position, ipv4_prefix_length, availability_zones, cidrs_by_az} on first
 # apply and never rewrites it. A postcondition compares that record with the
-# freshly calculated geometry, so resizing, renaming, reordering groups or
-# their AZs fails the plan before any subnet changes. Subnets consume the
-# record's CIDRs, not the raw calculation. prevent_destroy on the records
-# rejects removing, renaming or clearing entries (retired ones included) and
-# blocks a plain destroy; a full teardown forgets only these records from
-# state first (README). The guard cannot recover history that was deleted from
-# configuration or state; keep retired entries as tombstones.
+# freshly calculated geometry, so changing a surviving group's geometry fails
+# the plan before any subnet changes. Subnets consume the record's CIDRs, not
+# the raw calculation. Deletion is left to plan review so full teardown needs
+# no state surgery. Keep retired entries as tombstones to preserve history.
 terraform {
   required_version = ">= 1.5.7"
   required_providers {
@@ -112,8 +109,7 @@ resource "terraform_data" "geometry" {
   input = each.value
 
   lifecycle {
-    prevent_destroy = true
-    ignore_changes  = [input]
+    ignore_changes = [input]
     postcondition {
       condition     = jsonencode(self.output) == jsonencode(local.geometry[each.key])
       error_message = "additional_subnet_groups[${each.key}] recorded allocation ${jsonencode(self.output)} differs from the calculated ${jsonencode(local.geometry[each.key])}. Allocations are append-only: keep this group's position, ipv4_prefix_length and availability_zones as first applied (retired groups stay in the list as tombstones); to resize or move it, append a new group and migrate its consumers."

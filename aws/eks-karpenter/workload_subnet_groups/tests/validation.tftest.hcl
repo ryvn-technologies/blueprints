@@ -19,8 +19,7 @@ variables {
   ]
 }
 
-# Stateless validation. Kept apart from allocation.tftest.hcl: its runs share
-# one state, and plans that drop applied groups are blocked by prevent_destroy.
+# Stateless validation, separate from allocation.tftest.hcl's applied ledger.
 
 
 run "empty_default_creates_nothing" {

@@ -15,7 +15,7 @@ variable "reserved_cidrs" {
   default     = []
 }
 variable "groups" {
-  description = "Ordered, append-only allocation ledger: one subnet per group and availability zone. ipv4_prefix_length is the subnet size, not its address. retired = true keeps the entry (and its address span) while removing its subnets."
+  description = "Ordered allocation ledger: append groups and retain retired tombstones to preserve address history. One subnet per group and availability zone. ipv4_prefix_length is the subnet size, not its address. retired = true keeps the entry (and its address span) while removing its subnets. Deletions require plan review, not a Terraform destroy veto."
   type = list(object({
     name               = string
     ipv4_prefix_length = number

@@ -88,7 +88,7 @@ on an existing environment it is a reviewed maintenance event, not a toggle.
   symmetry and drift warnings, `change_protection` scope, lifecycle and
   migration table, evidence boundaries, Tailscale example):
   [`egress_network/README.md`](egress_network/README.md).
-- `additional_subnet_groups` sizing and append-only allocation guard:
+- `additional_subnet_groups` sizing, allocation guard and deletion safeguards:
   [`workload_subnet_groups/README.md`](workload_subnet_groups/README.md)
   (the directory keeps its original name; the public input and output are
   `additional_subnet_groups`).
@@ -122,7 +122,7 @@ on an existing environment it is a reviewed maintenance event, not a toggle.
 | `ryvn_init_migration_timeout_seconds` | Extra time to move existing nodes from the VPC CNI to Cilium | `10800` |
 | `egress_firewall` | Managed default-deny egress (`enabled`, `policies`, `cluster_policy_key`, `change_protection`); see [`egress_network/README.md`](egress_network/README.md) | `{ enabled = false }` |
 | `platform_https_domains` | Extra exact HTTPS/443 hostnames the platform components reach (managing hub API/issuer/token, collector gateways, access tunnel). Added to the built-in AWS/registry baseline (never replacing it), cluster sources only; bare lower-case hostnames, no scheme/path/port/wildcard/IP. The Ryvn AWS blueprint fills this from the managing hub; standalone callers list them. Ignored while disabled | `[]` |
-| `additional_subnet_groups` | Ordered, append-only list of named Ryvn-owned subnet groups for compute **outside** the cluster (`name`, `ipv4_prefix_length`, explicit `availability_zones`, `retired`); one subnet + dedicated local-only route table per group and AZ, no cluster/Karpenter/Cilium discovery, created whether or not the firewall is enabled, allocated from a reserved area separate from the cluster's; see [`workload_subnet_groups/README.md`](workload_subnet_groups/README.md) | `[]` |
+| `additional_subnet_groups` | Ordered list of named Ryvn-owned subnet groups for compute **outside** the cluster (`name`, `ipv4_prefix_length`, explicit `availability_zones`, `retired`); append and retain retired tombstones to preserve address history. One subnet + dedicated local-only route table per group and AZ, no cluster/Karpenter/Cilium discovery, created whether or not the firewall is enabled, allocated from a reserved area separate from the cluster's; see [`workload_subnet_groups/README.md`](workload_subnet_groups/README.md) for geometry and deletion safeguards | `[]` |
 | `egress_attachments` | Named external compute classes: `{ subnet_group_key, policy_key }` assigns one group to one policy (inspected routes + source rules). No CIDRs, no subnet creation; requires the firewall to be enabled | `{}` |
 | `cluster_access_entries` | Extra EKS access entries | `{}` |
 | `pod_identity_associations` | Extra Pod Identity associations | `{}` |

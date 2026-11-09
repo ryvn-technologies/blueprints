@@ -1,4 +1,4 @@
-# Offline harness for tests/prevent_destroy.sh: the real module against a
+# Offline harness for tests/lifecycle.sh: the real module against a
 # provider that never talks to AWS. Only the terraform_data bookkeeping is
 # applied (-target); aws_* resources stay unplanned.
 terraform {

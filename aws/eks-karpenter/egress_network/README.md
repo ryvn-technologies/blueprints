@@ -94,10 +94,9 @@ Customers never pick CIDRs inside a Ryvn-owned VPC. Every group and AZ gets a
 subnet, a dedicated route table with only the VPC-local route and an
 association, with no NAT/default route and no cluster, Karpenter, Cilium or
 load-balancer discovery tags, independent of `egress_firewall.enabled`. Sizing,
-the two-`/20` budget on a default `/16`, the append-only geometry guard
-(allocation records are `prevent_destroy`: entries are never removed, only
-retired) and the deliberate full-environment teardown steps are documented once
-in [`../workload_subnet_groups/README.md`](../workload_subnet_groups/README.md).
+the two-`/20` budget on a default `/16`, the geometry guard for surviving
+groups, plan-review safeguards for deletions and full-environment teardown are
+documented once in [`../workload_subnet_groups/README.md`](../workload_subnet_groups/README.md).
 
 `egress_attachments` assigns a group to a policy. The firewall child gets
 the group's native subnet, CIDR and route-table IDs and adds the inspected
