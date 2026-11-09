@@ -8,6 +8,8 @@ spec:
 
     `provisioningMode` selects who the stack serves. `hub`: every organization of the hub it is installed beside; sign-in through the environment's `zitadel` installation, organizations and datasources created by that hub's orchestrator, mapped with `hubOrgs`. `dedicated`: the single organization owning the installation; the managing hub issues the OAuth client and gateway identity, Grafana organization 1 is provisioned statically and named `organizationDisplayName`, and `grafanaExposure` chooses the public or internal ingress.
 
+    In both modes, Grafana access follows organization-level Ryvn roles: admin → Admin, developer → Editor, operator/viewer → Viewer. Membership alone or roles scoped to an environment or service do not grant access. Roles synchronize at sign-in and never grant Grafana server administrator privileges. The hub and auth-proxy must support the `ryvn_org_roles` userinfo claim before upgrading an existing stack to this policy.
+
     In dedicated mode, `exposure: private` disables public access and serves the stack through internal Routes. Optional `exposeToTailnet`, with `tailnetDomain` and `tailnetHostnamePrefix`, adds HTTPS access for humans. Grafana login uses its tailnet hostname; collector URLs, internal Routes and PrivateLink configuration are unchanged by the toggle. Tailscale Operator 1.84.0+ and tailnet HTTPS must already be configured. By default, one shared ingress ProxyGroup runs two replicas for the three endpoints; tailnetProxyGroup can reuse an existing ingress group.
 
     Supported on GCP (GCS + Workload Identity Federation for GKE), AWS (S3 + EKS Pod Identity) and Azure (Blob + Workload Identity). On other providers the buckets and the Grafana database are still created, but Loki, Mimir, the auth-proxy and Grafana are not deployed and the URL outputs are not published. Collectors are deployed separately and reach the stack through the `connectionName`, `lokiIngestUrl` and `mimirIngestUrl` outputs.
@@ -129,7 +131,7 @@ spec:
       default: {}
       displayName: Grafana Organization Mapping
       description: |
-        Maps hub (Zitadel) organization ids to Grafana organization ids. Members of a hub organization sign in to Grafana as Editors of the mapped Grafana organization. The Grafana organizations and their Loki/Mimir datasources are created by the hub's orchestrator; look up the ids under Server admin → Organizations.
+        Maps hub (Zitadel) organization ids to Grafana organization ids. Organization-level Ryvn roles determine access within each mapped Grafana organization: admin → Admin, developer → Editor, operator/viewer → Viewer. Membership-only and environment/service-scoped roles do not grant access. An empty mapping denies OAuth sign-in. The Grafana organizations and their Loki/Mimir datasources are created by the hub's orchestrator; look up the ids under Server admin → Organizations.
 
         Synthetic example: `"111111111111111111": "2"`.
       group: endpoint
@@ -1135,10 +1137,15 @@ spec:
             auth_url: "$__env{ZITADEL_ISSUER_URL}/oauth/v2/authorize"
             token_url: "$__env{ZITADEL_ISSUER_URL}/oauth/v2/token"
             api_url: "http://{{ ParentInstallationName }}-auth-proxy.observability.svc.cluster.local:9545/userinfo"
-            org_attribute_path: ryvn_orgs
+            # Keep roles qualified by organization so an admin in one tenant cannot
+            # gain admin in another. Missing or unmapped roles must deny sign-in.
+            org_attribute_path: ryvn_org_roles
             {{- if input "hubOrgs" }}
-            org_mapping: '{{ range $hubOrgId, $grafanaOrgId := input "hubOrgs" }}{{ $hubOrgId }}:{{ $grafanaOrgId }}:Editor {{ end }}'
+            org_mapping: '{{ range $hubOrgId, $grafanaOrgId := input "hubOrgs" }}{{ $hubOrgId }}/admin:{{ $grafanaOrgId }}:Admin {{ $hubOrgId }}/developer:{{ $grafanaOrgId }}:Editor {{ $hubOrgId }}/operator:{{ $grafanaOrgId }}:Viewer {{ $hubOrgId }}/viewer:{{ $grafanaOrgId }}:Viewer {{ end }}'
             {{- end }}
+            role_attribute_strict: true
+            allow_assign_grafana_admin: false
+            skip_org_role_sync: false
             use_pkce: true
             use_refresh_token: true
         ingress:
