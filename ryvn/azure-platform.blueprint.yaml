@@ -234,6 +234,9 @@ spec:
           azure.workload.identity/client-id: '{{ .ryvn.env.state.external_dns_private_identity.client_id }}'
         labels:
           azure.workload.identity/use: "true"
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
       triggerLoopOnEvent: true
   - service: external-dns
     name: external-dns
@@ -275,6 +278,9 @@ spec:
           azure.workload.identity/client-id: '{{ .ryvn.env.state.external_dns_identity.client_id }}'
         labels:
           azure.workload.identity/use: "true"
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
       triggerLoopOnEvent: true
   - service: keda
     namespace: kube-system

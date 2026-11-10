@@ -217,6 +217,9 @@ spec:
       policy: sync
       registry: txt
       triggerLoopOnEvent: true
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
   - service: keda
     namespace: kube-system
     config: |
