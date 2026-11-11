@@ -20,36 +20,57 @@ locals {
   result_parameter = "/ryvn/${var.environment_name}/ryvn-init/result"
   result_succeeded = "succeeded"
 
+  agent_bootstrap_token_parameter = "/ryvn/${var.environment_name}/ryvn-init/agent-bootstrap-token"
+
   queued_timeout_minutes = 5
-  # ryvn-init adds Hubble Relay last, with its own time limit (addHubbleRelayTimeout).
+  # ryvn-init adds Hubble Relay after Cilium, with its own time limit (addHubbleRelayTimeout).
   add_hubble_relay_timeout_minutes = 10
-  # Headroom for CodeBuild to start an instance and pull the image.
-  build_timeout_minutes = ceil((var.timeout_seconds + var.migration_timeout_seconds) / 60) + local.add_hubble_relay_timeout_minutes + 5
+  # ryvn-init installs the agent last, with its own time limit (installRyvnAgentTimeout).
+  install_ryvn_agent_timeout_minutes = 10
+  # 5 is headroom for CodeBuild to start an instance and pull the image.
+  build_timeout_minutes = 5 + (var.ryvn_agent == null ? 0 : local.install_ryvn_agent_timeout_minutes) + (
+    var.cilium == null ? 0 : ceil((var.timeout_seconds + var.migration_timeout_seconds) / 60) + local.add_hubble_relay_timeout_minutes
+  )
 
   shared_subnet_ids = [for subnet in data.aws_subnet.codebuild : subnet.id if subnet.owner_id != local.account_id]
 
-  config_document = yamlencode({
-    timeout = "${var.timeout_seconds}s"
-    cluster = {
-      apiServerEndpoint        = var.cluster_endpoint
-      certificateAuthorityData = var.cluster_certificate_authority_data
-    }
-    cilium = merge(
-      {
-        install          = true
-        chartVersion     = var.cilium.chart_version
-        values           = var.cilium.values
-        repair           = var.cilium.repair
-        migrationTimeout = "${var.migration_timeout_seconds}s"
-      },
-      var.cilium.restart_pods_blocked_by_disruption_budgets ? { restartPodsBlockedByDisruptionBudgets = true } : {},
-    )
-    aws = {
-      region                      = local.region
-      eksClusterName              = var.cluster_name
-      bootstrapResultSsmParameter = local.result_parameter
-    }
-  })
+  # Steps that don't run are left out, not null, so existing clusters keep their document and don't rerun.
+  config_document = yamlencode(merge(
+    {
+      timeout = "${var.timeout_seconds}s"
+      cluster = {
+        apiServerEndpoint        = var.cluster_endpoint
+        certificateAuthorityData = var.cluster_certificate_authority_data
+      }
+      aws = merge(
+        {
+          region                      = local.region
+          eksClusterName              = var.cluster_name
+          bootstrapResultSsmParameter = local.result_parameter
+        },
+        var.ryvn_agent == null ? {} : { agentBootstrapTokenSsmParameter = local.agent_bootstrap_token_parameter },
+      )
+    },
+    var.cilium == null ? {} : {
+      cilium = merge(
+        {
+          install          = true
+          chartVersion     = var.cilium.chart_version
+          values           = var.cilium.values
+          repair           = var.cilium.repair
+          migrationTimeout = "${var.migration_timeout_seconds}s"
+        },
+        var.cilium.restart_pods_blocked_by_disruption_budgets ? { restartPodsBlockedByDisruptionBudgets = true } : {},
+      )
+    },
+    var.ryvn_agent == null ? {} : {
+      ryvnAgent = {
+        install = true
+        hubUrl  = var.ryvn_agent.hub_url
+        values  = var.ryvn_agent.values
+      }
+    },
+  ))
 }
 
 resource "aws_iam_role" "codebuild_service" {
@@ -85,7 +106,7 @@ resource "aws_iam_role_policy" "codebuild_service" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Effect   = "Allow"
         Action   = ["eks:ListAddons"]
@@ -129,7 +150,13 @@ resource "aws_iam_role_policy" "codebuild_service" {
           }
         }
       }
-    ]
+      ], var.ryvn_agent == null ? [] : [
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = aws_ssm_parameter.agent_bootstrap_token[0].arn
+      }
+    ])
   })
 }
 
@@ -163,6 +190,82 @@ resource "aws_ssm_parameter" "result" {
   type           = "String"
   insecure_value = local.result_succeeded
   tags           = var.tags
+}
+
+# Reading the parameter isn't enough to read the token: the account can manage
+# this key, but only the executor and ryvn-init can decrypt with it.
+resource "aws_kms_key" "agent_bootstrap_token" {
+  count                   = var.ryvn_agent == null ? 0 : 1
+  description             = "Agent bootstrap token of ${var.environment_name}"
+  enable_key_rotation     = true
+  deletion_window_in_days = 7
+  tags                    = var.tags
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "ManageKey"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:${local.partition}:iam::${local.account_id}:root" }
+        Action = [
+          "kms:CancelKeyDeletion",
+          "kms:Delete*",
+          "kms:Describe*",
+          "kms:Disable*",
+          "kms:Enable*",
+          "kms:Get*",
+          "kms:List*",
+          "kms:Put*",
+          "kms:Revoke*",
+          "kms:ScheduleKeyDeletion",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:Update*",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ExecutorWritesToken"
+        Effect = "Allow"
+        # Matched by ARN: a principal entry would stop working if the role is
+        # recreated, and Terraform can't fix that because refresh runs first.
+        Principal = { AWS = "*" }
+        # Decrypt too: the AWS provider reads the parameter back on every refresh.
+        Action   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*"]
+        Resource = "*"
+        Condition = {
+          ArnEquals    = { "aws:PrincipalArn" = var.executor_principal_arn }
+          StringEquals = { "kms:ViaService" = "ssm.${local.region}.amazonaws.com" }
+        }
+      },
+      {
+        Sid       = "RyvnInitReadsToken"
+        Effect    = "Allow"
+        Principal = { AWS = aws_iam_role.codebuild_service.arn }
+        Action    = ["kms:Decrypt"]
+        Resource  = "*"
+        Condition = {
+          StringEquals = { "kms:ViaService" = "ssm.${local.region}.amazonaws.com" }
+        }
+      },
+    ]
+  })
+}
+
+# value_wo keeps the token out of plan and state. It isn't cleared after use:
+# SSM keeps old versions, and the token is dead by then.
+resource "aws_ssm_parameter" "agent_bootstrap_token" {
+  count            = var.ryvn_agent == null ? 0 : 1
+  name             = local.agent_bootstrap_token_parameter
+  type             = "SecureString"
+  key_id           = aws_kms_key.agent_bootstrap_token[0].arn
+  value_wo         = var.ryvn_agent_bootstrap_token
+  value_wo_version = var.ryvn_agent.token_version
+  tags             = var.tags
+
+  # The token shouldn't wait in SSM while the cluster is created.
+  depends_on = [aws_eks_access_policy_association.codebuild_service_cluster_admin]
 }
 
 resource "aws_security_group" "codebuild" {
@@ -280,6 +383,7 @@ resource "terraform_data" "run_trigger" {
 
   depends_on = [
     aws_ssm_parameter.result,
+    aws_ssm_parameter.agent_bootstrap_token,
     aws_iam_role_policy.codebuild_service,
     aws_eks_access_policy_association.codebuild_service_cluster_admin,
     aws_vpc_security_group_ingress_rule.cluster_api_from_codebuild,
