@@ -34,6 +34,37 @@ knobs those docs expose.
 - **DNS**: a public and a private Route 53 zone, with a CAA record on the
   public zone.
 
+## Control-plane logging
+
+All five EKS control-plane log types remain enabled by default: `api`, `audit`,
+`authenticator`, `controllerManager`, and `scheduler`. Set `enabled_log_types` in
+the environment's `spec.config` to select which types EKS exports to CloudWatch.
+The platform blueprint already forwards environment configuration to this module.
+
+For a disposable internal test environment that does not need future Kubernetes
+audit history, an explicit configuration can omit only `audit`:
+
+```yaml
+spec:
+  config: |
+    enabled_log_types:
+      - api
+      - authenticator
+      - controllerManager
+      - scheduler
+```
+
+This stops future audit export after the provisioning change is applied. It
+preserves existing CloudWatch log history and does not change workload log
+collection, CloudWatch retention, or VPC flow logs. Leave the default in place
+where audit coverage is required. The `control_plane_logging` output reports the
+selected types for audit-source discovery.
+
+After `terraform init -backend=false`, run
+`python3 tests/check_control_plane_logging.py` to check the mocked cluster plans
+and audit-source metadata for the default and audit-free configurations, plus
+rejection of unsupported log types. No AWS credentials are needed.
+
 ## Networking Modes
 
 | Mode | Selected by | Module creates |

@@ -191,7 +191,7 @@ output "control_plane_logging" {
     # fall back to the EKS-fixed path when the operator pre-creates the group themselves.
     log_group_name    = coalesce(module.eks.cloudwatch_log_group_name, "/aws/eks/${module.eks.cluster_name}/cluster")
     log_group_arn     = coalesce(module.eks.cloudwatch_log_group_arn, "arn:${local.partition}:logs:${var.region}:${var.account_id}:log-group:/aws/eks/${module.eks.cluster_name}/cluster")
-    enabled_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+    enabled_log_types = var.enabled_log_types
   }
 }
 

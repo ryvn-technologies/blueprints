@@ -311,6 +311,18 @@ variable "create_cloudwatch_log_group" {
   description = "Whether to create a new CloudWatch log group for EKS cluster logging"
 }
 
+variable "enabled_log_types" {
+  type        = list(string)
+  default     = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  nullable    = false
+  description = "EKS control-plane log types exported to CloudWatch. Configure per environment; omitting audit stops future Kubernetes audit export without deleting existing logs."
+
+  validation {
+    condition     = alltrue([for log_type in var.enabled_log_types : contains(["api", "audit", "authenticator", "controllerManager", "scheduler"], log_type)])
+    error_message = "enabled_log_types may contain only api, audit, authenticator, controllerManager, and scheduler."
+  }
+}
+
 variable "terraform_executor_policies" {
   description = "IAM policy statements for the Ryvn Agent role. When set, they replace the default policy outright and nothing is added on top, so they must include every permission the installed services need (including IAM actions for blueprints that create roles or policies). Each policy statement should include Effect, Action, and Resource."
   type = list(object({

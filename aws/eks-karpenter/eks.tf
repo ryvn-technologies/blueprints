@@ -261,7 +261,7 @@ module "eks" {
   eks_managed_node_groups = local.eks_managed_node_groups
 
   create_cloudwatch_log_group = var.create_cloudwatch_log_group
-  enabled_log_types           = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  enabled_log_types           = var.enabled_log_types
 
   tags = local.tags
 }
