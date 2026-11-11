@@ -1,9 +1,9 @@
 # ryvn-init (AWS)
 
 Bootstraps Ryvn components on an EKS cluster from a CodeBuild run inside the
-cluster's VPC. Today that is Cilium. The apply starts the build and waits for
-it, so Terraform itself never calls the cluster's Kubernetes API and the API
-endpoint can stay private.
+cluster's VPC. Today that is Cilium and the Ryvn agent. The apply starts the
+build and waits for it, so Terraform itself never calls the cluster's
+Kubernetes API and the API endpoint can stay private.
 
 ## Switching an existing cluster
 
@@ -14,6 +14,17 @@ node reach each other over the VPC. The node being moved carries the label
 `networking.ryvn.app/see-you-on-cilium=true`. The run stops before
 `migration_timeout_seconds` runs out, and the next apply continues. A node whose
 pods can't be moved stops the run and stays cordoned on the VPC CNI.
+
+## Ryvn agent
+
+With `ryvn_agent` set, a run installs the `ryvn-agent` release in
+`ryvn-system` after Cilium, together with the access RBAC the agent can't grant
+itself. It only installs: once the release is deployed, or Ryvn manages it,
+runs leave it alone and Ryvn upgrades the agent like any other installation.
+The next run finishes a first install that failed or stopped midway.
+
+`ryvn-init` doesn't create the agent's credentials Secret yet, so the agent
+only starts once that Secret exists.
 
 ## Results, retries and repair
 
@@ -63,7 +74,8 @@ aws codebuild start-build --project-name ryvn-init-<environment_name> \
 | `cluster_name` / `cluster_endpoint` / `cluster_certificate_authority_data` | Cluster to bootstrap | required |
 | `cluster_security_group_id` | Security group on the cluster's API endpoint | required |
 | `vpc_id` / `subnet_ids` | Where the build runs | required |
-| `cilium` | `chart_version`, `values`, optional `repair` and `restart_pods_blocked_by_disruption_budgets` | required |
+| `cilium` | `chart_version`, `values`, optional `repair` and `restart_pods_blocked_by_disruption_budgets` | `null`, which skips Cilium |
+| `ryvn_agent` | Agent chart `repository` URL, `chart` name, `chart_version` and `values` | `null`, which skips the agent |
 | `image` | ryvn-init image | required |
 | `timeout_seconds` | Deadline for installing Cilium | `780` |
 | `migration_timeout_seconds` | Extra time to move nodes from the VPC CNI to Cilium | `10800` |

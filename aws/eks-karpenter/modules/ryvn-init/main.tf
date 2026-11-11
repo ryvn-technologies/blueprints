@@ -21,35 +21,49 @@ locals {
   result_succeeded = "succeeded"
 
   queued_timeout_minutes = 5
-  # ryvn-init adds Hubble Relay last, with its own time limit (addHubbleRelayTimeout).
-  add_hubble_relay_timeout_minutes = 10
-  # Headroom for CodeBuild to start an instance and pull the image.
-  build_timeout_minutes = ceil((var.timeout_seconds + var.migration_timeout_seconds) / 60) + local.add_hubble_relay_timeout_minutes + 5
+  # Just past ryvn-init's own limits: Cilium's plus 10 for Hubble Relay, 10 for ryvn-agent, 5 to start.
+  build_timeout_minutes = 5 + (var.ryvn_agent == null ? 0 : 10) + (
+    var.cilium == null ? 0 : ceil((var.timeout_seconds + var.migration_timeout_seconds) / 60) + 10
+  )
 
   shared_subnet_ids = [for subnet in data.aws_subnet.codebuild : subnet.id if subnet.owner_id != local.account_id]
 
-  config_document = yamlencode({
-    timeout = "${var.timeout_seconds}s"
-    cluster = {
-      apiServerEndpoint        = var.cluster_endpoint
-      certificateAuthorityData = var.cluster_certificate_authority_data
-    }
-    cilium = merge(
-      {
-        install          = true
-        chartVersion     = var.cilium.chart_version
-        values           = var.cilium.values
-        repair           = var.cilium.repair
-        migrationTimeout = "${var.migration_timeout_seconds}s"
-      },
-      var.cilium.restart_pods_blocked_by_disruption_budgets ? { restartPodsBlockedByDisruptionBudgets = true } : {},
-    )
-    aws = {
-      region                      = local.region
-      eksClusterName              = var.cluster_name
-      bootstrapResultSsmParameter = local.result_parameter
-    }
-  })
+  # Steps that don't run are left out, not null, so existing clusters keep their document and don't rerun.
+  config_document = yamlencode(merge(
+    {
+      timeout = "${var.timeout_seconds}s"
+      cluster = {
+        apiServerEndpoint        = var.cluster_endpoint
+        certificateAuthorityData = var.cluster_certificate_authority_data
+      }
+      aws = {
+        region                      = local.region
+        eksClusterName              = var.cluster_name
+        bootstrapResultSsmParameter = local.result_parameter
+      }
+    },
+    var.cilium == null ? {} : {
+      cilium = merge(
+        {
+          install          = true
+          chartVersion     = var.cilium.chart_version
+          values           = var.cilium.values
+          repair           = var.cilium.repair
+          migrationTimeout = "${var.migration_timeout_seconds}s"
+        },
+        var.cilium.restart_pods_blocked_by_disruption_budgets ? { restartPodsBlockedByDisruptionBudgets = true } : {},
+      )
+    },
+    var.ryvn_agent == null ? {} : {
+      ryvnAgent = {
+        install      = true
+        repository   = var.ryvn_agent.repository
+        chart        = var.ryvn_agent.chart
+        chartVersion = var.ryvn_agent.chart_version
+        values       = var.ryvn_agent.values
+      }
+    },
+  ))
 }
 
 resource "aws_iam_role" "codebuild_service" {
