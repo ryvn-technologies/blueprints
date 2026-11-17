@@ -13,6 +13,10 @@ import (
 //go:embed provisioner-role.json
 var provisionerRoleJSON []byte
 
+// PermissionsVersion tracks the role's actions, data actions and exclusions.
+// Bump it when those grants change and pin the new SHA-256 in TestPermissionsVersion.
+const PermissionsVersion = "1"
+
 // RoleName is the base of the custom role's display name (`roleName`) in the
 // customer subscription. Custom role names are unique per Entra tenant, so
 // the orchestrator suffixes it with the subscription ID's leading GUID group

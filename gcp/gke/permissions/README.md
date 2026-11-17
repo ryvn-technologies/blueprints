@@ -8,6 +8,17 @@ environment with this module. The counterpart for AWS lives in
 |------|---------|
 | `provisioner-role.yaml` | Custom role for `ryvn-provisioner@<project>`, replacing `roles/owner` |
 
+## Permission versions
+
+`PermissionsVersion` in `permissions.go` versions the custom permission list and
+the predefined role grants. `TestPermissionsVersion` pins the SHA-256 of their
+JSON encoding next to each version. When grants change, increment the version
+and append its hash; keep earlier version/hash pairs unchanged.
+
+Workload OIDC setup creates or updates `<prefix>Prov<id8>Apply` and writes
+`[accessIdentityId=<uuid>] [permissionsVersion=<v>]` to that environment's custom
+role description on creation and every rerun.
+
 ## Identity model
 
 Ryvn never holds a key for the customer project. The control plane's AWS role

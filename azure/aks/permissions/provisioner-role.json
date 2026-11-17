@@ -1,6 +1,6 @@
 {
   "roleName": "ryvn-aks-provision",
-  "description": "Provisions and deprovisions Ryvn AKS environments: resource group, VNet, Application Gateway ingress, DNS zones, AKS, control-plane logging, managed identities and their role assignments.",
+  "description": "Provisions and deprovisions AKS environments: resource group, VNet, Application Gateway ingress, DNS zones, AKS, control-plane logging, managed identities and their role assignments.",
   "assignableScopes": [
     "/subscriptions/<subscriptionId>"
   ],

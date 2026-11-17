@@ -9,6 +9,18 @@ environment with this module. The counterparts live in
 | `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (91 actions, including explicit Application Gateway ingress, managed egress and control-plane logging permissions). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
 | `permissions.go` | Embeds the role so the orchestrator can serve it (same layout as `infra/gke-provision/permissions`) |
 
+## Permission versions
+
+`PermissionsVersion` in `permissions.go` versions the role's permission content.
+`TestPermissionsVersion` pins the SHA-256 of the JSON-encoded `permissions` array,
+including actions, data actions and exclusions, next to each version. When grants
+change, increment the version and append its hash; keep earlier version/hash
+pairs unchanged.
+
+Workload OIDC setup creates or updates `<prefix>-provisioner-<id8>-apply` and writes
+`[accessIdentityId=<uuid>] [permissionsVersion=<v>]` to that environment's custom
+role description on creation and every rerun.
+
 ## Identity model
 
 The role is granted at subscription scope to one principal per subscription:

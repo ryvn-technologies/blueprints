@@ -14,6 +14,10 @@ import (
 //go:embed provisioner-role.yaml
 var provisionerRoleYAML []byte
 
+// PermissionsVersion tracks the custom permissions and predefined role grants.
+// Bump it when those grants change and pin the new SHA-256 in TestPermissionsVersion.
+const PermissionsVersion = "1"
+
 // RoleID is the custom role's ID in the customer project (projects/<p>/roles/<RoleID>).
 const RoleID = "ryvnProvisioner"
 

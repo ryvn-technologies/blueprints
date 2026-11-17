@@ -1,10 +1,38 @@
 package permissions
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func TestPermissionsVersion(t *testing.T) {
+	role, err := ProvisionerRole()
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := json.Marshal(struct {
+		Custom     []string `json:"custom"`
+		Predefined []string `json:"predefined"`
+	}{role.IncludedPermissions, PredefinedRoles})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep previous versions pinned; append a version/hash when the grants change.
+	hashes := map[string]string{
+		"1": "eee778e4b997fe10fe2c0f777ddbd2398c347b60b77877dcfdd2c05e4ecb75e5",
+	}
+	want, ok := hashes[PermissionsVersion]
+	if !ok {
+		t.Fatalf("pin the permission SHA-256 for PermissionsVersion %q", PermissionsVersion)
+	}
+	if got := fmt.Sprintf("%x", sha256.Sum256(content)); got != want {
+		t.Fatalf("permission SHA-256 = %s, want %s for version %s; bump PermissionsVersion and add its hash when grants change", got, want, PermissionsVersion)
+	}
+}
 
 func TestProvisionerRoleParses(t *testing.T) {
 	role, err := ProvisionerRole()

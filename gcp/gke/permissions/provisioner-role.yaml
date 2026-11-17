@@ -16,7 +16,7 @@
 # state additions are source-reviewed only, not least-privilege live validated.
 # Per-permission evidence and validation limits are in README.md.
 title: Ryvn Provisioner
-description: Provision, update and deprovision a Ryvn GKE environment (infra/gke-provision). Pair with roles/container.admin.
+description: Provision, update and deprovision a GKE environment. Pair with roles/container.admin.
 stage: GA
 includedPermissions:
   # Project and API enablement
