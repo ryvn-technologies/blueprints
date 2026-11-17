@@ -29,6 +29,8 @@ spec:
 
     `strict` denies pod traffic until policies are reconciled; the default `standard` mode allows traffic in the window before reconciliation, which weakens a default-deny containment guarantee.
 
+    Run sandboxes in an `isolated` namespace with [Ryvn network policy](https://ryvn.ai/docs/networking/network-policy#namespace-posture) to block their access to cluster DNS, the Kubernetes API, and workload identity.
+
     An optional warm capacity reserve keeps spare node capacity provisioned ahead of demand, so a burst of new sandboxes lands on nodes that already exist. It is a Karpenter CapacityBuffer: a fixed number of virtual placeholder slots take part in scheduling, and as real sandboxes consume the headroom the reserve is refilled. Requires Karpenter 1.14 or later with the `CapacityBuffer` feature gate enabled on the cluster's Karpenter controller (the `capacityBuffers` input of the AWS platform blueprint). The feature is alpha upstream.
   displayName: Sandbox Runtime
   inputGroups:
