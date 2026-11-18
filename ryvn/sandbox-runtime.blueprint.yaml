@@ -13,23 +13,7 @@ spec:
 
     The node pool is tainted and the RuntimeClass carries the matching node selector and toleration, so sandbox pods land only on gVisor nodes and nothing else lands there. Nodes run AL2023 (gVisor does not run on Bottlerocket or on managed-node auto modes) and install a checksum-pinned gVisor release during boot through a systemd unit that the kubelet's own startup unit requires, so a node that fails to install the runtime never joins the cluster and is replaced instead. Consolidation is deliberately conservative so idle-node reclamation does not discard the sandbox image cache. The AMI is pinned to a specific AL2023 release rather than tracking the latest one, because an AMI change drifts the whole pool and draining a sandbox node ends the sandboxes running on it; a sandbox that must survive pool maintenance should carry the `karpenter.sh/do-not-disrupt: "true"` annotation.
 
-    Network isolation is a separate, cluster-level setting and is not part of this blueprint. To enforce NetworkPolicy (required for default-deny sandbox egress), add to the environment config:
-
-    ```yaml
-    config:
-      cluster_addons:
-        vpc-cni:
-          configuration_values: |
-            enableNetworkPolicy: "true"
-            nodeAgent:
-              enablePolicyEventLogs: "true"
-            env:
-              NETWORK_POLICY_ENFORCING_MODE: "strict"
-    ```
-
-    `strict` denies pod traffic until policies are reconciled; the default `standard` mode allows traffic in the window before reconciliation, which weakens a default-deny containment guarantee.
-
-    Run sandboxes in an `isolated` namespace with [Ryvn network policy](https://ryvn.ai/docs/networking/network-policy#namespace-posture) to block their access to cluster DNS, the Kubernetes API, and workload identity.
+    Network isolation is not part of this blueprint. Run sandboxes in an `isolated` namespace with [Ryvn network policy](https://ryvn.ai/docs/networking/network-policy#namespace-posture) to block their access to cluster DNS, the Kubernetes API, and workload identity. Add network policies to allow the destinations that sandboxes need.
 
     An optional warm capacity reserve keeps spare node capacity provisioned ahead of demand, so a burst of new sandboxes lands on nodes that already exist. It is a Karpenter CapacityBuffer: a fixed number of virtual placeholder slots take part in scheduling, and as real sandboxes consume the headroom the reserve is refilled. Requires Karpenter 1.14 or later with the `CapacityBuffer` feature gate enabled on the cluster's Karpenter controller (the `capacityBuffers` input of the AWS platform blueprint). The feature is alpha upstream.
   displayName: Sandbox Runtime
