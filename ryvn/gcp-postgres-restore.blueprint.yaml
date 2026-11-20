@@ -119,7 +119,9 @@ spec:
         - key: PROJECT_ID
           value: '{{ .ryvn.env.provider.gcp.projectId }}'
         - key: EVIDENCE_BUCKET_NAME
-          value: '{{ (blueprintInstallation "evidence").outputs.bucketName }}'
+          valueFromOutput:
+            blueprintInstallation: evidence
+            name: bucketName
       config: |
         concurrencyPolicy: Forbid
         # A retry would start a second restore.
