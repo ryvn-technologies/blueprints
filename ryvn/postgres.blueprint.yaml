@@ -238,6 +238,11 @@ spec:
       from: '{{ (serviceInstallation "postgres").outputs.database_name }}'
       description: Name of the created database.
       displayName: Database Name
+    - name: instanceName
+      type: string
+      from: '{{ (serviceInstallation "postgres").outputs.name }}'
+      description: Cloud resource name of the database instance or server, for backup, restore, and IAM tooling.
+      displayName: Instance Name
     - name: username
       type: string
       from: '{{ (serviceInstallation "postgres").outputs.username }}'

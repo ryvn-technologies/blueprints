@@ -1,0 +1,139 @@
+# yaml-language-server: $schema=https://api.ryvn.app/v1/schemas/resources.json
+kind: Blueprint
+metadata:
+  name: gcp-postgres-restore
+spec:
+  description: |
+    Manual point-in-time restore of a Cloud SQL for PostgreSQL instance. Each run restores the source instance into a new instance, `<source>-restore-<random>`, at `restoreTime` (or the latest recoverable time), checks it through the Cloud SQL API, and writes a JSON record of the run to a versioned evidence bucket the job can only add to. The restored instance is left running; each record holds the command to delete it.
+
+    The job holds Cloud SQL admin only until `accessUntil`, so it has no standing access to the source. Set it before each run.
+
+    Runs start only from Run Now on the job. GCP only; on other providers nothing is created.
+  displayName: GCP Postgres Restore
+  inputGroups:
+    - name: source
+      description: The instance to restore and what the restored instance must contain
+      displayName: Source
+    - name: run
+      description: Settings for the next run. Set accessUntil before each run; leave restoreTime empty for a restore to the latest point.
+      displayName: Run
+  inputs:
+    - name: sourceInstance
+      type: string
+      displayName: Source Instance
+      description: Name of the Cloud SQL for PostgreSQL instance to restore, in this environment's project. Source it from a postgres installation's `instanceName` output.
+      group: source
+    - name: checkDatabases
+      type: string
+      default: ""
+      displayName: Databases to Check
+      description: Comma-separated databases that must exist on the restored instance. Empty skips the check.
+      group: source
+    - name: restoreTime
+      type: string
+      default: ""
+      displayName: Restore Time
+      description: RFC 3339 time in UTC (ending in Z) to restore to, for example 2026-01-01T12:00:00Z. Empty means the latest recoverable time.
+      group: run
+    - name: accessUntil
+      type: string
+      default: ""
+      displayName: Access Until
+      description: RFC 3339 time in UTC (ending in Z) until which the job may start a restore, for example 2026-01-01T15:00:00Z. Until then it holds Cloud SQL admin on the source; empty means no admin access, and runs stop before restoring. Set it about 2 hours after the deploy that opens a run, since the job only needs access to start the restore, and clear it afterwards.
+      group: run
+  outputs:
+    - name: evidenceBucketName
+      type: string
+      from: '{{ if eq EnvironmentProviderType "gcp" }}{{ (blueprintInstallation "evidence").outputs.bucketName }}{{ end }}'
+      description: Bucket holding one JSON record per run under `runs/`.
+      displayName: Evidence Bucket
+  installations:
+    - blueprint: bucket
+      name: '{{ ParentInstallationName }}-evidence'
+      alias: evidence
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      inputs:
+        - name: bucketName
+          value: postgres-restore-evidence
+        - name: versioning
+          value: true
+        - name: deletionProtection
+          value: true
+    # Cloud SQL admin is limited by name to the source instance and the
+    # instances restored from it (<source>-restore-<random>), so an instance
+    # whose name only starts with the source's is not covered, and in time to
+    # before accessUntil. With accessUntil empty there is no admin binding.
+    # Only the clone request needs admin: Cloud SQL finishes the operation
+    # after access lapses, and the checks use viewer. Viewer is project-wide
+    # because operation polling is not scoped to an instance.
+    # The evidence grant is create-only, so the job can never change or delete
+    # a record.
+    - service: gcp-workload-identity
+      name: '{{ ParentInstallationName }}-access'
+      alias: access
+      provisionsInfrastructure: true
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      config: |
+        project_id: '{{ .ryvn.env.provider.gcp.projectId }}'
+        name_prefix: '{{ ParentInstallationName }}'
+        environment: '{{ .ryvn.env.name }}'
+        role_groups:
+          restore:
+            associations:
+              job:
+                namespace: compliance
+                service_account: '{{ ParentInstallationName }}'
+            buckets:
+              evidence:
+                name: '{{ (blueprintInstallation "evidence").outputs.bucketName }}'
+                role: roles/storage.objectCreator
+            project_roles:
+              {{- if input "accessUntil" }}
+              instances:
+                role: roles/cloudsql.admin
+                condition:
+                  title: postgres-restore
+                  description: Source instance and the instances restored from it, until accessUntil
+                  expression: >-
+                    request.time < timestamp({{ input "accessUntil" | toJson }})
+                    && (resource.name == "projects/{{ .ryvn.env.provider.gcp.projectId }}/instances/{{ input "sourceInstance" }}"
+                    || resource.name.startsWith("projects/{{ .ryvn.env.provider.gcp.projectId }}/instances/{{ input "sourceInstance" }}-restore-"))
+              {{- end }}
+              operations:
+                role: roles/cloudsql.viewer
+    # The ryvn/postgres-restore image holds the job's script.
+    - service: postgres-restore
+      name: '{{ ParentInstallationName }}'
+      alias: job
+      namespace: compliance
+      condition: '{{ eq EnvironmentProviderType "gcp" }}'
+      env:
+        - key: RESTORE_TIME
+          value: '{{ input "restoreTime" }}'
+        - key: ACCESS_UNTIL
+          value: '{{ input "accessUntil" }}'
+        - key: DATABASES
+          value: '{{ input "checkDatabases" }}'
+        - key: SOURCE_INSTANCE
+          value: '{{ input "sourceInstance" }}'
+        - key: PROJECT_ID
+          value: '{{ .ryvn.env.provider.gcp.projectId }}'
+        - key: EVIDENCE_BUCKET_NAME
+          value: '{{ (blueprintInstallation "evidence").outputs.bucketName }}'
+      config: |
+        concurrencyPolicy: Forbid
+        # A retry would start a second restore.
+        backoffLimit: 0
+        # Under the hour after which the server fails a task with no update.
+        activeDeadlineSeconds: 3300
+        successfulJobsHistoryLimit: 5
+        failedJobsHistoryLimit: 5
+        ttlSecondsAfterFinished: 604800
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+  distribution: marketplace-unmanaged
