@@ -34,13 +34,37 @@ variable "subnet_ids" {
 }
 
 variable "cilium" {
-  description = "Cilium chart version and Helm values to install. repair = true reinstalls them even when Ryvn manages the release. restart_pods_blocked_by_disruption_budgets = true deletes pods whose PodDisruptionBudgets never allow evicting them instead of failing, which takes their workloads down."
+  description = "Cilium chart version and Helm values to install, or null to skip Cilium. repair = true reinstalls them even when Ryvn manages the release. restart_pods_blocked_by_disruption_budgets = true deletes pods whose PodDisruptionBudgets never allow evicting them instead of failing, which takes their workloads down."
   type = object({
     chart_version                              = string
     values                                     = any
     repair                                     = optional(bool, false)
     restart_pods_blocked_by_disruption_budgets = optional(bool, false)
   })
+  default = null
+}
+
+variable "ryvn_agent" {
+  description = "Installs ryvn-agent from inside the VPC, or null to skip it. A new token_version writes ryvn_agent_bootstrap_token to SSM. values are added to the agent bundle's."
+  type = object({
+    hub_url       = string
+    token_version = number
+    values        = any
+  })
+  default = null
+}
+
+variable "ryvn_agent_bootstrap_token" {
+  description = "Single-use token ryvn-init fetches the agent bundle with."
+  type        = string
+  default     = null
+  sensitive   = true
+  ephemeral   = true
+}
+
+variable "executor_principal_arn" {
+  description = "IAM role or user running Terraform. It writes the token, so the token's KMS key allows it."
+  type        = string
 }
 
 variable "image" {

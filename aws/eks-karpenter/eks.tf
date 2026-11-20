@@ -194,12 +194,13 @@ module "eks" {
   # The public endpoint stays reachable from the static egress addresses of the
   # provisioner that provisions this environment, so it can install and
   # reconcile the agent, plus whatever the caller allows. Everything else is
-  # denied.
-  endpoint_public_access = true
-  endpoint_public_access_cidrs = concat(
+  # denied. Once ryvn-init installs the agent, nothing outside the VPC needs it.
+  endpoint_public_access = var.ryvn_agent_bootstrap == null
+  # The EKS module passes these on even with the endpoint off.
+  endpoint_public_access_cidrs = var.ryvn_agent_bootstrap == null ? concat(
     var.cluster_endpoint_public_access_cidrs,
     var.provisioner_egress_cidrs
-  )
+  ) : []
   enable_irsa = true
 
   # Configure executor maintenance access merged with additional access entries
