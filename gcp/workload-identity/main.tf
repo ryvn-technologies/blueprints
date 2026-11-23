@@ -2,7 +2,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 6.0"
+      version = "~> 8.12"
     }
   }
   # optional() attribute defaults on the role_groups variable need 1.3+.
