@@ -135,7 +135,7 @@ GRANT app_read_write TO "app-runtime@my-project.iam";
 
 Use the SQL username from `iam_database_users["app"].username`, quoting email-shaped identifiers. A group account can receive SQL grants and pass them to its members. This module does not grant `cloudsqlsuperuser` to IAM accounts. The caller can manage custom roles and grants through SQL migrations or the PostgreSQL Terraform provider.
 
-The module retains Google provider `~> 6.0`. That provider version does not support `google_sql_user.database_roles`; examples using the newer field require a provider upgrade. See [database privileges](https://cloud.google.com/sql/docs/postgres/add-manage-iam-users#granting_database_privileges) and the [6.x user resource](https://github.com/hashicorp/terraform-provider-google/blob/v6.50.0/website/docs/r/sql_user.html.markdown).
+The module uses Google provider `~> 8.12` (which supports `google_sql_user.database_roles`), though this module does not expose `database_roles` directly—callers manage custom SQL role grants through SQL migrations or the PostgreSQL Terraform provider. See [database privileges](https://cloud.google.com/sql/docs/postgres/add-manage-iam-users#granting_database_privileges) and the [`google_sql_user` resource documentation](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_user).
 
 ### Authenticate database connections
 
