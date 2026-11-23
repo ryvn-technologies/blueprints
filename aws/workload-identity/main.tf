@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = ">= 6.57.1, < 7.0.0"
     }
   }
   # optional() attribute defaults on the role_groups variable need 1.3+.

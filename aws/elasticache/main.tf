@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = ">= 6.57.1, < 7.0.0"
     }
     random = {
       source  = "hashicorp/random"
@@ -109,8 +109,9 @@ resource "aws_elasticache_replication_group" "this" {
   kms_key_id                 = local.kms_key_id
 
   # Authentication
-  auth_token     = local.auth_token
-  user_group_ids = var.iam_authentication_enabled ? [aws_elasticache_user_group.this[0].id] : null
+  auth_token                 = local.auth_token
+  auth_token_update_strategy = local.auth_token != null ? "ROTATE" : null
+  user_group_ids             = var.iam_authentication_enabled ? [aws_elasticache_user_group.this[0].id] : null
 
   # Maintenance & Snapshots
   maintenance_window       = var.maintenance_window
