@@ -3,6 +3,13 @@ variable "environment_name" {
   description = "Environment name to be used as a suffix"
 }
 
+variable "runner_name_prefix" {
+  description = "Prefix for new runner resource names. The AWS platform blueprint supplies the managing hub's cloudResourcePrefix."
+  type        = string
+  default     = "ryvn"
+  nullable    = false
+}
+
 variable "region" {
   type        = string
   default     = "us-east-1"

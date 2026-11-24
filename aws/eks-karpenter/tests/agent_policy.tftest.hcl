@@ -92,3 +92,23 @@ run "executor_policies_are_the_entire_policy" {
     error_message = "Caller-supplied executor policies replace the default outright; nothing (including IAM role management) is added on top."
   }
 }
+
+run "standalone_platform_runner_contract" {
+  command = plan
+
+  override_module {
+    target          = module.runner
+    override_during = plan
+    outputs         = { launch_template_id = "lt-00000000000000001" }
+  }
+
+  assert {
+    condition     = var.runner_name_prefix == "ryvn"
+    error_message = "Standalone installs must use the default runner name prefix."
+  }
+
+  assert {
+    condition     = output.runner_launch_template_id == "lt-00000000000000001"
+    error_message = "The platform must publish the runner launch template ID for task execution."
+  }
+}

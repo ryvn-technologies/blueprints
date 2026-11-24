@@ -467,6 +467,100 @@
               "Version": "2012-10-17",
               "Statement": [
                 {
+                  "Sid": "NodeGroupLaunchTemplateAuthorization",
+                  "Effect": "Allow",
+                  "Action": "ec2:RunInstances",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                  },
+                  "Condition": {
+                    "ArnLike": {
+                      "ec2:LaunchTemplate": {
+                        "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:launch-template/*"
+                      }
+                    },
+                    "Null": {
+                      "ec2:InstanceProfile": "true"
+                    }
+                  }
+                },
+                {
+                  "Sid": "LaunchRunner",
+                  "Effect": "Allow",
+                  "Action": "ec2:RunInstances",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                  },
+                  "Condition": {
+                    "ArnLike": {
+                      "ec2:InstanceProfile": {
+                        "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/cluster-bootstrap/runner/*"
+                      },
+                      "ec2:LaunchTemplate": {
+                        "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:launch-template/*"
+                      }
+                    },
+                    "Null": {
+                      "aws:RequestTag/ryvn-runner-environment": "false"
+                    },
+                    "StringEquals": {
+                      "ec2:MetadataHttpTokens": "required"
+                    }
+                  }
+                },
+                {
+                  "Sid": "LaunchRunnerResources",
+                  "Effect": "Allow",
+                  "Action": "ec2:RunInstances",
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}::image/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:launch-template/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/*"
+                    }
+                  ],
+                  "Condition": {
+                    "ArnLike": {
+                      "ec2:LaunchTemplate": {
+                        "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:launch-template/*"
+                      }
+                    },
+                    "ArnEqualsIfExists": {
+                      "ec2:Vpc": {
+                        "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:vpc/${VpcId}"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "TerminateRunner",
+                  "Effect": "Allow",
+                  "Action": "ec2:TerminateInstances",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                  },
+                  "Condition": {
+                    "ArnLike": {
+                      "ec2:InstanceProfile": {
+                        "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/cluster-bootstrap/runner/*"
+                      }
+                    }
+                  }
+                },
+                {
                   "Sid": "Ec2ComputeAndDescribe",
                   "Effect": "Allow",
                   "Action": [
