@@ -33,6 +33,9 @@ knobs those docs expose.
   (when `cni = "cilium"`). Every role can carry a permissions boundary.
 - **DNS**: a public and a private Route 53 zone, with a CAA record on the
   public zone.
+- **Agent runner resources** include a launch template for a short-lived EC2 instance in your VPC.
+  The runner uses Kubernetes cluster-admin access to install or repair the Ryvn agent.
+  Ryvn deletes the runner when the task ends.
 
 ## Control-plane logging
 

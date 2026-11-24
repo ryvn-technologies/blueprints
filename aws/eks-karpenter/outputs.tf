@@ -206,3 +206,8 @@ output "addons" {
     }
   }
 }
+
+output "runner_launch_template_id" {
+  description = "EC2 launch template ID for in-network task runners."
+  value       = module.runner.launch_template_id
+}
