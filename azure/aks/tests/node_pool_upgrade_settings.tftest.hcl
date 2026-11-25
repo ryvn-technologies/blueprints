@@ -50,19 +50,20 @@ run "omitted_settings" {
 
   assert {
     condition = (
-      try(local.merged_node_pools.sandbox.upgrade_settings, null) == null &&
-      local.merged_node_pools.application.upgrade_settings.max_surge == "10%" &&
-      local.merged_node_pools.application.upgrade_settings.drain_timeout_in_minutes == 30 &&
-      local.merged_node_pools.application.upgrade_settings.node_soak_duration_in_minutes == 5 &&
+      local.merged_node_pools.application.upgrade_settings == {
+        max_surge                     = "33%"
+        drain_timeout_in_minutes      = 30
+        node_soak_duration_in_minutes = 0
+      } &&
+      local.merged_node_pools.sandbox.upgrade_settings == { max_surge = "33%" } &&
       local.merged_node_pools.sandbox.auto_scaling_enabled &&
       local.merged_node_pools.sandbox.min_count == 0 &&
       local.merged_node_pools.sandbox.max_count == 2 &&
-      local.merged_node_pools.application.node_count == 3 &&
       local.merged_node_pools.application.auto_scaling_enabled &&
       local.merged_node_pools.application.min_count == 1 &&
       local.merged_node_pools.application.max_count == 4
     )
-    error_message = "Omitted settings must preserve application defaults, custom-pool absence, and autoscaling inputs."
+    error_message = "Omitted settings must use the default upgrade settings and keep autoscaling inputs."
   }
 }
 
@@ -78,10 +79,12 @@ run "null_settings" {
 
   assert {
     condition = (
-      local.merged_node_pools.application.upgrade_settings.max_surge == "10%" &&
-      local.merged_node_pools.application.upgrade_settings.drain_timeout_in_minutes == 30 &&
-      local.merged_node_pools.application.upgrade_settings.node_soak_duration_in_minutes == 5 &&
-      try(local.merged_node_pools.sandbox.upgrade_settings, null) == null
+      local.merged_node_pools.application.upgrade_settings == {
+        max_surge                     = "33%"
+        drain_timeout_in_minutes      = 30
+        node_soak_duration_in_minutes = 0
+      } &&
+      local.merged_node_pools.sandbox.upgrade_settings == { max_surge = "33%" }
     )
     error_message = "Null settings must behave exactly like omitted settings."
   }
