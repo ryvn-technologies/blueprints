@@ -57,20 +57,21 @@ absence of alternate egress before claiming fallback protection after route loss
 Do not manually stop managed VMSS instances as a substitute for an AKS migration
 plan. [Azure behavior](https://learn.microsoft.com/en-us/azure/virtual-network/ip-services/default-outbound-access).
 
-An autoscaled pool's current count can differ from the module's `node_count`
-default. To avoid unrelated downsizing during migration, set that pool's
-`aks_node_pools.<pool>.node_count` to its current count while preserving its
-`min_count` and `max_count` bounds. Recheck the live count before approval: this
-field remains Terraform-managed and does not ignore later autoscaler changes.
+Terraform does not manage the live count of autoscaled pools, so the migration
+plan does not resize them; `aks_node_pools.<pool>.node_count` has no effect.
+Preserve each pool's `min_count` and `max_count` bounds.
 
 For additional pools, preserve intended live upgrade settings explicitly with
 `aks_node_pools.<pool>.upgrade_settings` when the migration plan would otherwise
 remove them. For example, a synthetic pool may use
 `example_pool.upgrade_settings: { max_surge: "10%" }`. This is an environment-specific
-opt-in; omitted/null settings retain the module's previous behavior. An explicit
-block is a complete override with exactly one `max_surge` or `max_unavailable`
-strategy; omitted optional fields use the provider defaults described in the
-root README. `system.upgrade_settings` is unsupported and rejected.
+opt-in; omitted/null settings use the module defaults: 33% surge, 30-minute
+drain and no soak for `application`, and 33% surge only for custom pools. An
+explicit block is a complete override with exactly one `max_surge` or
+`max_unavailable` strategy; omitted optional fields use the provider defaults
+described in the root README. A surge-only override of `application` unsets its
+drain timeout and replaces that pool, so overrides of `application` should keep
+`drain_timeout_in_minutes`. `system.upgrade_settings` is unsupported and rejected.
 
 Do not equate a no-op plan on the fresh fixture with an existing-environment
 upgrade test.
