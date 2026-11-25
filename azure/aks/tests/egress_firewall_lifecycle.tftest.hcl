@@ -68,6 +68,9 @@ mock_provider "azurerm" {
     target = module.egress_firewall[0].azurerm_firewall_policy.base
     values = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.Network/firewallPolicies/afwp-base" }
   }
+  mock_resource "azurerm_kubernetes_cluster_node_pool" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.ContainerService/managedClusters/aks/agentPools/pool" }
+  }
   mock_resource "azurerm_kubernetes_cluster" {
     defaults = {
       oidc_issuer_url        = "https://eastus2.oic.prod-aks.azure.com/00000000-0000-0000-0000-000000000004/00000000-0000-0000-0000-000000000006/"
