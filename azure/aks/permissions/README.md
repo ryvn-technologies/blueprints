@@ -195,9 +195,9 @@ boundary against a compromised hub. Levers, cheapest first:
 
 ## Customer-side one-time setup
 
-The orchestrator renders a setup script from this role for a subscription (Azure panel in
-the environment wizard, `GET .../environments/provisioning/azure-setup?subscriptionId=`,
-or `ryvn get azure-setup-script --subscription <id>`; template in
+The orchestrator renders a setup script from this role for an environment's saved
+subscription (Azure panel in the environment wizard, or
+`ryvn get setup-script -e <environment>`; template in
 `internal/provision/azure_setup.go`). It first registers the logging resource providers,
 then creates or updates the role, then either a managed identity with a federated
 credential (GCP-rooted hub) or a service principal (otherwise), and assigns the role at
@@ -284,7 +284,7 @@ The [egress runbook](../modules/egress-firewall/RUNBOOK.md) covers rollout.
    The release workflow includes this directory and requires
    `auto-release:ryvn-orchestrator` on the merged PR.
 2. Generate the updated setup script through the environment wizard, Azure setup API or
-   `ryvn get azure-setup-script` described above. The subscription owner runs the supported
+   `ryvn get setup-script` described above. The subscription owner runs the supported
    role-update flow before applying AppGW. Prefer the role-only commands under
    "Upgrading existing subscriptions" with the released JSON: the full client-secret
    setup path rotates the password and requires updating the saved connection.

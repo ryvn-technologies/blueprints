@@ -236,9 +236,9 @@ be provisioned ahead of that.
 
 ## Customer-side one-time setup
 
-The customer runs the setup script that the Ryvn API renders for their project
-(`GET /v1/orgs/{orgId}/environments/provisioning/gcp-setup?projectId=…`, shown in the dashboard
-and printed by `ryvn get gcp-setup-script`). It is rendered from `internal/provision/gcp_setup.go`
+The customer runs the setup script that the Ryvn API renders for their environment's saved
+project, shown in the dashboard and printed by `ryvn get setup-script -e <environment>`. It is
+rendered from `internal/provision/gcp_setup.go`
 with this directory's role and API lists. Whoever runs it needs, in the target project:
 `roles/serviceusage.serviceUsageAdmin` (enable APIs), `roles/iam.serviceAccountAdmin`
 (create `ryvn-provisioner` and bind on it), `roles/iam.roleAdmin` (create this custom role),
