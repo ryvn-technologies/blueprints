@@ -4,6 +4,10 @@ set -euo pipefail
 module_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 terraform -chdir="$module_dir" test -filter=tests/node_pool_upgrade_settings.tftest.hcl -verbose -json |
   jq -se '
+    ([.[] | select(.type == "test_run" and .test_run.status != null) | .test_run.status] | all(. == "pass")) as $passed |
+    ([.[] | select(.type == "test_state" and .["@testrun"] == "apply_system_behavior")][0].test_state.root_module.child_modules[] |
+      select(.address == "module.aks") | .resources[] |
+      select(.address == "module.aks.azurerm_kubernetes_cluster.main") | .values.default_node_pool[0]) as $applied_system |
     [.[] | select(.type == "test_plan" and (.["@testrun"] | startswith("reject_") | not)) |
       {key: .["@testrun"], value: .test_plan.resource_changes}] | from_entries as $plans |
     def pool_change($run; $name):
@@ -16,8 +20,11 @@ terraform -chdir="$module_dir" test -filter=tests/node_pool_upgrade_settings.tft
       .change | {after: .after.default_node_pool[0], after_unknown: .after_unknown.default_node_pool[0]};
     def settings($run; $name): pool($run; $name).upgrade_settings;
     def require($condition; $message): if $condition then . else error($message) end;
-    require(($plans | keys) == ["explicit_surge", "explicit_unavailable", "null_settings", "omitted_settings"];
-      "Expected all four resource plans") |
+    def changed($run): [$plans[$run][] | select(.change.actions != ["no-op"])];
+    require($passed; "A test run failed") |
+    require(($plans | keys) == ["explicit_surge", "explicit_unavailable", "null_settings", "omitted_settings",
+      "plan_same_system_behavior", "system_behavior"];
+      "Expected all six resource plans") |
     require(all(["omitted_settings", "null_settings"][];
       settings(.; "application") == [{
         max_surge: "33%", max_unavailable: null, drain_timeout_in_minutes: 30,
@@ -27,8 +34,23 @@ terraform -chdir="$module_dir" test -filter=tests/node_pool_upgrade_settings.tft
         node_soak_duration_in_minutes: null, undrainable_node_behavior: null}]);
       "Omitted/null settings did not use the default upgrade settings") |
     require(all(["omitted_settings", "null_settings"][];
-      system_pool(.).after.upgrade_settings[0].max_surge == "33%");
-      "System pool surge is not 33%") |
+      system_pool(.).after.upgrade_settings == [{
+        max_surge: "33%", drain_timeout_in_minutes: null, node_soak_duration_in_minutes: 0,
+        undrainable_node_behavior: null}]);
+      "Omitted/null system settings must plan 33% surge and no undrainable node behavior") |
+    require(system_pool("system_behavior").after.upgrade_settings == [{
+      max_surge: "33%", drain_timeout_in_minutes: null, node_soak_duration_in_minutes: 0,
+      undrainable_node_behavior: "Cordon"}];
+      "System undrainable node behavior was not passed through with 33% surge") |
+    require(settings("system_behavior"; "application")[0] == {
+      max_surge: "20%", max_unavailable: null, drain_timeout_in_minutes: 45,
+      node_soak_duration_in_minutes: 10, undrainable_node_behavior: "Cordon"};
+      "Application settings changed when the system behavior is set") |
+    require($applied_system.upgrade_settings[0].undrainable_node_behavior == "Cordon" and
+      $applied_system.upgrade_settings[0].max_surge == "33%";
+      "The applied system pool must keep the declared behavior and 33% surge") |
+    require(changed("plan_same_system_behavior") == [];
+      "The same system behavior must plan no changes") |
     require(system_pool("omitted_settings").after.node_count == null and
       system_pool("omitted_settings").after_unknown.node_count == true and
       all(["application", "sandbox"][];

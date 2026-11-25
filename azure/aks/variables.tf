@@ -253,8 +253,15 @@ variable "aks_node_pools" {
   default = {}
 
   validation {
-    condition     = try(var.aks_node_pools.system.upgrade_settings, null) == null
-    error_message = "aks_node_pools.system.upgrade_settings is not supported; upgrade_settings only applies to additional pools."
+    condition = try(var.aks_node_pools.system.upgrade_settings, null) == null ? true : (
+      var.aks_node_pools.system.upgrade_settings.max_surge == null &&
+      var.aks_node_pools.system.upgrade_settings.max_unavailable == null &&
+      var.aks_node_pools.system.upgrade_settings.drain_timeout_in_minutes == null &&
+      var.aks_node_pools.system.upgrade_settings.node_soak_duration_in_minutes == null &&
+      (var.aks_node_pools.system.upgrade_settings.undrainable_node_behavior == null ? false :
+      contains(["Cordon", "Schedule"], var.aks_node_pools.system.upgrade_settings.undrainable_node_behavior))
+    )
+    error_message = "aks_node_pools.system.upgrade_settings supports only undrainable_node_behavior, which must be \"Cordon\" or \"Schedule\"; leave max_surge, max_unavailable, drain_timeout_in_minutes and node_soak_duration_in_minutes null or omitted."
   }
 
   validation {

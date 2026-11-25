@@ -71,7 +71,12 @@ explicit block is a complete override with exactly one `max_surge` or
 `max_unavailable` strategy; omitted optional fields use the provider defaults
 described in the root README. A surge-only override of `application` unsets its
 drain timeout and replaces that pool, so overrides of `application` should keep
-`drain_timeout_in_minutes`. `system.upgrade_settings` is unsupported and rejected.
+`drain_timeout_in_minutes`. `system.upgrade_settings` accepts only
+`undrainable_node_behavior` (`Cordon` or `Schedule`). Once that field is set on
+any pool, do not remove it: removal replaces the cluster for `system` and the
+pool for other pools; switching between `Cordon` and `Schedule` is an update. If
+it was set outside Terraform, declare the live value before applying. Rolling
+back to a module version without the `system` input unsets it again.
 
 Do not equate a no-op plan on the fresh fixture with an existing-environment
 upgrade test.
