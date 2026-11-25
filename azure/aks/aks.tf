@@ -54,7 +54,8 @@ locals {
   # Baseline applied to every pool (named or custom) so user-defined pools
   # don't inherit provider defaults that conflict with min_count/max_count.
   # An explicit aks_node_pools upgrade_settings block replaces upgrade_settings
-  # as a whole; the system pool uses agents_pool_max_surge instead.
+  # as a whole; the system pool uses agents_pool_max_surge and
+  # agents_pool_undrainable_node_behavior instead.
   node_pool_baseline = {
     auto_scaling_enabled = true
     os_disk_size_gb      = 50
@@ -130,6 +131,8 @@ module "aks" {
   agents_size                 = local.merged_node_pools.system.vm_size
   agents_labels               = local.merged_node_pools.system.node_labels
   temporary_name_for_rotation = "tmpsystem"
+  # Read from var: merged_node_pools.system carries the baseline surge default.
+  agents_pool_undrainable_node_behavior = try(var.aks_node_pools.system.upgrade_settings.undrainable_node_behavior, null)
   agents_pool_linux_os_configs = [
     {
       transparent_huge_page_enabled = "always"

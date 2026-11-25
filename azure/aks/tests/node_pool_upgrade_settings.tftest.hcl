@@ -15,6 +15,58 @@ mock_provider "azurerm" {
       tenant_id       = "00000000-0000-0000-0000-000000000004"
     }
   }
+
+  # azurerm validates ID/scope shapes client-side, so computed IDs consumed by
+  # other resources need real shapes.
+  mock_resource "azurerm_resource_group" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg" }
+  }
+  mock_resource "azurerm_virtual_network" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet" }
+  }
+  mock_resource "azurerm_subnet" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet" }
+  }
+  mock_resource "azurerm_public_ip" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/pip" }
+  }
+  mock_resource "azurerm_route_table" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.Network/routeTables/rt" }
+  }
+  mock_resource "azurerm_dns_zone" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.Network/dnszones/zone" }
+  }
+  mock_resource "azurerm_private_dns_zone" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.Network/privateDnsZones/zone" }
+  }
+  mock_resource "azurerm_user_assigned_identity" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/uai" }
+  }
+  mock_resource "azurerm_log_analytics_workspace" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/law" }
+  }
+  mock_resource "azurerm_role_assignment" {
+    defaults = { condition_version = "" }
+  }
+  mock_resource "azurerm_kubernetes_cluster" {
+    defaults = {
+      oidc_issuer_url        = "https://oidc.example.invalid/00000000-0000-0000-0000-000000000006/"
+      node_resource_group    = "MC_rg_aks_eastus"
+      node_resource_group_id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/MC_rg_aks_eastus"
+      id                     = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.ContainerService/managedClusters/aks"
+      kube_config = [{
+        host                   = "https://aks.example.invalid:443"
+        username               = ""
+        password               = ""
+        client_certificate     = ""
+        client_key             = ""
+        cluster_ca_certificate = ""
+      }]
+    }
+  }
+  mock_resource "azurerm_kubernetes_cluster_node_pool" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000003/resourceGroups/rg/providers/Microsoft.ContainerService/managedClusters/aks/agentPools/pool" }
+  }
 }
 
 mock_provider "azapi" {}
@@ -72,6 +124,7 @@ run "null_settings" {
 
   variables {
     aks_node_pools = {
+      system      = { upgrade_settings = null }
       application = { upgrade_settings = null }
       sandbox     = { vm_size = "Standard_D4als_v7", upgrade_settings = null }
     }
@@ -106,6 +159,24 @@ run "explicit_surge" {
       sandbox = {
         vm_size          = "Standard_D4als_v7"
         upgrade_settings = { max_surge = "10%" }
+      }
+    }
+  }
+}
+
+run "system_behavior" {
+  command = plan
+
+  variables {
+    aks_node_pools = {
+      system = { upgrade_settings = { undrainable_node_behavior = "Cordon" } }
+      application = {
+        upgrade_settings = {
+          max_surge                     = "20%"
+          drain_timeout_in_minutes      = 45
+          node_soak_duration_in_minutes = 10
+          undrainable_node_behavior     = "Cordon"
+        }
       }
     }
   }
@@ -168,4 +239,81 @@ run "reject_system_settings" {
   }
 
   expect_failures = [var.aks_node_pools]
+}
+
+run "reject_system_empty_settings" {
+  command = plan
+
+  variables {
+    aks_node_pools = { system = { upgrade_settings = {} } }
+  }
+
+  expect_failures = [var.aks_node_pools]
+}
+
+run "reject_system_surge_with_behavior" {
+  command = plan
+
+  variables {
+    aks_node_pools = { system = { upgrade_settings = { max_surge = "10%", undrainable_node_behavior = "Cordon" } } }
+  }
+
+  expect_failures = [var.aks_node_pools]
+}
+
+run "reject_system_unavailable" {
+  command = plan
+
+  variables {
+    aks_node_pools = { system = { upgrade_settings = { max_unavailable = "1", undrainable_node_behavior = "Cordon" } } }
+  }
+
+  expect_failures = [var.aks_node_pools]
+}
+
+run "reject_system_drain_timeout" {
+  command = plan
+
+  variables {
+    aks_node_pools = { system = { upgrade_settings = { drain_timeout_in_minutes = 30, undrainable_node_behavior = "Cordon" } } }
+  }
+
+  expect_failures = [var.aks_node_pools]
+}
+
+run "reject_system_soak" {
+  command = plan
+
+  variables {
+    aks_node_pools = { system = { upgrade_settings = { node_soak_duration_in_minutes = 5, undrainable_node_behavior = "Cordon" } } }
+  }
+
+  expect_failures = [var.aks_node_pools]
+}
+
+run "reject_system_unknown_behavior" {
+  command = plan
+
+  variables {
+    aks_node_pools = { system = { upgrade_settings = { undrainable_node_behavior = "Drain" } } }
+  }
+
+  expect_failures = [var.aks_node_pools]
+}
+
+# Applies a system-pool behavior against mocks, then plans the same input.
+run "apply_system_behavior" {
+  command = apply
+
+  variables {
+    aks_node_pools = { system = { upgrade_settings = { undrainable_node_behavior = "Cordon" } } }
+  }
+}
+
+run "plan_same_system_behavior" {
+  command = plan
+
+  variables {
+    aks_node_pools = { system = { upgrade_settings = { undrainable_node_behavior = "Cordon" } } }
+  }
 }

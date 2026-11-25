@@ -219,9 +219,10 @@ The `system` pool upgrades with 33% surge. `aks_node_pools.<name>.upgrade_settin
 is an optional pass-through to pinned Azure/aks 11.7.0 for regular additional
 pools, including `application`. Omitted or `null` gives `application` 33%
 surge, 30-minute drain and no soak, and gives every custom pool 33% surge only.
-The embedded `system` pool uses separate upstream surge-only inputs; providing
-`system.upgrade_settings` is rejected. Flat-network pools near subnet capacity
-should set an explicit `max_surge` or `max_unavailable`.
+The embedded `system` pool uses separate upstream inputs: `system.upgrade_settings`
+accepts only `undrainable_node_behavior`, which must be `Cordon` or `Schedule`,
+and keeps 33% surge. Its other fields must be omitted or `null`. Flat-network
+pools near subnet capacity should set an explicit `max_surge` or `max_unavailable`.
 
 An explicit block replaces the entire pool default. Set exactly one nonempty
 `max_surge` or `max_unavailable` string and leave the other omitted or `null`.
@@ -233,6 +234,13 @@ inheriting the `application` 30-minute drain and no soak. AzureRM replaces a poo
 when `drain_timeout_in_minutes` changes from set to unset, so a surge-only
 override of `application` replaces that pool; overrides of `application` should
 keep `drain_timeout_in_minutes`.
+
+Once `undrainable_node_behavior` is set on any pool, do not remove it. AzureRM
+replaces the cluster when it is removed from the `system` pool and replaces the
+pool when it is removed from another pool. Switching between `Cordon` and
+`Schedule` is an in-place update. If it was set on a pool outside Terraform,
+declare the live value before applying. Rolling back to a module version without
+the `system` input unsets it and replaces the cluster.
 
 ```hcl
 aks_node_pools = {
