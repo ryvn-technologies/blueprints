@@ -79,7 +79,7 @@ Use an owner-approved, deployment-specific activation and rollback procedure; pr
 | `environment_name` | Environment name, used as a suffix throughout | required |
 | `location` | Azure region | required |
 | `public_root_domain` / `internal_root_domain` | Domains for the DNS zones | required |
-| `cluster_version` | AKS Kubernetes version | `"1.34"` |
+| `cluster_version` | Kubernetes minor version for the control plane and every node pool; see [Kubernetes version upgrades](#kubernetes-version-upgrades) | `"1.34"` |
 | `node_os_channel_upgrade` | Node OS image upgrade channel (`None`, `Unmanaged`, `SecurityPatch`, `NodeImage`) | `"NodeImage"` |
 | `maintenance_window_node_os` | Planned maintenance schedule for node OS image upgrades; `null` lets Azure upgrade at any time | Sundays 00:00-08:00 UTC |
 | `maintenance_window_auto_upgrade` | Planned maintenance schedule for Kubernetes patch auto-upgrades; `null` lets Azure upgrade at any time | Sundays 00:00-08:00 UTC |
@@ -178,14 +178,48 @@ the old role; changing assignment scope, role, or condition can replace assignme
 Role changes and Azure RBAC propagation can interrupt in-flight deployments. Reverting to
 empty configuration restores the subscription-wide wildcard grant.
 
+### Kubernetes version upgrades
+
+`cluster_version` sets the control plane and every node pool, including
+`system`, `application` and custom pools. Raising it upgrades the control
+plane, then rolls each pool in place: AKS adds surge nodes, cordons and drains
+old nodes, and replaces them with nodes on the new version. Every node in every
+pool is replaced. Pools can roll at the same time. Drains respect
+PodDisruptionBudgets, so a budget that allows no evictions blocks a pool until
+it is cleared or the drain timeout passes. Each pool update waits up to 30
+minutes; if Terraform times out first, re-apply after AKS finishes the
+operation. The first apply on an existing cluster sets each pool to
+`cluster_version`, which can replace nodes once.
+If the cluster was upgraded outside Terraform, set `cluster_version` to the
+live minor before applying.
+
+Run `bash infra/azure-aks-provision/tests/check_cluster_version_upgrade.sh`
+from the repository root after `terraform init -backend=false` in this module.
+It applies the default version with mock providers, then checks that the same
+version plans no change and the next minor updates every pool without
+replacing the cluster or a node pool.
+
+AKS upgrades one minor version at a time, so raise `cluster_version` by one
+minor per apply. Upgrades cannot be undone: AKS does not downgrade the control
+plane or node pools. `automatic_channel_upgrade = "patch"` keeps patch versions
+current within the minor in maintenance windows.
+
+### Node counts
+
+Every pool autoscales between `min_count` and `max_count`. Terraform does not
+manage the live node count: the cluster autoscaler owns it, and Azure creates a
+new pool at `min_count`. `aks_node_pools.<name>.node_count` is accepted but has
+no effect.
+
 ### Additional-pool upgrade settings
 
-`aks_node_pools.<name>.upgrade_settings` is an optional pass-through to pinned
-Azure/aks 11.7.0 for regular additional pools, including `application`. Omitted
-or `null` preserves existing behavior: `application` keeps 10% surge, 30-minute
-drain and 5-minute soak; custom pools have no configured upgrade-settings block.
+The `system` pool upgrades with 33% surge. `aks_node_pools.<name>.upgrade_settings`
+is an optional pass-through to pinned Azure/aks 11.7.0 for regular additional
+pools, including `application`. Omitted or `null` gives `application` 33%
+surge, 30-minute drain and no soak, and gives every custom pool 33% surge only.
 The embedded `system` pool uses separate upstream surge-only inputs; providing
-`system.upgrade_settings` is rejected.
+`system.upgrade_settings` is rejected. Flat-network pools near subnet capacity
+should set an explicit `max_surge` or `max_unavailable`.
 
 An explicit block replaces the entire pool default. Set exactly one nonempty
 `max_surge` or `max_unavailable` string and leave the other omitted or `null`.
@@ -193,8 +227,10 @@ No default surge is merged into an unavailable strategy. Optional
 `drain_timeout_in_minutes`, `node_soak_duration_in_minutes` (numbers) and
 `undrainable_node_behavior` (string) pass through unchanged. Omitted fields in an
 explicit block pass through as `null`; provider/Azure defaults apply rather than
-inheriting the application's 30-minute drain and 5-minute soak. This also applies
-when overriding `application`.
+inheriting the `application` 30-minute drain and no soak. AzureRM replaces a pool
+when `drain_timeout_in_minutes` changes from set to unset, so a surge-only
+override of `application` replaces that pool; overrides of `application` should
+keep `drain_timeout_in_minutes`.
 
 ```hcl
 aks_node_pools = {
