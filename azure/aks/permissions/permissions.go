@@ -15,7 +15,7 @@ var provisionerRoleJSON []byte
 
 // PermissionsVersion tracks the role's actions, data actions and exclusions.
 // Bump it when those grants change and pin the new SHA-256 in TestPermissionsVersion.
-const PermissionsVersion = "1"
+const PermissionsVersion = "2"
 
 // RoleName is the base of the custom role's display name (`roleName`) in the
 // customer subscription. Custom role names are unique per Entra tenant, so

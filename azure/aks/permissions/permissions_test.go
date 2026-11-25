@@ -21,6 +21,7 @@ func TestPermissionsVersion(t *testing.T) {
 	// Keep previous versions pinned; append a version/hash when the grants change.
 	hashes := map[string]string{
 		"1": "a7ab694d2296e78e177632074041b8cd18dfdb0fc15462a616fa8c47d5ab5036",
+		"2": "fe1d4e76662070f9d3e8d153a0f5f612abeba1327872d3be08691cf8b92ce0e4",
 	}
 	want, ok := hashes[PermissionsVersion]
 	if !ok {
@@ -46,6 +47,10 @@ func TestProvisionerRoleParses(t *testing.T) {
 	// azurerm_kubernetes_cluster reads user credentials on every refresh.
 	if !slices.Contains(actions, "Microsoft.ContainerService/managedClusters/listClusterUserCredential/action") {
 		t.Fatal("role must include listClusterUserCredential/action")
+	}
+	// azurerm validates orchestrator_version against the cluster's available agent pool versions before creating a node pool.
+	if !slices.Contains(actions, "Microsoft.ContainerService/managedClusters/availableAgentPoolVersions/read") {
+		t.Fatal("role must include availableAgentPoolVersions/read")
 	}
 	// azurerm_kubernetes_cluster manages planned maintenance windows as child maintenanceConfigurations.
 	for _, verb := range []string{"read", "write", "delete"} {

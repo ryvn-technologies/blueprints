@@ -6,7 +6,7 @@ environment with this module. The counterparts live in
 
 | File | Purpose |
 |------|---------|
-| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (91 actions, including explicit Application Gateway ingress, managed egress and control-plane logging permissions). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
+| `provisioner-role.json` | Custom role `ryvn-aks-provision-<sub8>` (92 actions, including explicit Application Gateway ingress, managed egress and control-plane logging permissions). The former `ryvn-aks-provision` definition with `actions: ["*"]` is left in place for existing environments |
 | `permissions.go` | Embeds the role so the orchestrator can serve it (same layout as `infra/gke-provision/permissions`) |
 
 ## Permission versions
@@ -90,7 +90,7 @@ do not substitute administrator credentials for that check.
 | Network operation polling | asynchronous gateway, NSG, subnet and public-IP operations | `Microsoft.Network/locations/operations/read`, `locations/operationResults/read` |
 | Egress diagnostics | Log Analytics workspace and firewall diagnostic setting | `Microsoft.Insights/diagnosticSettings/read|write|delete`, `Microsoft.OperationalInsights/workspaces/read|write|delete|sharedKeys/action` |
 | DNS | public zone, private zones for internal domain, PostgreSQL and Redis, VNet links | `Microsoft.Network/dnszones/read|write|delete`, `dnszones/*/read` (SOA read-back), `privateDnsZones/read|write|delete`, `privateDnsZones/*/read`, `privateDnsZones/virtualNetworkLinks/read|write|delete` |
-| Cluster | AKS with Azure RBAC, workload identity, two node pools | `Microsoft.ContainerService/managedClusters/read|write|delete`, `managedClusters/agentPools/read|write|delete`, `managedClusters/maintenanceConfigurations/read|write|delete` (node OS and auto-upgrade planned maintenance windows), `managedClusters/listClusterUserCredential/action` (called by `azurerm_kubernetes_cluster` on every read), `locations/operations/read`, `locations/operationresults/read` (long-running operation polling) |
+| Cluster | AKS with Azure RBAC, workload identity, two node pools | `Microsoft.ContainerService/managedClusters/read|write|delete`, `managedClusters/agentPools/read|write|delete`, `managedClusters/maintenanceConfigurations/read|write|delete` (node OS and auto-upgrade planned maintenance windows), `managedClusters/listClusterUserCredential/action` (called by `azurerm_kubernetes_cluster` on every read), `managedClusters/availableAgentPoolVersions/read` (called by `azurerm_kubernetes_cluster_node_pool` on create and by `azurerm_kubernetes_cluster` on default node pool updates to validate `orchestrator_version`), `locations/operations/read`, `locations/operationresults/read` (long-running operation polling) |
 | Control-plane logs | Log Analytics workspace `log-aks-<env>`, diagnostic setting on the cluster (`logging.tf`) | `Microsoft.OperationalInsights/workspaces/read|write|delete`, `workspaces/sharedKeys/action` (diagnostic destination attachment), `deletedworkspaces/read` (the provider lists soft-deleted workspaces before create), `Microsoft.Insights/diagnosticSettings/read|write|delete` |
 | Identities | ryvn-agent, external-dns (public and private) and cert-manager identities with federated credentials; kubelet identity assignment | `Microsoft.ManagedIdentity/userAssignedIdentities/read|write|delete|assign/action`, `userAssignedIdentities/federatedIdentityCredentials/read|write|delete` |
 | Roles and assignments | agent custom role; Network Contributor / DNS Zone Contributor / Private DNS Zone Contributor / AKS RBAC Cluster Admin assignments | `Microsoft.Authorization/roleDefinitions/read|write|delete`, `roleAssignments/read|write|delete` |
@@ -275,6 +275,23 @@ update: rerunning the secret-backed full setup rotates the service-principal
 password and requires updating the Ryvn connection. Provider registration remains
 customer-owned; ensure Network, Insights and OperationalInsights are registered.
 The [egress runbook](../modules/egress-firewall/RUNBOOK.md) covers rollout.
+
+### Version-pinned node pools on an existing subscription
+
+The module sets `orchestrator_version` on every node pool, so creating a node pool or
+updating the default pool needs `Microsoft.ContainerService/managedClusters/availableAgentPoolVersions/read`.
+Without it, the provider reports an empty supported-version list instead of
+`AuthorizationFailed`. Releasing the orchestrator does not change an existing role; each
+role gets the action only after its definition is updated:
+
+- `ryvn-aks-provision-<sub8>`: prefer the role-only commands under "Upgrading existing
+  subscriptions". Rerunning the secret-backed full setup rotates the service-principal
+  password and requires updating the Ryvn connection.
+- A per-environment `<prefix>-provisioner-<id8>-apply` role: generate a new setup script
+  for that environment from a hub running an orchestrator release with this role, then run
+  it. The script updates the role in place; a previously saved script still has the old
+  role definition.
+- The legacy wildcard role already allows the read.
 
 ### Enabling Application Gateway on an existing subscription
 

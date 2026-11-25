@@ -20,7 +20,8 @@ not a deterministic CI gate or guaranteed detection.
 Environments provisioned by this module run under the least-privilege role in
 `permissions/provisioner-role.json`. A change that makes Terraform call a new cloud API
 must grant it in the same PR; otherwise every environment on that role fails its
-next plan/apply with `AuthorizationFailed`.
+next plan/apply with `AuthorizationFailed`. Some missing reads instead return an
+empty result, which the provider reports as a misleading validation error.
 
 Flag the PR if `permissions/provisioner-role.json` is unchanged and it:
 
