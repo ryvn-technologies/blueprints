@@ -23,27 +23,23 @@ locals {
     application = {
       name                 = "app"
       vm_size              = "Standard_D2als_v6" # AMD-based equivalent to t3.medium
-      node_count           = 2                   # One per AZ
       max_count            = 4                   # Max two per AZ
       min_count            = 2                   # Min one per AZ
       os_disk_size_gb      = 50
       max_pods             = 100
       auto_scaling_enabled = true
+      upgrade_settings = {
+        max_surge                     = "33%"
+        drain_timeout_in_minutes      = 30
+        node_soak_duration_in_minutes = 0
+      }
       node_labels = {
         "ryvn.app/node-group-name" = "application"
-      }
-      # Azure defaults these server-side; setting them explicitly keeps plans
-      # empty when nothing has changed.
-      upgrade_settings = {
-        max_surge                     = "10%"
-        drain_timeout_in_minutes      = 30
-        node_soak_duration_in_minutes = 5
       }
     }
     system = {
       name                 = "system"
       vm_size              = "Standard_D2as_v6" # AMD-based equivalent
-      node_count           = 1                  # One per AZ
       max_count            = 3                  # Max two per AZ
       min_count            = 1                  # Min one per AZ
       os_disk_size_gb      = 50
@@ -57,10 +53,15 @@ locals {
 
   # Baseline applied to every pool (named or custom) so user-defined pools
   # don't inherit provider defaults that conflict with min_count/max_count.
+  # An explicit aks_node_pools upgrade_settings block replaces upgrade_settings
+  # as a whole; the system pool uses agents_pool_max_surge instead.
   node_pool_baseline = {
     auto_scaling_enabled = true
     os_disk_size_gb      = 50
     max_pods             = 100
+    upgrade_settings = {
+      max_surge = "33%"
+    }
   }
 
   # Merge the user provided node pools with defaults, ensuring null values don't override defaults
@@ -111,6 +112,7 @@ module "aks" {
   resource_group_name             = azurerm_resource_group.rg.name
   location                        = var.location
   kubernetes_version              = var.cluster_version
+  orchestrator_version            = var.cluster_version
   automatic_channel_upgrade       = "patch"
   node_os_channel_upgrade         = var.node_os_channel_upgrade
   maintenance_window_node_os      = var.maintenance_window_node_os
@@ -118,7 +120,9 @@ module "aks" {
   agents_availability_zones       = length(local.azs) > 0 ? local.azs : null
 
   # Default node pool configuration (system nodes)
-  agents_count                = local.merged_node_pools.system.node_count
+  # The cluster autoscaler owns the live node count of every pool.
+  agents_count                = null
+  agents_pool_max_surge       = "33%"
   agents_max_count            = local.merged_node_pools.system.max_count
   agents_max_pods             = local.merged_node_pools.system.max_pods
   agents_min_count            = local.merged_node_pools.system.min_count
@@ -192,6 +196,8 @@ module "aks" {
       vnet_subnet                 = { id = local.resolved_node_pool_subnet_ids[local.node_pool_subnets[name]] }
       zones                       = length(local.azs) > 0 ? local.azs : null # Spread across all AZs
       temporary_name_for_rotation = "tmp${config.name}"
+      orchestrator_version        = var.cluster_version
+      node_count                  = null
     })
     if name != "system" # Skip system pool as it's configured above
   }
