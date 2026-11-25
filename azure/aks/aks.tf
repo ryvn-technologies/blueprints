@@ -112,6 +112,7 @@ module "aks" {
   resource_group_name             = azurerm_resource_group.rg.name
   location                        = var.location
   kubernetes_version              = var.cluster_version
+  orchestrator_version            = var.cluster_version
   automatic_channel_upgrade       = "patch"
   node_os_channel_upgrade         = var.node_os_channel_upgrade
   maintenance_window_node_os      = var.maintenance_window_node_os
@@ -195,6 +196,7 @@ module "aks" {
       vnet_subnet                 = { id = local.resolved_node_pool_subnet_ids[local.node_pool_subnets[name]] }
       zones                       = length(local.azs) > 0 ? local.azs : null # Spread across all AZs
       temporary_name_for_rotation = "tmp${config.name}"
+      orchestrator_version        = var.cluster_version
       node_count                  = null
     })
     if name != "system" # Skip system pool as it's configured above

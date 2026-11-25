@@ -79,7 +79,7 @@ Use an owner-approved, deployment-specific activation and rollback procedure; pr
 | `environment_name` | Environment name, used as a suffix throughout | required |
 | `location` | Azure region | required |
 | `public_root_domain` / `internal_root_domain` | Domains for the DNS zones | required |
-| `cluster_version` | AKS Kubernetes version | `"1.34"` |
+| `cluster_version` | Kubernetes minor version for the control plane and every node pool; see [Kubernetes version upgrades](#kubernetes-version-upgrades) | `"1.34"` |
 | `node_os_channel_upgrade` | Node OS image upgrade channel (`None`, `Unmanaged`, `SecurityPatch`, `NodeImage`) | `"NodeImage"` |
 | `maintenance_window_node_os` | Planned maintenance schedule for node OS image upgrades; `null` lets Azure upgrade at any time | Sundays 00:00-08:00 UTC |
 | `maintenance_window_auto_upgrade` | Planned maintenance schedule for Kubernetes patch auto-upgrades; `null` lets Azure upgrade at any time | Sundays 00:00-08:00 UTC |
@@ -177,6 +177,34 @@ and assignment identities for unchanged defaults. An assignments-only override r
 the old role; changing assignment scope, role, or condition can replace assignments.
 Role changes and Azure RBAC propagation can interrupt in-flight deployments. Reverting to
 empty configuration restores the subscription-wide wildcard grant.
+
+### Kubernetes version upgrades
+
+`cluster_version` sets the control plane and every node pool, including
+`system`, `application` and custom pools. Raising it upgrades the control
+plane, then rolls each pool in place: AKS adds surge nodes, cordons and drains
+old nodes, and replaces them with nodes on the new version. Every node in every
+pool is replaced. Pools can roll at the same time. Drains respect
+PodDisruptionBudgets, so a budget that allows no evictions blocks a pool until
+it is cleared or the drain timeout passes. Each pool update waits up to 30
+minutes; if Terraform times out first, re-apply after AKS finishes the
+operation. The first apply on an existing cluster sets each pool to
+`cluster_version`, which can replace nodes once.
+If the cluster was upgraded outside Terraform, set `cluster_version` to the
+live minor before applying.
+
+Run `bash infra/azure-aks-provision/tests/check_cluster_version_upgrade.sh`
+from the repository root after `terraform init -backend=false` in this module.
+It applies the default version with mock providers, then checks that the same
+version plans no change and the next minor updates every pool without
+replacing the cluster or a node pool.
+
+AKS upgrades one minor version at a time, so raise `cluster_version` by one
+minor per apply. Upgrades cannot be undone: AKS does not downgrade the control
+plane or node pools. `automatic_channel_upgrade = "patch"` keeps patch versions
+current within the minor in maintenance windows. A minor upgrade can also move
+nodes to a newer default OS image, which the Terraform plan does not show; for
+example, 1.34 to 1.35 moves Ubuntu nodes from 22.04 to 24.04.
 
 ### Node counts
 
