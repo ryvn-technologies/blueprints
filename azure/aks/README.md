@@ -178,14 +178,22 @@ the old role; changing assignment scope, role, or condition can replace assignme
 Role changes and Azure RBAC propagation can interrupt in-flight deployments. Reverting to
 empty configuration restores the subscription-wide wildcard grant.
 
+### Node counts
+
+Every pool autoscales between `min_count` and `max_count`. Terraform does not
+manage the live node count: the cluster autoscaler owns it, and Azure creates a
+new pool at `min_count`. `aks_node_pools.<name>.node_count` is accepted but has
+no effect.
+
 ### Additional-pool upgrade settings
 
-`aks_node_pools.<name>.upgrade_settings` is an optional pass-through to pinned
-Azure/aks 11.7.0 for regular additional pools, including `application`. Omitted
-or `null` preserves existing behavior: `application` keeps 10% surge, 30-minute
-drain and 5-minute soak; custom pools have no configured upgrade-settings block.
+The `system` pool upgrades with 33% surge. `aks_node_pools.<name>.upgrade_settings`
+is an optional pass-through to pinned Azure/aks 11.7.0 for regular additional
+pools, including `application`. Omitted or `null` gives `application` 33%
+surge, 30-minute drain and no soak, and gives every custom pool 33% surge only.
 The embedded `system` pool uses separate upstream surge-only inputs; providing
-`system.upgrade_settings` is rejected.
+`system.upgrade_settings` is rejected. Flat-network pools near subnet capacity
+should set an explicit `max_surge` or `max_unavailable`.
 
 An explicit block replaces the entire pool default. Set exactly one nonempty
 `max_surge` or `max_unavailable` string and leave the other omitted or `null`.
@@ -193,8 +201,10 @@ No default surge is merged into an unavailable strategy. Optional
 `drain_timeout_in_minutes`, `node_soak_duration_in_minutes` (numbers) and
 `undrainable_node_behavior` (string) pass through unchanged. Omitted fields in an
 explicit block pass through as `null`; provider/Azure defaults apply rather than
-inheriting the application's 30-minute drain and 5-minute soak. This also applies
-when overriding `application`.
+inheriting the `application` 30-minute drain and no soak. AzureRM replaces a pool
+when `drain_timeout_in_minutes` changes from set to unset, so a surge-only
+override of `application` replaces that pool; overrides of `application` should
+keep `drain_timeout_in_minutes`.
 
 ```hcl
 aks_node_pools = {

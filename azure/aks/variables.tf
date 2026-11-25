@@ -237,7 +237,7 @@ variable "aks_node_pools" {
     vm_size         = optional(string)
     min_count       = optional(number)
     max_count       = optional(number)
-    node_count      = optional(number)
+    node_count      = optional(number) # Accepted but ignored; the cluster autoscaler owns the live count
     os_disk_size_gb = optional(number)
     os_sku          = optional(string) # Ubuntu (default), AzureLinux, Windows2019, Windows2022
     labels          = optional(map(string))
