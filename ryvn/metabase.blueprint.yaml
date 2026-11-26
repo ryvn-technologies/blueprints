@@ -97,6 +97,12 @@ spec:
       description: Persistent storage size in GiB for the H2 database.
       displayName: Storage Size (GiB)
       group: storage
+    - name: restoreH2Backup
+      type: string
+      default: ""
+      description: Backup directory under /metabase.db/backups to restore on the next start, for example 20260101T000000Z-from-v0.56.20.x-to-v0.64.8, or latest-upgrade for the newest backup taken before an image upgrade. A <ts>-from-<old>-to-<new> backup restores only while the image is <old>, and a from-unknown backup on any image except <new>. Otherwise the pod fails to start and nothing is restored. The current database is first moved to a <timestamp>-before-restore backup. Backups are created automatically before every image change and the newest 3 are kept. Restores once per value; clear it after the rollback.
+      displayName: Restore H2 Backup
+      group: storage
     - name: size
       type: string
       default: standard
@@ -122,7 +128,22 @@ spec:
             - key: MB_DB_PASS
               valueFromInput: databasePassword
       config: |
+        {{- $metabaseTag := "v0.64.8" }}
         replicaCount: 1
+        image:
+          tag: '{{ $metabaseTag }}'
+        # Stops the old pod before starting the new one. Equivalent to Recreate
+        # for one replica; switching an existing Deployment to type Recreate is
+        # rejected under server-side apply because of the defaulted rollingUpdate.
+        strategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 0
+            maxUnavailable: 1
+        # 360 x 5s = 30 min, so long database migrations are not killed.
+        startupProbe:
+          failureThreshold: 360
+          periodSeconds: 5
         database:
           type: '{{ input "databaseType" }}'
           {{- if eq (input "databaseType") "h2" }}
@@ -146,6 +167,167 @@ spec:
               secretKeyRef:
                 name: {{ k8sSecretName "metabase-env" }}
                 key: MB_ENCRYPTION_SECRET_KEY
+        # Backs up the H2 database before an image tag change and restores
+        # restoreH2Backup when set. Runs as the same user as the metabase container.
+        # The volume name follows the chart's metabase.fullname helper.
+        extraInitContainers:
+          - name: h2-backup
+            image: 'metabase/metabase:{{ $metabaseTag }}'
+            imagePullPolicy: IfNotPresent
+            env:
+              - name: IMAGE_TAG
+                value: '{{ $metabaseTag }}'
+              - name: RESTORE_BACKUP
+                value: {{ if contains "{" (input "restoreH2Backup") }}"!rejected: braces are not allowed"{{ else }}{{ input "restoreH2Backup" | toJson }}{{ end }}
+            volumeMounts:
+              - name: '{{ or (and (contains "metabase" .ryvn.installation.name) .ryvn.installation.name) (printf "%s-metabase" .ryvn.installation.name) }}-database'
+                mountPath: /metabase.db
+            command: ["/bin/bash", "-c"]
+            args:
+              - |
+                set -euo pipefail
+                dir=/metabase.db
+                db="$dir/metabase.db.mv.db"
+                trace="$dir/metabase.db.trace.db"
+                marker="$dir/.ryvn-last-image-tag"
+                restored="$dir/.ryvn-restored-backup"
+                backups="$dir/backups"
+                restore="${RESTORE_BACKUP:-}"
+                ts="$(date -u +%Y%m%dT%H%M%SZ)"
+                log() { echo "h2-backup: $*"; }
+                fail() { echo "h2-backup: error: $*" >&2; exit 1; }
+                bytes() {
+                  local f total=0
+                  for f in "$@"; do
+                    if [ -e "$f" ]; then total=$(( total + $(du -sb "$f" | cut -f1) )); fi
+                  done
+                  echo "$total"
+                }
+                require_space() {
+                  local need avail
+                  need=$(( $1 * 12 / 10 ))
+                  avail=$(( $(df -Pk "$dir" | awk 'NR==2 {print $4}') * 1024 ))
+                  [ "$avail" -ge "$need" ] || fail "only $avail bytes free, need $need (1.2x database size); increase storageSizeGi"
+                }
+                # Copies into a .partial directory and renames it when complete, so an
+                # interrupted copy never looks like a usable backup.
+                copy_db() {
+                  mkdir -p "$1.partial"
+                  cp -p "$db" "$1.partial/"
+                  if [ -f "$trace" ]; then cp -p "$trace" "$1.partial/"; fi
+                  chown --reference="$db" "$backups" "$1.partial"
+                  sync
+                  mv "$1.partial" "$1"
+                }
+                write_file() {
+                  printf '%s\n' "$2" > "$1.tmp"
+                  mv -f "$1.tmp" "$1"
+                  chown --reference="$dir" "$1"
+                }
+                # Waits until the database file is unchanged for 45s, longer than the
+                # 30s termination grace period, so the old pod (stopped before this
+                # pod is created) has exited before the file is copied.
+                wait_quiet() {
+                  local last now stable=0 waited=0
+                  last="$(stat -c '%s %y' "$db")"
+                  while [ "$stable" -lt 45 ]; do
+                    sleep 1
+                    waited=$(( waited + 1 ))
+                    [ "$waited" -le 600 ] || fail "$db still changing after 600s; another Metabase may be running"
+                    now="$(stat -c '%s %y' "$db")"
+                    if [ "$now" = "$last" ]; then stable=$(( stable + 1 )); else stable=0; last="$now"; fi
+                  done
+                }
+                prune() {
+                  find "$backups" -mindepth 1 -maxdepth 1 -type d | sort -r | tail -n +4 | xargs -r rm -rf --
+                }
+
+                # A <ts>-from-<old>-to-<new> backup restores only on image <old>, so a newer
+                # image never re-migrates a restored database. A backup from an unknown tag
+                # restores on any image except <new>. Other backups are not gated.
+                restore_needs() {
+                  local rest="${1#*-from-}" from to
+                  [ "$rest" != "$1" ] || return 0
+                  from="${rest%-to-*}"
+                  to="${rest##*-to-}"
+                  if [ "$from" = unknown ]; then
+                    [ "$IMAGE_TAG" != "$to" ] || { echo "an image other than $to"; return 1; }
+                  else
+                    [ "$IMAGE_TAG" = "$from" ] || { echo "image $from"; return 1; }
+                  fi
+                }
+
+                rm -rf "$backups"/*.partial "$db.restoring"
+                if [ -z "$restore" ]; then
+                  rm -f "$restored"
+                elif [ "$(cut -d' ' -f1 "$restored" 2>/dev/null || true)" != "$restore" ]; then
+                  [[ "$restore" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail "invalid restoreH2Backup name: $restore"
+                  name="$restore"
+                  # latest-upgrade is the newest backup taken before moving to a newer
+                  # image; backups taken before a downgrade are skipped.
+                  if [ "$restore" = latest-upgrade ]; then
+                    name=""
+                    for d in "$backups"/*-from-*-to-*; do
+                      d="${d##*/}"
+                      rest="${d#*-from-}"
+                      from="${rest%-to-*}"
+                      to="${rest##*-to-}"
+                      if [ -d "$backups/$d" ] && [ "$from" != "$to" ] && { [ "$from" = unknown ] || [ "$(printf '%s\n' "$from" "$to" | sort -V | head -n1)" = "$from" ]; }; then name="$d"; fi
+                    done
+                    [ -n "$name" ] || fail "restoreH2Backup latest-upgrade: no upgrade backup found"
+                  fi
+                  src="$backups/$name"
+                  [ -f "$src/metabase.db.mv.db" ] || fail "backup $src/metabase.db.mv.db not found"
+                  need="$(restore_needs "$name")" || fail "restoreH2Backup $name needs $need; current image $IMAGE_TAG"
+                  require_space "$(bytes "$src")"
+                  # The current database is moved, not copied, into the safety directory,
+                  # so a restore needs free space only for the backup being restored.
+                  safety=none
+                  if [ -f "$db" ]; then
+                    wait_quiet
+                    safety="$backups/$ts-before-restore"
+                    mkdir -p "$safety"
+                    chown --reference="$db" "$safety"
+                    mv "$db" "$safety/"
+                    if [ -f "$trace" ]; then mv "$trace" "$safety/"; fi
+                    sync
+                  fi
+                  cp -p "$src/metabase.db.mv.db" "$db.restoring"
+                  mv -f "$db.restoring" "$db"
+                  rm -f "$trace"
+                  if [ -f "$src/metabase.db.trace.db" ]; then cp -p "$src/metabase.db.trace.db" "$trace"; fi
+                  sync
+                  write_file "$marker" "$IMAGE_TAG"
+                  write_file "$restored" "$restore $name"
+                  sync
+                  log "action=restore backup=$name requested=$restore safety_copy=$safety tag=$IMAGE_TAG"
+                  exit 0
+                fi
+
+                if [ ! -f "$db" ]; then
+                  other="$(find "$dir" -mindepth 1 -maxdepth 1 ! -name lost+found ! -name .ryvn-last-image-tag ! -name .ryvn-restored-backup | head -n1)"
+                  [ -z "$other" ] || fail "$db not found but $dir is not empty (found $other); refusing to start"
+                  write_file "$marker" "$IMAGE_TAG"
+                  log "action=none reason=fresh-install tag=$IMAGE_TAG"
+                  exit 0
+                fi
+
+                old="$(head -n1 "$marker" 2>/dev/null | tr -cd 'A-Za-z0-9._-' || true)"
+                old="${old:-unknown}"
+                if [ "$old" = "$IMAGE_TAG" ]; then
+                  log "action=none reason=tag-unchanged tag=$IMAGE_TAG"
+                  exit 0
+                fi
+                wait_quiet
+                size="$(bytes "$db" "$trace")"
+                require_space "$size"
+                dest="$backups/$ts-from-$old-to-$IMAGE_TAG"
+                copy_db "$dest"
+                sync
+                write_file "$marker" "$IMAGE_TAG"
+                sync
+                prune
+                log "action=backup from=$old to=$IMAGE_TAG dir=$dest bytes=$size"
         {{- end }}
         service:
           type: ClusterIP
