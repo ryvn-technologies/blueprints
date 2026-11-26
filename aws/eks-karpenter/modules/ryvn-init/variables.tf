@@ -34,13 +34,25 @@ variable "subnet_ids" {
 }
 
 variable "cilium" {
-  description = "Cilium chart version and Helm values to install. repair = true reinstalls them even when Ryvn manages the release. restart_pods_blocked_by_disruption_budgets = true deletes pods whose PodDisruptionBudgets never allow evicting them instead of failing, which takes their workloads down."
+  description = "Cilium chart version and Helm values to install, or null to skip Cilium. repair = true reinstalls them even when Ryvn manages the release. restart_pods_blocked_by_disruption_budgets = true deletes pods whose PodDisruptionBudgets never allow evicting them instead of failing, which takes their workloads down."
   type = object({
     chart_version                              = string
     values                                     = any
     repair                                     = optional(bool, false)
     restart_pods_blocked_by_disruption_budgets = optional(bool, false)
   })
+  default = null
+}
+
+variable "ryvn_agent" {
+  description = "ryvn-agent chart repository URL, chart name, chart version and Helm values to install once, or null to skip it. A run leaves an installed agent to Ryvn."
+  type = object({
+    repository    = string
+    chart         = string
+    chart_version = string
+    values        = any
+  })
+  default = null
 }
 
 variable "image" {
@@ -51,7 +63,7 @@ variable "image" {
 variable "timeout_seconds" {
   description = "Deadline for installing Cilium. On a new cluster, nodes that stay NotReady for about 15 minutes fail their node group, so keep it below that."
   type        = number
-  default     = 780
+  default     = (15 - 2) * 60
 }
 
 variable "migration_timeout_seconds" {
