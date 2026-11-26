@@ -45,6 +45,11 @@ output "cluster_region" {
   value       = var.region
 }
 
+output "ryvn_agent_bootstrapped" {
+  description = "Whether ryvn-init installs the agent, so Ryvn skips its own install."
+  value       = var.ryvn_agent_bootstrap != null
+}
+
 output "ryvn_agent_role_arn" {
   description = "ARN of the RyvnAgentRole"
   value       = aws_iam_role.ryvn_agent_role.arn
